@@ -39,7 +39,8 @@ if [[ -x "$INSTALL_BIN" ]]; then
   echo "lazydocker present but version mismatch (have ${current_version:-unknown}, want ${LAZYDOCKER_VERSION}); reinstalling."
 fi
 
-tmpdir="$(mktemp -d)"
+sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.cache"
+tmpdir="$(mktemp -d "${TARGET_HOME}/.cache/lazydocker-install.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
 
 TARBALL="lazydocker_${LAZYDOCKER_VERSION#v}_Linux_x86_64.tar.gz"
@@ -68,7 +69,8 @@ echo "Verifying SHA256..."
 echo "Installing lazydocker to ${INSTALL_BIN} (as ${TARGET_USER})..."
 sudo -u "$TARGET_USER" mkdir -p "$INSTALL_DIR"
 tar -C "$tmpdir" -xzf "${tmpdir}/${TARBALL}" lazydocker
-sudo -u "$TARGET_USER" install -m 0755 "${tmpdir}/lazydocker" "$INSTALL_BIN"
+install -m 0755 "${tmpdir}/lazydocker" "$INSTALL_BIN"
+chown "$TARGET_USER":"$(id -gn "$TARGET_USER")" "$INSTALL_BIN"
 
 echo "lazydocker ${LAZYDOCKER_VERSION} installed at ${INSTALL_BIN}"
 "$INSTALL_BIN" --version || true

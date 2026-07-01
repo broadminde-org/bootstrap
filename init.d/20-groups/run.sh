@@ -19,7 +19,15 @@ GROUPS_FILE="$(dirname "$0")/groups.txt"
 
 echo "==> Adding $SUDO_USER to groups from groups.txt..."
 while IFS= read -r group || [[ -n "$group" ]]; do
-  [ -z "$group" ] && continue
+  # Skip blank lines and comments so groups.txt can be self-documenting.
+  [[ -z "$group" || "$group" =~ ^[[:space:]]*# ]] && continue
+  # Ensure the group exists. `-f` makes groupadd a no-op when the group
+  # is already present, so this works for both pre-existing system
+  # groups (adm, sudo, systemd-journal) and groups that another step
+  # would otherwise create later (docker, owned by 50-docker). This
+  # keeps 20-groups order-independent — it runs before or after 50-
+  # docker and yields the same final state.
+  groupadd -f "$group" 2>/dev/null || true
   usermod -aG "$group" "$SUDO_USER"
   echo "  -> Added to $group"
 done < "$GROUPS_FILE"

@@ -1,11 +1,13 @@
 # Groups every broadminde deploy user is added to on top of `sudo`.
 #
-# `docker` is required for non-root docker access — the docker group
-# is created by 50-docker when it installs docker-ce. `systemd-journal`
-# lets the deploy user read `journalctl` without sudo. `adm` is the
-# historical "can read logs" group on Debian/Ubuntu.
+# `docker` is required for non-root docker access — 50-docker will
+# reuse the group that 20-groups creates here when it installs
+# docker-ce. `systemd-journal` lets the deploy user read `journalctl`
+# without sudo. `adm` is the historical "can read logs" group on
+# Debian/Ubuntu.
 #
-# Re-running is idempotent (usermod -aG).
+# Re-running is idempotent (usermod -aG; groupadd -f is a no-op when
+# the group already exists).
 
 adm
 docker

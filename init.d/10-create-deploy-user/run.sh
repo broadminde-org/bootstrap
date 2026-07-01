@@ -19,17 +19,25 @@
 
 set +e
 if [[ -z "${BOOTSTRAP_USER:-}" ]]; then
-  read -r -p "Username for the deploy account: " BOOTSTRAP_USER
+  read -r -p "Username for the deploy account (leave blank to skip): " BOOTSTRAP_USER
+fi
+set -e
+
+if [[ -z "${BOOTSTRAP_USER:-}" ]]; then
+  echo "==> No deploy username provided — skipping deploy-user creation."
+  echo "    Subsequent steps will operate on SUDO_USER (${SUDO_USER:-unset})."
+  exit 0
 fi
 
+set +e
 if [[ -z "${BOOTSTRAP_PASSWORD:-}" ]]; then
   read -s -p "Password for ${BOOTSTRAP_USER}: " BOOTSTRAP_PASSWORD
   echo
 fi
 set -e
 
-if [[ -z "${BOOTSTRAP_USER:-}" || -z "${BOOTSTRAP_PASSWORD:-}" ]]; then
-  echo "ERROR: BOOTSTRAP_USER and BOOTSTRAP_PASSWORD must both be non-empty" >&2
+if [[ -z "${BOOTSTRAP_PASSWORD:-}" ]]; then
+  echo "ERROR: BOOTSTRAP_PASSWORD must be non-empty when BOOTSTRAP_USER is set" >&2
   exit 1
 fi
 
