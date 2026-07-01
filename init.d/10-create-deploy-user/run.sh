@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/common.sh"
+
+# 10-create-deploy-user — Create the non-root deploy user.
+#
+# The fresh cloud VPS only has `root`. Every later step assumes a
+# non-root account with `sudo` membership, so this step must run
+# before any step that hands off to a user (10-groups, 30-passwordless-
+# sudo, 50-docker group add, 55-lazydocker install into $HOME, …).
+#
+# Behaviour mirrors the old bootstrap.sh:
+#   - BOOTSTRAP_USER / BOOTSTRAP_PASSWORD env vars preferred.
+#   - Falls back to interactive prompts (password via `read -s`).
+#   - Idempotent: existing users are left alone; sudo group is
+#     enforced; the password is always (re)applied.
+#
+# Run as root (sudo ./init.sh 10-create-deploy-user).
+
+set +e
+if [[ -z "${BOOTSTRAP_USER:-}" ]]; then
+  read -r -p "Username for the deploy account: " BOOTSTRAP_USER
+fi
+
+if [[ -z "${BOOTSTRAP_PASSWORD:-}" ]]; then
+  read -s -p "Password for ${BOOTSTRAP_USER}: " BOOTSTRAP_PASSWORD
+  echo
+fi
+set -e
+
+if [[ -z "${BOOTSTRAP_USER:-}" || -z "${BOOTSTRAP_PASSWORD:-}" ]]; then
+  echo "ERROR: BOOTSTRAP_USER and BOOTSTRAP_PASSWORD must both be non-empty" >&2
+  exit 1
+fi
+
+if id "$BOOTSTRAP_USER" >/dev/null 2>&1; then
+  echo "==> User '${BOOTSTRAP_USER}' already exists -- ensuring sudo group membership"
+  usermod -aG sudo "$BOOTSTRAP_USER"
+else
+  echo "==> Creating user '${BOOTSTRAP_USER}'"
+  useradd -m -s /bin/bash -G sudo "$BOOTSTRAP_USER"
+fi
+
+printf '%s:%s\n' "$BOOTSTRAP_USER" "$BOOTSTRAP_PASSWORD" | chpasswd
+unset BOOTSTRAP_PASSWORD
+
+echo "==> Done."
+echo "    User : ${BOOTSTRAP_USER}"
+echo "    Group: sudo"
+echo "    Next : log out and back in as ${BOOTSTRAP_USER}, then re-run subsequent init steps without sudo."

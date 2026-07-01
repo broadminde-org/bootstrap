@@ -1,0 +1,27 @@
+# Common dev/ops packages added on top of 05-baseline-packages.
+#
+# This is the second tier — apt packages that are not strictly
+# sysadmin baseline but end up needed by most apps the broadminde
+# monorepo deploys (init.sh preflight checks, envsubst-based template
+# rendering, /journalctl access, ssh login, etc.). Apps that need
+# anything more specialized install it in their own init steps.
+#
+# `ca-certificates` / `curl` / `git` / `sudo` are intentionally NOT
+# here — they live in 05-baseline-packages to keep the layer ordering
+# explicit.
+
+# Apt repository signing keyrings (used by 50-docker + any app that
+# adds 3rd-party apt repos).
+gnupg
+
+# Template rendering — `envsubst` lives in gettext-base. Needed by
+# apps/* /20-render (and equivalents).
+gettext-base
+
+# JSON / crypto helpers used by init.sh health checks and secret
+# generation across the monorepo.
+jq
+openssl
+
+# Remote access for the deploy user.
+openssh-server

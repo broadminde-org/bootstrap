@@ -1,0 +1,16 @@
+# Commands granted passwordless sudo to every broadminde deploy user
+# ($SUDO_USER). Format: one command path per line; wildcards (`*`) are
+# supported by sudoers and match any arguments.
+#
+# The intent is to let the deploy user run the **infrastructure
+# primitives** without re-typing a password, while still requiring
+# authentication for anything else. Apps can layer their own
+# `/etc/sudoers.d/99-<user>-<app>` files on top.
+
+# Manage system services (docker, ssh, …).
+/usr/bin/systemctl *
+
+# Container runtime + compose. Used by every app that ships a
+# docker-compose.yml.
+/usr/bin/docker
+/usr/bin/docker compose
