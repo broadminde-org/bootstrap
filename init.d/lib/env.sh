@@ -14,8 +14,8 @@ export _EE_BOOTSTRAP_ENV_LOADED=1
 _ENV_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # EE_ROOT points to the bootstrap repo root. App-level init scripts
-# (e.g., apps/netbird/init.sh) override EE_ROOT to point at themselves
-# after this file has been sourced.
+# (e.g., apps/<app>/init.sh inside their own repo) override EE_ROOT
+# to point at themselves after this file has been sourced.
 EE_ROOT="$(cd "$_ENV_SH_DIR/../.." && pwd)"
 
 # Project-relative roots — kept for parity with the monorepo env.sh.
@@ -37,5 +37,5 @@ export EE_UV_VERSION="${EE_UV_VERSION:-0.8.13}"
 export LAZYDOCKER_VERSION="${LAZYDOCKER_VERSION:-v0.25.2}"
 export KILO_VERSION="${KILO_VERSION:-v7.4.1}"
 
-# CGO off — matches the broadminde monorepo default.
+# CGO off by default — host-level Go toolchain uses static binaries.
 export CGO_ENABLED="${CGO_ENABLED:-0}"

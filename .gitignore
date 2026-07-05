@@ -1,0 +1,14 @@
+# llmdocs build artifacts
+llmdocs/_build/
+llmdocs/ref/
+llmdocs/llmdocs_examples/**/_build/
+llmdocs/llmdocs_examples/**/ref/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store

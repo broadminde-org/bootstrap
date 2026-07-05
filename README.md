@@ -1,10 +1,10 @@
 # bootstrap
 
-Broadminde host provisioning for fresh cloud VPSes.
+Host provisioning for fresh cloud VPSes.
 
 This repo replaces the original monolithic `bootstrap.sh`. It runs as
 **root** (or via `sudo`) and turns a stock Debian/Ubuntu box into a
-broadminde-deployable host: apt is updated, a baseline sysadmin toolset
+deploy-ready host: apt is updated, a baseline sysadmin toolset
 is installed, a non-root deploy user is created with `sudo` membership,
 common dev/ops packages are added, passwordless sudo is configured for
 `systemctl` and `docker`, Docker CE is installed, `lazydocker` is
@@ -12,8 +12,9 @@ dropped into the deploy user's `~/.local/bin/`, and `uv` (with a
 uv-managed Python) plus the `kilo` CLI are installed for the
 agent-tuner workflow.
 
-After `bootstrap` finishes, individual apps (e.g. `apps/netbird`) take
-over as the deploy user and run their own `init.d/`.
+After `bootstrap` finishes, individual apps (e.g. `apps/<app>/` in
+their own repository) take over as the deploy user and run their own
+`init.d/`.
 
 ---
 
@@ -22,11 +23,11 @@ over as the deploy user and run their own `init.d/`.
 ```bash
 # As root on a freshly provisioned VPS (Debian 13 / Ubuntu 24.04):
 apt-get install -y git
-git clone https://github.com/broadminde-org/bootstrap.git
+git clone https://github.com/<your-org>/bootstrap.git
 cd bootstrap
 sudo BOOTSTRAP_USER=luke BOOTSTRAP_PASSWORD='…' ./init.sh
 # … log out and back in as the deploy user, then continue into the app:
-cd ../netbird-docker   # or wherever the app repo lives
+cd ../<app>            # or wherever the app repo lives
 ./init.sh
 ```
 
@@ -75,11 +76,13 @@ bootstrap/
 ### Step privilege model
 
 Every step here runs as **root** (the runner refuses to start
-otherwise). Five of the steps (everything after `10-create-deploy-user`)
-require `SUDO_USER` to be set — i.e. they must be invoked via `sudo`
-so the deploy user gets its groups and sudoers entries applied. Steps
-`01`, `05`, and `10` work fine when run as root with no `SUDO_USER`
-(they only mutate root-owned state).
+otherwise). The steps after `10-create-deploy-user`
+(`20-groups`, `25-packages`, `30-passwordless-sudo`, `50-docker`,
+`55-lazydocker`, `60-kilo-tooling`) require `SUDO_USER` to be set —
+i.e. they must be invoked via `sudo` so the deploy user gets its
+groups and sudoers entries applied. Steps `01`, `05`, and `10` work
+fine when run as root with no `SUDO_USER` (they only mutate
+root-owned state).
 
 ### Idempotency
 
@@ -101,8 +104,8 @@ Every step is designed to be safe to re-run:
 ## Origin / split history
 
 `bootstrap.sh` was a single 90-line script doing apt update, baseline
-package install, and deploy-user creation. The five host-provisioning
-steps from `apps/netbird/init.d/` (`01-groups`, `03-packages`,
-`05-passwordless-sudo`, `30-docker`, `31-lazydocker`) were lifted out
-of that repo and merged into `init.d/` here, leaving `bootstrap` as
+package install, and deploy-user creation. The host-provisioning
+steps it grew into (groups, packages, passwordless sudo, docker,
+lazydocker) were lifted out of the application repos that had been
+handing them and merged into `init.d/` here, leaving `bootstrap` as
 the canonical home for everything that needs root.

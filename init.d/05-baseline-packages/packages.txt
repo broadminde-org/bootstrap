@@ -1,6 +1,6 @@
-# Base packages installed on every broadminde host. The list is
-# deliberately minimal — anything an individual app needs (jq, openssl,
-# envsubst, wireguard, …) is installed by that app's own init step.
+# Base packages installed on every host. The list is deliberately
+# minimal — anything an individual app needs (jq, openssl, envsubst,
+# wireguard, …) is installed by that app's own init step.
 #
 # `sudo` is here so subsequent steps can hand off to the deploy user.
 

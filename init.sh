@@ -13,7 +13,7 @@ set -euo pipefail
 # Every script must be run as root (sudo) — bootstrap owns host
 # provisioning only. To continue into a non-root deployment, log in
 # as the deploy user and run that app's init.sh (e.g.
-# apps/netbird/init.sh).
+# apps/<app>/init.sh inside its own repository).
 #
 # Usage:
 #   ./init.sh                          # run all steps

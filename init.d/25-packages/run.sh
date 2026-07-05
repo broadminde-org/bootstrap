@@ -11,7 +11,7 @@
 #
 # Run after 05-baseline-packages. Run as root (sudo ./init.sh 25-packages).
 
-echo "==> Installing broadminde common packages..."
+echo "==> Installing common packages..."
 grep -vE '^\s*(#|$)' "$(dirname "$0")/packages.txt" | \
   xargs apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 

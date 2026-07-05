@@ -1,4 +1,4 @@
-# Groups every broadminde deploy user is added to on top of `sudo`.
+# Groups every deploy user is added to on top of `sudo`.
 #
 # `docker` is required for non-root docker access — 50-docker will
 # reuse the group that 20-groups creates here when it installs

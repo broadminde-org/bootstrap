@@ -1,4 +1,4 @@
-# Commands granted passwordless sudo to every broadminde deploy user
+# Commands granted passwordless sudo to every deploy user
 # ($SUDO_USER). Format: one command path per line; wildcards (`*`) are
 # supported by sudoers and match any arguments.
 #
