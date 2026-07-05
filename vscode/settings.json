@@ -1,0 +1,29 @@
+{
+	"search.exclude": {
+		"**/node_modules": true,
+		"**/.svelte-kit": true,
+		"**/dist": true
+	},
+	"files.watcherExclude": {
+		"**/node_modules/**": true,
+		"**/.svelte-kit/**": true,
+		"**/.git/**": true,
+		"**/dist/**": true,
+		"**/.venv/**": true,
+		"**/__pycache__/**": true,
+		"**/build/**": true
+	},
+	/* Updated memory limit for JS/TS */
+	"js/ts.tsserver.maxMemory": 2048,
+
+	"workbench.editorAssociations": {
+		"*.md": "vscode.markdown.preview.editor"
+	},
+	"editor.inlineSuggest.enabled": true,
+	"editor.inlineSuggest.showToolbar": "onHover",
+	"editor.inlineSuggest.edits.showLongDistanceHint": false,
+	"editor.inlineSuggest.experimental.emptyResponseInformation": false,
+	"git.ignoreLimitWarning": true,
+	"terminal.integrated.defaultLocation": "editor"
+
+}

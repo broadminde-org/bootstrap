@@ -1,0 +1,12 @@
+{
+	"recommendations": [
+		"svelte.svelte-vscode",
+		"golang.go",
+		"ms-python.python",
+		"ms-azuretools.vscode-docker",
+		"tamasfe.even-better-toml",
+		"christian-kohler.path-intellisense",
+		"kilocode.kilo-code",
+		"bierner.markdown-mermaid"
+	]
+}
