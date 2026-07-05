@@ -1,8 +1,8 @@
 # llmdocs build artifacts
-llmdocs/_build/
-llmdocs/ref/
-llmdocs/llmdocs_examples/**/_build/
-llmdocs/llmdocs_examples/**/ref/
+**/llmdocs/_build/
+**/llmdocs/ref/
+**/llmdocs/llmdocs_examples/**/_build/
+**/llmdocs/llmdocs_examples/**/ref/
 
 # Python
 __pycache__/

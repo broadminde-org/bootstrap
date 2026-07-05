@@ -2,9 +2,9 @@
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
 
-# 60-kilo-tooling — host-level tools for the agent-tuner workflow.
+# 20-tooling — Install per-user tooling for the agent-tuner workflow.
 #
-# Installs three user-level binaries into $SUDO_USER/.local/bin/:
+# Three user-level installs land in $HOME/.local/bin/:
 #
 #   1. uv          Astral's Python package / project runner. The
 #                  standalone installer from https://docs.astral.sh/uv/
@@ -33,11 +33,10 @@
 #                  The older `@kilocode/cli` npm package is being
 #                  superseded by this binary.
 #
-# All three installs run as $SUDO_USER so the files land in the
-# deploy user's home and can be updated by that user later without
-# root. The bootstrap root check + DEBIAN_FRONTEND setup is done
-# by lib/common.sh; do NOT add `set -euo pipefail` or an id check
-# here — common.sh owns those.
+# All three installs land in the running user's $HOME — files outside
+# of /etc and /usr/local are not touched, so this step can be re-run
+# without root. The non-root check + EE_ROOT setup is done by
+# lib/common.sh; do NOT add `set -euo pipefail` or an id check here.
 #
 # Idempotent: each sub-tool is independently detected; the script
 # exits 0 with an "already installed" message when everything is
@@ -45,42 +44,32 @@
 # detected version does not match the pin, so a partial run (e.g.
 # uv already at pin, kilo missing) installs only what is missing.
 #
-# Run as root (sudo ./init.sh 60-kilo-tooling).
+# Run as the deploy user (./user-bootstrap/init.sh 20-tooling).
 
-: "${EE_UV_VERSION:=0.8.13}"
-: "${EE_PYTHON_VERSION:=3.14}"
-: "${KILO_VERSION:=v7.4.1}"
+: "${EE_UV_VERSION:=${EE_UV_VERSION:-0.8.13}}"
+: "${EE_PYTHON_VERSION:=${EE_PYTHON_VERSION:-3.14}}"
+: "${KILO_VERSION:=${KILO_VERSION:-v7.4.1}}"
 
-# Resolve the non-root user who invoked sudo.
-TARGET_USER="${SUDO_USER:?must run under sudo (e.g., sudo ./init.sh)}"
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-LOCAL_BIN="$TARGET_HOME/.local/bin"
+LOCAL_BIN="$HOME/.local/bin"
+CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 
 # Track which sub-installs actually ran so we can exit with a
 # truthful summary even on a no-op idempotent re-run. Initialised
-# to 0 so the final `(( … ))` test is safe under `set -u` from
-# lib/common.sh.
+# to 0 so the final `(( … ))` test is safe under `set -u`.
 uv_installed=0
 python_installed=0
 kilo_installed=0
 
-# Ensure curl is available; install via apt if missing. uv and the
-# kilo release tarball are both fetched via curl.
-if ! command -v curl >/dev/null 2>&1; then
-  echo "Installing curl..."
-  apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" curl
-fi
+# Ensure $LOCAL_BIN exists before uv runs (the installer drops
+# files there but does not create the directory itself on every
+# platform / version).
+mkdir -p "$LOCAL_BIN"
 
 # ---------------------------------------------------------------------------
 # 1. uv
 # ---------------------------------------------------------------------------
 
 UV_BIN="$LOCAL_BIN/uv"
-
-# Ensure $LOCAL_BIN exists before uv runs (the installer drops
-# files there but does not create the directory itself on every
-# platform / version).
-sudo -u "$TARGET_USER" mkdir -p "$LOCAL_BIN"
 
 # Idempotency: skip if uv is on PATH (or at the pinned path) and
 # reports the pinned version. `uv --version` prints "uv <ver>".
@@ -97,33 +86,22 @@ if [[ -n "$current_uv" && "$current_uv" == "$EE_UV_VERSION" ]]; then
 else
   echo "Installing uv ${EE_UV_VERSION} (current: ${current_uv:-none})..."
 
-  # Work in a deploy-user-owned tempdir so curl can write without
-  # needing sudo. mktemp under the user's home + trap for cleanup.
-  sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.cache"
-  uv_tmp="$(mktemp -d "${TARGET_HOME}/.cache/uv-install.XXXXXX")"
-  # shellcheck disable=SC2064  # we want the $uv_tmp resolved now.
+  mkdir -p "$CACHE_HOME"
+  uv_tmp="$(mktemp -d "$CACHE_HOME/uv-install.XXXXXX")"
+  # shellcheck disable=SC2064  # we want $uv_tmp resolved now.
   trap 'rm -rf "$uv_tmp"' EXIT
-  install_env_out="$(sudo -u "$TARGET_USER" -H bash -c '
-    set -e
-    export XDG_CACHE_HOME="$HOME/.cache"
-    curl -fsSL --retry 3 \
-      "https://github.com/astral-sh/uv/releases/download/'"$EE_UV_VERSION"'/uv-installer.sh" \
-      -o "'"$uv_tmp"'/uv-installer.sh"
-    sh "'"$uv_tmp"'/uv-installer.sh" --no-modify-path
-  ' 2>&1)" || {
-    echo "$install_env_out" >&2
-    echo "uv installer failed for version ${EE_UV_VERSION}." >&2
-    echo "Verify the version exists at https://github.com/astral-sh/uv/releases/tag/${EE_UV_VERSION}" >&2
-    exit 1
-  }
+  curl -fsSL --retry 3 \
+    "https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION}/uv-installer.sh" \
+    -o "$uv_tmp/uv-installer.sh"
+  sh "$uv_tmp/uv-installer.sh" --no-modify-path
 
   uv_installed=1
   echo "uv ${EE_UV_VERSION} installed."
 fi
 
 # Re-resolve uv for the Python substep — after a fresh install it
-# may not be in the current shell's PATH yet (we ran as the user in
-# a sub-shell). Prefer the known $LOCAL_BIN/uv path.
+# may not be in the current shell's PATH yet (the installer shims
+# into a child shell). Prefer the known $LOCAL_BIN/uv path.
 if [[ -x "$LOCAL_BIN/uv" ]]; then
   UV_CMD="$LOCAL_BIN/uv"
 else
@@ -155,13 +133,7 @@ else
     exit 1
   fi
   echo "Installing Python ${EE_PYTHON_VERSION} via uv..."
-  # uv python install runs inside the user's home so the interpreter
-  # lands under $HOME/.local/share/uv/python/...
-  sudo -u "$TARGET_USER" -H bash -c "
-    set -e
-    export XDG_CACHE_HOME=\"\$HOME/.cache\"
-    '$UV_CMD' python install '$EE_PYTHON_VERSION'
-  " || {
+  "$UV_CMD" python install "$EE_PYTHON_VERSION" || {
     echo "uv python install failed for ${EE_PYTHON_VERSION}." >&2
     echo "If this is a brand-new uv version, check https://docs.astral.sh/uv/concepts/python-versions/" >&2
     echo "for the latest CPython build available." >&2
@@ -258,7 +230,7 @@ if (( kilo_need_install )); then
 
   if ! command -v jq >/dev/null 2>&1; then
     echo "ERROR: jq is required to parse the kilo release JSON but was not found." >&2
-    echo "It is normally installed by 25-packages; re-run that step first." >&2
+    echo "It is normally installed by bootstrap's 25-packages step." >&2
     exit 1
   fi
 
@@ -271,18 +243,17 @@ if (( kilo_need_install )); then
     exit 1
   fi
 
-  # Deploy-user-owned tmpdir so curl can write without sudo.
-  sudo -u "$TARGET_USER" mkdir -p "${TARGET_HOME}/.cache"
-  kilo_tmp="$(mktemp -d "${TARGET_HOME}/.cache/kilo-install.XXXXXX")"
-  # shellcheck disable=SC2064  # we want the $kilo_tmp resolved now.
+  mkdir -p "$CACHE_HOME"
+  kilo_tmp="$(mktemp -d "$CACHE_HOME/kilo-install.XXXXXX")"
+  # shellcheck disable=SC2064  # we want $kilo_tmp resolved now.
   trap 'rm -rf "$uv_tmp" "$kilo_tmp"' EXIT
 
   kilo_url="https://github.com/Kilo-Org/kilocode/releases/download/${KILO_VERSION}/${kilo_tarball}"
   echo "Downloading ${kilo_url}..."
-  curl -fsSL --retry 3 -o "${kilo_tmp}/${kilo_tarball}" "$kilo_url"
+  curl -fsSL --retry 3 -o "$kilo_tmp/$kilo_tarball" "$kilo_url"
 
   echo "Verifying SHA256..."
-  actual_sha="$(sha256sum "${kilo_tmp}/${kilo_tarball}" | awk '{print $1}')"
+  actual_sha="$(sha256sum "$kilo_tmp/$kilo_tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$expected_sha" ]]; then
     echo "ERROR: SHA256 mismatch for ${kilo_tarball}." >&2
     echo "  expected: ${expected_sha}" >&2
@@ -293,12 +264,11 @@ if (( kilo_need_install )); then
   # The kilo tarball unpacks `kilo` and an optional `tree-sitter/`
   # sibling directory. We only need the binary; ignore the rest.
   echo "Extracting kilo binary..."
-  tar -C "$kilo_tmp" -xzf "${kilo_tmp}/${kilo_tarball}" kilo
+  tar -C "$kilo_tmp" -xzf "$kilo_tmp/$kilo_tarball" kilo
 
-  echo "Installing kilo to ${KILO_BIN} (as ${TARGET_USER})..."
-  sudo -u "$TARGET_USER" mkdir -p "$LOCAL_BIN"
-  install -m 0755 "${kilo_tmp}/kilo" "$KILO_BIN"
-  chown "$TARGET_USER":"$(id -gn "$TARGET_USER")" "$KILO_BIN"
+  echo "Installing kilo to ${KILO_BIN}..."
+  mkdir -p "$LOCAL_BIN"
+  install -m 0755 "$kilo_tmp/kilo" "$KILO_BIN"
 
   kilo_installed=1
   echo "kilo ${KILO_VERSION} installed at ${KILO_BIN}"
@@ -311,15 +281,15 @@ fi
 
 if (( uv_installed == 0 && python_installed == 0 && kilo_installed == 0 )); then
   echo ""
-  echo "60-kilo-tooling: nothing to do — uv ${EE_UV_VERSION}, Python ${EE_PYTHON_VERSION}, kilo ${KILO_VERSION} all present."
+  echo "20-tooling: nothing to do — uv ${EE_UV_VERSION}, Python ${EE_PYTHON_VERSION}, kilo ${KILO_VERSION} all present."
   exit 0
 fi
 
 echo ""
-echo "60-kilo-tooling: installed"
+echo "20-tooling: installed"
 (( uv_installed ))    && echo "  - uv ${EE_UV_VERSION}"
 (( python_installed )) && echo "  - Python ${EE_PYTHON_VERSION} (uv-managed)"
 (( kilo_installed ))  && echo "  - kilo ${KILO_VERSION}"
 echo ""
-echo "PATH note: $LOCAL_BIN is on PATH for login shells (see /etc/skel/.profile)."
+echo "PATH note: $LOCAL_BIN must be on PATH for login shells (see /etc/skel/.profile)."
 echo "Use 'uv run <script>' to run Python scripts against the uv-managed interpreter."

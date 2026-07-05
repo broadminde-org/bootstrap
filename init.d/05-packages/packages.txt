@@ -1,0 +1,40 @@
+# Packages installed on every host.
+#
+# apt-get install -y is a no-op when a package is already at the
+# pinned version, so this list is safe to re-run. Apps that need
+# anything more specialized (wireguard, app-specific runtimes, …)
+# install it in their own init steps.
+
+# === Sysadmin baseline ===
+
+# Source control + downloads
+git
+curl
+wget
+
+# Editors + process tools
+vim
+htop
+unzip
+
+# Trust anchors (apt + curl)
+ca-certificates
+
+# Privilege escalation — needed so subsequent steps can hand off
+# to the deploy user.
+sudo
+
+# === Dev/ops ===
+
+# Apt repository signing keyrings (used by 50-docker + any app that
+# adds 3rd-party apt repos).
+gnupg
+
+# Template rendering — `envsubst` lives in gettext-base. Needed by
+# any app's render step that processes config templates.
+gettext-base
+
+# JSON / crypto helpers used by init.sh health checks and secret
+# generation across the monorepo.
+jq
+openssl
