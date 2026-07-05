@@ -80,6 +80,8 @@ bootstrap/
 │   │   └── groups.txt               # adm, docker, sudo, systemd-journal
 │   ├── 30-passwordless-sudo/        # writes /etc/sudoers.d/99-<user>-passwordless
 │   │   └── commands.txt             # /usr/bin/systemctl *, /usr/bin/docker, /usr/bin/docker compose
+│   ├── 40-profile/                  # writes bootstrap-managed PATH block to $SUDO_USER/.profile
+│   │   └── profile.snippet          # idempotent ~/.local/bin + ~/.kilo/bin PATH block
 │   ├── 50-docker/                   # installs Docker CE + Compose plugin, writes daemon.json
 │   └── 55-lazydocker/               # drops lazydocker into $SUDO_USER/.local/bin/
 ├── user-bootstrap/                  # USER-tier — runs as the deploy user, not as root
@@ -102,9 +104,9 @@ bootstrap/
 ### Tier-privilege model
 
 - **Root tier** (`./init.sh`) — refuses to run as non-root. Steps
-  `20-groups`, `30-passwordless-sudo`, and `55-lazydocker` require
-  `SUDO_USER` to be set (i.e., invoked via `sudo`); the rest work as
-  plain root.
+  `20-groups`, `30-passwordless-sudo`, `40-profile`, and
+  `55-lazydocker` require `SUDO_USER` to be set (i.e., invoked via
+  `sudo`); the rest work as plain root.
 - **User tier** (`./user-bootstrap/init.sh`) — refuses to run as
   root. All steps operate on `$HOME` and need no privilege
   escalation.
@@ -118,6 +120,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `10-create-deploy-user` — `useradd` is skipped if the user exists; `usermod -aG sudo` is idempotent; `chpasswd` always reapplies the supplied password.
 - `20-groups` — `usermod -aG` is idempotent.
 - `30-passwordless-sudo` — content is compared to the existing file; `visudo -c` validates before write.
+- `40-profile` — the PATH block is wrapped in stable BEGIN/END markers; if both markers are present, the content between them is compared to the canonical snippet and the file is left alone when they match.
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
 - `10-llmdocs` / `30-kilo-session-report` — rewrites the wrapper each run; no state to track.

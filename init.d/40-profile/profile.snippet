@@ -1,0 +1,14 @@
+# Idempotent: each directory is added to PATH only if not already
+# present, so re-running this block is a no-op. Designed to be wrapped
+# in BEGIN/END markers by 40-profile/run.sh so the bootstrap step can
+# detect and update it.
+for _bp_dir in "$HOME/.local/bin" "$HOME/.kilo/bin"; do
+    if [ -d "$_bp_dir" ]; then
+        case ":$PATH:" in
+            *":$_bp_dir:"*) ;;
+            *) PATH="$_bp_dir:$PATH" ;;
+        esac
+    fi
+done
+unset _bp_dir
+export PATH
