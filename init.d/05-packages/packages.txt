@@ -17,6 +17,9 @@ vim
 htop
 unzip
 
+# DNS troubleshooting (dig, nslookup, host)
+dnsutils
+
 # Trust anchors (apt + curl)
 ca-certificates
 
@@ -38,3 +41,6 @@ gettext-base
 # generation across the monorepo.
 jq
 openssl
+
+# Per-directory environment loading (.envrc → shell env)
+direnv
