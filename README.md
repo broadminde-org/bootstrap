@@ -7,8 +7,10 @@ This repo replaces the original monolithic `bootstrap.sh`. It runs as
 broadminde-deployable host: apt is updated, a baseline sysadmin toolset
 is installed, a non-root deploy user is created with `sudo` membership,
 common dev/ops packages are added, passwordless sudo is configured for
-`systemctl` and `docker`, Docker CE is installed, and `lazydocker` is
-dropped into the deploy user's `~/.local/bin/`.
+`systemctl` and `docker`, Docker CE is installed, `lazydocker` is
+dropped into the deploy user's `~/.local/bin/`, and `uv` (with a
+uv-managed Python) plus the `kilo` CLI are installed for the
+agent-tuner workflow.
 
 After `bootstrap` finishes, individual apps (e.g. `apps/netbird`) take
 over as the deploy user and run their own `init.d/`.
@@ -64,7 +66,8 @@ bootstrap/
 │   ├── 30-passwordless-sudo/        # writes /etc/sudoers.d/99-<user>-passwordless
 │   │   └── commands.txt             # /usr/bin/systemctl *, /usr/bin/docker, /usr/bin/docker compose
 │   ├── 50-docker/                   # installs Docker CE + Compose plugin, writes daemon.json
-│   └── 55-lazydocker/               # drops lazydocker into $SUDO_USER/.local/bin/
+│   ├── 55-lazydocker/               # drops lazydocker into $SUDO_USER/.local/bin/
+│   └── 60-kilo-tooling/             # drops uv (uv-managed Python) + kilo CLI binary into $SUDO_USER/.local/bin/
 ├── LICENSE
 └── README.md
 ```
@@ -89,6 +92,9 @@ Every step is designed to be safe to re-run:
 - `30-passwordless-sudo` — content is compared to the existing file; `visudo -c` validates before write.
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
+- `60-kilo-tooling` — `uv --version`, `uv python list --only-installed`,
+  and `kilo --version` are each checked; sub-tools that match are
+  skipped.
 
 ---
 

@@ -32,7 +32,10 @@ export EE_ROOT INIT_ROOT SCRIPT_ROOT
 # ---------------------------------------------------------------------------
 export EE_GO_VERSION="${EE_GO_VERSION:-1.26.4}"
 export EE_NODE_VERSION="${EE_NODE_VERSION:-24.5.0}"
+export EE_PYTHON_VERSION="${EE_PYTHON_VERSION:-3.14}"
+export EE_UV_VERSION="${EE_UV_VERSION:-0.8.13}"
 export LAZYDOCKER_VERSION="${LAZYDOCKER_VERSION:-v0.25.2}"
+export KILO_VERSION="${KILO_VERSION:-v7.4.1}"
 
 # CGO off — matches the broadminde monorepo default.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
