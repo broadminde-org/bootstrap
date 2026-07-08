@@ -38,11 +38,11 @@ DENIED: Do not modify source files, apply fixes, invent violations, or emit the 
 </severity>
 
 <rule_routing>
-- SHELL: *.sh|init.sh|init.d/**|.env* -> .opencode/rules/shell-environment.md|lifecycle-management.md|error-handling.md|no-hardcoding.md|modular-design.md|safety-and-ops.md|tool-usage.md
-- DOCKER: Dockerfile|docker-compose*.yml|.dockerignore -> .opencode/rules/safety-and-ops.md|lifecycle-management.md|error-handling.md|no-hardcoding.md|modular-design.md|tool-usage.md
-- PYTHON: *.py|pyproject.toml|uv.lock -> .opencode/rules/python/style.md|error-handling.md|async.md|testing.md
-- DOCS: docs/**/*.md|codemap*.md|README.md -> .opencode/rules/docs-quality.md|mermaid-standards.md
-- ALL: .opencode/rules/no-hardcoding.md|error-handling.md|modular-design.md|lifecycle-management.md|safety-and-ops.md|tool-usage.md
+- SHELL: *.sh|init.sh|init.d/**|.env* -> .kilo/rules/shell-environment.md|lifecycle-management.md|error-handling.md|no-hardcoding.md|modular-design.md|safety-and-ops.md|tool-usage.md
+- DOCKER: Dockerfile|docker-compose*.yml|.dockerignore -> .kilo/rules/safety-and-ops.md|lifecycle-management.md|error-handling.md|no-hardcoding.md|modular-design.md|tool-usage.md
+- PYTHON: *.py|pyproject.toml|uv.lock -> .kilo/rules/python/style.md|python/error-handling.md|python/async.md|python/testing.md
+- DOCS: docs/**/*.md|codemap*.md|README.md -> .kilo/rules/docs-quality.md|mermaid-standards.md
+- ALL: .kilo/rules/no-hardcoding.md|error-handling.md|modular-design.md|lifecycle-management.md|safety-and-ops.md|tool-usage.md
 </rule_routing>
 
 <methodology>

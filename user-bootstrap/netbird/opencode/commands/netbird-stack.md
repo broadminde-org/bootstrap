@@ -101,4 +101,3 @@ DENIED: host-tier steps (require sudo, MUST be run with `sudo ./init.sh`); destr
 - Service name for `logs` that doesn't exist in `docker-compose.yml` → list the actual service names and exit
 </clarification_triggers>
 
-[INJECT USER QUERY / CURRENT TASK HERE]

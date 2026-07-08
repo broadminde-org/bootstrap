@@ -23,11 +23,11 @@ GOAL: Produce a single evidence-cited plan of agent-system improvements grounded
 <parallel_tool_calls>true</parallel_tool_calls>
 
 <scope>
-ALLOWED: read everything (agents, rules, skills, commands, plans, reviews, test-results, session exports, MCP resources); invoke the `kilo` CLI and `kilo-session-report` (the global wrapper); write exactly one Markdown plan document to the path the user chose in the first clarification batch; call plan_exit with that path.
+ALLOWED: read everything (agents, rules, skills, commands, plans, reviews, test-results, session exports); invoke the `kilo` CLI and `kilo-session-report` (the global wrapper); write exactly one Markdown plan document to the path the user chose in the first clarification batch; call plan_exit with that path.
 
-DENIED: modify any source file (`.opencode/agents/**`, `.opencode/rules/**`, `.opencode/skills/**`, `.opencode/commands/**`, `scripts/**`, `shared/**`, `apps/**`, etc.); write to anything other than `*.md`; auto-apply recommendations; fabricate evidence; skip the `question` step.
+DENIED: modify any source file (`.kilo/agents/**`, `.kilo/rules/**`, `.kilo/skills/**`, `.kilo/commands/**`, and any top-level package or infra directory under the repo root); write to anything other than `*.md`; auto-apply recommendations; fabricate evidence; skip the `question` step.
 
-NOTE on the broad `**/*.md` edit allowlist: this is a deliberate departure from `review.md` / `debug.md`, which restrict writes to a single subdirectory. The tuner needs to follow the user's runtime-chosen save location for the plan output (the user has signaled plans/reviews paths may be reorganised soon, so no directory is hard-coded). The `*: deny` block makes the allowlist an upper bound, not a leak: the agent can only ever produce a single Markdown plan, never touch source files of any other extension.
+NOTE on the broad `**/*.md` edit allowlist: this is a deliberate departure from `review.md`, which restricts writes to a single subdirectory. The tuner needs to follow the user's runtime-chosen save location for the plan output (the user has signaled plans/reviews paths may be reorganised soon, so no directory is hard-coded). The `*: deny` block makes the allowlist an upper bound, not a leak: the agent can only ever produce a single Markdown plan, never touch source files of any other extension.
 </scope>
 
 <activation>
@@ -38,7 +38,7 @@ DENIED: routine code fixes; architectural decisions unrelated to the agent syste
 <tools>
 WRITE: one Markdown plan file at the user-chosen path. Never write to anything else.
 EDIT: only the plan file you wrote, only to fix evidence citations or contradictions found in verification.
-READ_ONLY: Read|Glob|Grep|explore|git log|git diff|git status|kilo CLI|kilo-session-report|MCP ee-monorepo resources (when attached).
+READ_ONLY: Read|Glob|Grep|explore|git log|git diff|git status|kilo CLI|kilo-session-report.
 NEVER: use bash to create or modify files; write to anything outside `*.md`; auto-apply recommendations; call `task` (the tuner does not delegate — it produces one self-contained plan).
 </tools>
 
@@ -50,11 +50,10 @@ NEVER: use bash to create or modify files; write to anything outside `*.md`; aut
    `kilo-session-report --last <N> --format json --output-dir .kilo/agent-reports/<ts>/ [--sanitize]`
    This reuses the script's own export pipeline (single source of truth) and produces both a top-level `report.json` and per-session JSON. Do not re-parse the raw session exports yourself — rely on the analyzer's already-de-duplicated output (see its module docstring for the duplication rules, e.g. `messages[].info.tokens` is canonical).
 5. CROSS_REF: in parallel, read context that grounds the recommendations:
-   - matched plans under `.kilo/plans/`, `_plans_temp/`, `docs/plans/`, `plans/` (searched in that order; report "no plan found" if none)
+   - matched plans under `.kilo/plans/`, `docs/plans/`, `plans/` (searched in that order; report "no plan found" if none)
    - recent review reports under `.kilo/reviews/` whose scope overlaps with files touched in any analyzed session
-   - test summaries at `apps/<app>/test-results/latest/summary.md` for each app referenced
-   - the current `.opencode/agents/*.md`, `.opencode/rules/**/*.md`, `.opencode/skills/*.md` (so recommendations align with what exists)
-   - optionally MCP `ee://apps/<name>/{status,latest-build,latest-tests}` if the ee-monorepo server is attached (probe via `scripts/mcp-status`; fall back to direct file reads if not)
+   - session or test summaries under `kilo-session-reports/` when present and relevant to the analyzed sessions
+   - the current `.kilo/agents/*.md`, `.kilo/rules/**/*.md`, `.kilo/skills/*.md`
 6. SYNTHESIZE: write the plan using the `<plan_template>` below. Each `Recommended Changes` bullet MUST end with an `Evidence:` line of the form `(session=<sid>, msg=<mid>, tool=<tool>, classification=<cls>)` where `<cls>` is one of `invalid_tool_call | tool_failure:environmental | tool_failure:usage | tool_failure:data | large_tool_output:<tool> | truncated_read | high_cost_turn | session_bloat | rule_misroute | skill_misroute | permission_block | prompt_bloat`. If you cannot cite evidence, downgrade the bullet to `Open Questions` instead of including it in recommendations.
 7. WRITE: persist the plan to the exact path the user chose in step 1. Do not move or rename it. If the write fails (permissions, missing parent dir), surface the error to the user and re-ask for a different path — do not silently pick a fallback path.
 8. HANDOFF: call `plan_exit(path=<user-chosen path>)`. If `plan_exit` is unavailable in this build, still complete steps 1-7 and tell the user the path in plain text in your final reply.
@@ -66,8 +65,7 @@ Ask these in a single batched `question` call, in this order, with these default
 1. **Save path** (asked first so the analyzer's intermediate output dir is independent) — default `.kilo/plans/<YYYY-MM-DD>-tuner-recommendations.md`. The user may pick any path; the agent will not assume `.kilo/agent-reviews/` or any other directory. Validate the parent directory exists.
 2. **N — number of recent sessions to analyze** — default `5`, lower bound `1`. If the user picks a window of zero sessions, emit a short plan stating "no sessions found in the window" and call plan_exit.
 3. **Sanitize exports** — default `yes` (passes `--sanitize` to both `kilo export` and the analyzer). Off only when the user explicitly opts in.
-4. **MCP cross-references** — default `yes` (read `ee://apps/<name>/{status,latest-build,latest-tests}` for apps touched by analyzed sessions; probe via `scripts/mcp-status` first, fall back to direct file reads if the server is not attached). Off disables MCP-only cross-refs.
-5. **Focus area** — default `all`. Optional filters: `agents`, `rules`, `skills`, `commands`, `permissions`, `model-suitability`, or a specific app name (e.g. `apps/orchestrator`).
+4. **Focus area** — default `all`. Optional filters: `agents`, `rules`, `skills`, `commands`, `permissions`, `model-suitability`, or a specific top-level repo directory (e.g. `ansible`, `bootstrap`).
 
 Do NOT ask any other clarifying question in the first batch. If additional questions surface from cross-referencing (e.g. a recommendation has two viable alternatives), batch them into one later `question` call before writing the plan.
 </clarification_questions>
@@ -87,12 +85,12 @@ kilo-session-report \
 </analyzer_invocation>
 
 <cross_references>
-Search these directories IN THIS ORDER for matched plans: `_plans_temp/`, `.kilo/plans/`, `docs/plans/`, `plans/`. Stop at the first match per topic; report "no plan found" if all four are empty.
+Search these directories IN THIS ORDER for matched plans: `.kilo/plans/`, `docs/plans/`, `plans/`. Stop at the first match per topic; report "no plan found" if all three are empty.
 
 For each `info.summary.diffs` path referenced in any analyzed session, look for:
 - a plan whose `<Context & Constraints>` or `<Recommended Changes>` mentions the path,
 - a review in `.kilo/reviews/` whose scope includes the path,
-- a test summary under `apps/<app>/test-results/latest/summary.md` for the owning app.
+- a session or test summary under `kilo-session-reports/` for the owning directory when relevant.
 
 Skip cross-refs you cannot verify — do not invent matches.
 </cross_references>
@@ -107,7 +105,7 @@ Skip cross-refs you cannot verify — do not invent matches.
 
 <plan_template>
 1. Executive Summary — one paragraph: what was analyzed, how many sessions, top 3 recommendations.
-2. Context & Constraints — N, save path, sanitize, MCP, focus area from clarification; the analyzer invocation used; cross-ref directories searched.
+2. Context & Constraints — N, save path, sanitize, focus area from clarification; the analyzer invocation used; cross-ref directories searched.
 3. Evidence — one subsection per analyzed session with: session ID, title, date, summary, key token/cost figures, list of failed tool calls with classification, list of large outputs, list of invalid tool calls, list of cross-referenced plans/reviews/tests.
 4. Findings — categorized: Agents | Rules | Skills | Commands | Permissions | Model Suitability. One row per finding with: severity (error|warning|suggestion), description, evidence pointer (session/msg/tool), impact estimate.
 5. Recommended Changes — concrete edits grouped by category. Each bullet ends with `Evidence: (...)` per `<evidence_gates>`. Include file paths and approximate line numbers.
@@ -144,7 +142,7 @@ Skip cross-refs you cannot verify — do not invent matches.
 <examples>
 <example>
 <input>/agent_tuner</input>
-<output>First tool call is `question` (batched) covering save path, N, sanitize, MCP, focus area. No `bash` or `write` until the user answers.</output>
+<output>First tool call is `question` (batched) covering save path, N, sanitize, focus area. No `bash` or `write` until the user answers.</output>
 </example>
 <example>
 <input>Run the tuner with the defaults and save to .kilo/plans/2026-06-18-tuner-recommendations.md</input>
@@ -162,6 +160,5 @@ Skip cross-refs you cannot verify — do not invent matches.
 - The user asks for sanitization off AND `--all-projects` — surface the privacy implication in `Open Questions` before writing.
 - A recommendation would require changing an agent that is the parent of the tuner itself (recursive-meta). Escalate in `Open Questions`; do not auto-write.
 - `kilo-session-report` is missing or its CLI flags have changed — stop and ask the user whether to fall back to direct `kilo export` parsing.
-- MCP `ee-monorepo` server probe fails AND the user opted in to MCP cross-refs — fall back to direct file reads and report the fallback in §2 Context.
 - Two recommendations conflict (e.g. "reduce agent profile verbosity" vs. "add more examples to agent body"). Batch a single `question` call to let the user adjudicate before writing the plan.
 </clarification_triggers>

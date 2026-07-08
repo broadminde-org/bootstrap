@@ -28,7 +28,7 @@ DENIED: Do not modify Python package internals from another app or library unles
 
 <rules>
 - RUNTIME_PREINSTALLED: Python and uv are pre-installed in the host PATH. Never install or verify system-level runtimes. Only install project-level dependencies via uv sync.
-- LOAD: .opencode/rules/python/*.md relevant to touched files.
+- LOAD: .kilo/rules/python/*.md relevant to touched files.
 - UV_ONLY: Use uv add and uv sync; never pip or pip-tools for dependency management.
 - PYPROJECT: pyproject.toml is the dependency and tooling source of truth.
 - NO_HARDCODE: Use settings/env vars for secrets, URLs, and runtime config.

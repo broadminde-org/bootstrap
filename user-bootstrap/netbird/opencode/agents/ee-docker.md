@@ -10,17 +10,14 @@ permission:
     "**/.dockerignore": allow
   bash:
     "*": deny
-    "docker compose *": allow
-    "docker build *": allow
     "docker *": allow
-    "*docker-compose config*": allow
 ---
 <agent_profile>
 ROLE: Docker and Compose specialist
 GOAL: Build minimal, safe Docker images and Compose stacks
 </agent_profile>
 
-<thinking>adaptive</thinking>
+<thinking>none</thinking>
 <parallel_tool_calls>true</parallel_tool_calls>
 
 <scope>

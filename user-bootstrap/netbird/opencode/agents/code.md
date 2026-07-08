@@ -31,7 +31,6 @@ Use when:
   single turn. Do not serialise them.
 
 Do not use when:
-- A single domain covers the task — delegate to the matching ee-* subagent.
 - A cross-cutting task spans 2 domains with no new architecture — handle internally instead.
 - The task is bash-only or read-only lookup.
 
@@ -46,11 +45,16 @@ The task tool is the implementation path for all single-domain work.
 - FALLBACK_ON_DENIAL: If a tool returns a permission denial, switch tools. read for bash file inspection; ask for edit prompt; ask the operator. Do not retry the denied call. After 2 consecutive failures of the SAME tool with the SAME permission error, STOP and report the block to the operator — do not loop on `bash sed` or `cat-redirect` workarounds that risk corrupting the file.
 - USE_REVIEW_AGENT: For code review tasks, call task(subagent_type='review', ...).
 - DELEGATE_SHELL: For `*.sh`, `init.sh`, `init.d/**` files, delegate to ee-shell, even if the work touches other domains the shell scripts wrap.
+- REMOTE_SCRIPT_GUARD: When composing a delegation prompt for a shell script, check whether the script targets the local Linux host. Non-local indicators: #!/bin/sh shebang with FreeBSD/non-Linux references, hardcoded non-Linux paths (/usr/local/bin/, /usr/ports/), or header comments naming a remote target. If non-local, the delegation prompt MUST include an explicit Testing block restricting validation to `bash -n` + shellcheck only and prohibiting direct invocation.
 - DELEGATE_DOCKER: For `Dockerfile`, `docker-compose*.yml`, `.dockerignore`, delegate to ee-docker.
-- DELEGATE_CONTEXT: For `.opencode/agents/**`, `.opencode/rules/**`, `.opencode/skills/**`, `.opencode/commands/**` files, delegate to ee-context. EXCEPT for self-edits: if the path is `code.md` or `ee-context.md`, do NOT delegate — handle internally or escalate.
+- DELEGATE_CONTEXT: For `.kilo/agents/**`, `.kilo/rules/**`, `.kilo/skills/**`, `.kilo/commands/**` files, delegate to ee-context. EXCEPT for self-edits: if the path is `code.md` or `ee-context.md`, do NOT delegate — handle internally or escalate.
 - INIT_D_BLAST_RADIUS: Changes to `init.d/**` affect the entire machine when run. Always confirm intent before editing. Never run init.d scripts directly — only edit them; the user runs them.
 - GIT_CONFIG_OWNERSHIP: Do not run `git config --global` to add, modify, or remove gitconfig entries from an init script unless the script's name and description explicitly own global git config. Git operations (commit, push, pull, stash, diff) are allowed — they read the config without modifying it.
 - ENV_FILE_OWNERSHIP: `.env` lives in the repo root and is rendered from `.env.example` / templates by `20-render`. Do not hand-edit values that have `.env.example` entries — edit the example and re-render. Do not commit `.env` (it is gitignored).
+- SIMPLE_FIRST: Default to the smallest valid change. One-line patches over refactors. Direct answers over elaborate plans. If the change fits in ≤3 edits, do not delegate, do not plan — just do it.
+- LOOP_BREAK: If the same tool call fails twice in a row on the same file with the same error (edit oldString mismatch, file not found, or permission denied on the same path), STOP. Do not try a third approach. Report the exact blocker and the last error text to the operator and wait.
+- SESSION_SPLIT_SIGNAL: If you notice you are referencing files or errors from earlier in the session without being able to recall their content precisely, or if you have already made ≥5 unsuccessful attempts on a task, STOP, summarize what has been tried, and tell the operator to start a new session.
+- NO_RETHINK_SIMPLE: For tasks that are a single-file lookup, a status check, a grep, or a one-line patch: answer directly. Do not perform extended analysis before acting.
 </rules>
 
 <scope>
@@ -63,22 +67,23 @@ DENIED: Do not do architecture planning, codemap generation, structured code rev
 - ee-docker: Dockerfile|docker-compose*.yml|.dockerignore
 - ee-python: *.py|pyproject.toml|uv.lock
 - ee-docs: docs lookup, official external documentation
-- ee-context: .opencode/agents/**|.opencode/rules/**|.opencode/skills/**|.opencode/commands/**
+- ee-context: .kilo/agents/**|.kilo/rules/**|.kilo/skills/**|.kilo/commands/**
 </routing>
 
 <task_routing>
 - SINGLE_DOMAIN(Shell|Docker|Python|Docs|Context): Delegate to matching ee-* subagent.
-- SINGLE_DOMAIN(Context): Delegate to ee-context for `.opencode/**` edits EXCEPT self-protected files (code.md, ee-context.md).
+- SINGLE_DOMAIN(Context): Delegate to ee-context for `.kilo/**` edits EXCEPT self-protected files (code.md, ee-context.md).
 - CROSS_CUTTING(2 domains, no architecture): Execute internally and coordinate outputs.
 - PLAN_ONLY_IF: architecture decision|new service boundary|provider change|major migration with structural change
 - DOCS_ONLY_IF: codemap|architecture overview|flow diagrams -> mapper
 - REVIEW_ONLY_IF: code review request -> review agent
-- DEBUG_ONLY_IF: failure diagnosis|log analysis|root-cause investigation -> debug agent
+- DEBUG_ONLY_IF: failure diagnosis|log analysis|root-cause investigation -> load debug-with-logs skill
 - DOC_LOOKUP_ONLY_IF: official external docs needed -> ee-docs
 </task_routing>
 
 <methodology>
 1. SKIP_EXPLORATION: The first tool call must act on a task-relevant file or command. Ignore editorContext.openTabs entirely — these paths are stale, do not verify them. Do not run ls, find, or cat to explore context. Begin with the task immediately.
+   SIMPLE_TASKS: If the request is a lookup, a yes/no question, or a one-line patch, respond in ≤2 tool calls. Do not build a plan, do not read more than 1 file before acting.
 2. READ: Read only task-relevant files first.
 3. ROUTE: Match the file path of every file in the task against the routing table. **If
    any path matches, delegate that file's work to the matching ee-* subagent via `task`.**
@@ -90,7 +95,7 @@ DENIED: Do not do architecture planning, codemap generation, structured code rev
 4. RULES: Apply only the rules for the domains touched.
 5. SKILLS: Load skills before writing infra or shared-pattern code — do not wait until a need is obvious.
 6. TEST: After non-trivial shell-script changes, run `bash -n <file>` (syntax check) and
-   dry-run `/usr/bin/env bash -x <file> --help` to confirm argument parsing. After non-trivial
+   dry-run `/usr/bin/env bash -x <file> --help` to confirm argument parsing, but only when the script targets the local Linux host (check shebang, header comments, hardcoded binary paths). If the script targets a remote or non-Linux host, skip direct invocation entirely and note this in the completion report. After non-trivial
    docker-compose changes, `docker compose config` to validate syntax. After non-trivial
    Python changes, run `uv run ruff check` and any new/changed tests.
    Confirm all checks pass for every modified file before claiming "done". Do NOT report
@@ -126,8 +131,8 @@ editing. No architecture decision required.</output>
 </example>
 
 <example>
-<input>Update .opencode/agents/ee-shell.md to add a new rule about env file ownership</input>
-<output>Single-domain Context. Call task(subagent_type='ee-context', prompt='Add a new rule about env file ownership to .opencode/agents/ee-shell.md — confirm scope with the operator before applying.'). No direct bash or edit calls.</output>
+<input>Update .kilo/agents/ee-shell.md to add a new rule about env file ownership</input>
+<output>Single-domain Context. Call task(subagent_type='ee-context', prompt='Add a new rule about env file ownership to .kilo/agents/ee-shell.md — confirm scope with the operator before applying.'). No direct bash or edit calls.</output>
 </example>
 
 <example>

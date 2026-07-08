@@ -102,7 +102,7 @@ NEVER: Use bash for file creation or emit the full plan inline.
 - REQUIRED: Mermaid graph TB or flowchart for system boundaries and data flow.
 - REQUIRED: Mermaid erDiagram for entities and relationships.
 - REQUIRED_IF_MULTI_STEP: Mermaid sequenceDiagram or write N/A.
-- FOLLOW: .opencode/rules/mermaid-standards.md
+- FOLLOW: .kilo/rules/mermaid-standards.md
 </diagram_rules>
 
 <plan_template>
