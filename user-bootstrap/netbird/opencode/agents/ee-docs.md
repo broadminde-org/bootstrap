@@ -28,17 +28,7 @@ DENIED: File edits, bash, third-party sources, invented signatures
 5. RETURN: structured snippet with URL and summary
 6. VERIFY: ground all claims in fetched content; state uncertainty explicitly — do not fabricate
 </methodology>
-<source_table>
-Netbird stack technologies (prioritize these):
-- NetBird server: github.com/netbirdio/netbird (README, docs/)
-- NetBird dashboard: github.com/netbirdio/dashboard (README, docs/)
-- Caddy: caddyserver.com/docs
-- Caddy Cloudflare DNS module: github.com/caddy-dns/cloudflare (README)
-- Docker: docs.docker.com
-- Docker Compose: docs.docker.com/compose/compose-file
-- OIDC (if OIDC_ENABLED=true): openid.net/specs/openid-connect-core-1_0.html
-- OAuth 2.0: datatracker.ietf.org/doc/html/rfc6749
-</source_table>
+<source_table>Load from project rules/doc-sources.md if present. Fall back to the technology's official docs site.</source_table>
 <common_mistakes>
 - third-party sources
 - invented signatures

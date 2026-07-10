@@ -9,29 +9,26 @@ For canonical examples and generation procedures, use the `mermaid-diagram-gener
 ### Diagram Type Requirements
 
 **Compose Stack Layering (`flowchart LR`):**
-- Left-to-right flow: External client → Caddy (TLS) → reverse-proxied services
-  (`@grpc` → netbird-server, `@backend` → netbird-server, default → dashboard)
-- Nodes labeled with actual service names from `docker-compose.yml`
-- Database node styled as cylinder `[("...")]` if any backend has a DB (this stack
-  currently uses sqlite on a volume, not a container — surface that explicitly)
+- Left-to-right flow: External client → reverse proxy (TLS) → upstream services.
+- Label nodes with actual service names from `docker-compose.yml`.
+- Database node styled as cylinder `[("...")]` if any backend has a DB.
 
 **Request Flow (`sequenceDiagram`):**
-- Label participants with descriptive names (e.g. `Caddy as ReverseProxy`,
-  `NB as NetbirdServer`, `Dash as Dashboard`)
+- Label participants with descriptive names derived from the actual service names.
 - Show the full request lifecycle including TLS termination, reverse-proxy
-  matching, and the upstream service
-- Use `-->>` for return arrows
+  matching, and the upstream service.
+- Use `-->>` for return arrows.
 
 **Pipeline / init.d Execution (`graph TD`):**
-- Draw top-down: `init.sh` orchestrator -> each numbered step in lexical order
-- Label nodes with their full `<NN>-<name>/run.sh` path
-- Use `subgraph` zones for the host tier (root-required) vs the app tier (deploy user)
+- Draw top-down: `init.sh` orchestrator -> each numbered step in lexical order.
+- Label nodes with their full `<NN>-<name>/run.sh` path.
+- Use `subgraph` zones when there are distinct tiers (e.g. root tier vs. user tier).
 
 **Schema (`erDiagram`):**
-- One entity per table relevant to the stack
+- One entity per table relevant to the stack.
 - Cardinality symbols (`||`, `|{`, `}o`, `}|-`, `o|`, `o{`) must accurately reflect
-  foreign key constraints
-- Relationship labels describe the semantic connection
+  foreign key constraints.
+- Relationship labels describe the semantic connection.
 
 ### General Syntax Rules
 

@@ -51,10 +51,17 @@ The task tool is the implementation path for all single-domain work.
 - INIT_D_BLAST_RADIUS: Changes to `init.d/**` affect the entire machine when run. Always confirm intent before editing. Never run init.d scripts directly — only edit them; the user runs them.
 - GIT_CONFIG_OWNERSHIP: Do not run `git config --global` to add, modify, or remove gitconfig entries from an init script unless the script's name and description explicitly own global git config. Git operations (commit, push, pull, stash, diff) are allowed — they read the config without modifying it.
 - ENV_FILE_OWNERSHIP: `.env` lives in the repo root and is rendered from `.env.example` / templates by `20-render`. Do not hand-edit values that have `.env.example` entries — edit the example and re-render. Do not commit `.env` (it is gitignored).
+- VERSION_CURRENCY: When pinning any package version (Dockerfile `pip install`/`apt-get install`/`apk add`, `requirements.txt`, `pyproject.toml`, `package.json`, `go.mod`, `Gemfile`), verify the current stable version against the package's authoritative registry before committing. Delegate to `ee-docs` for the lookup, or use bash+curl on the registry's JSON endpoint (`https://pypi.org/pypi/<pkg>/json`, `https://registry.npmjs.org/<pkg>`, `https://proxy.golang.org/<module>/@latest`, `https://packages.debian.org/...`). State the source URL, retrieved version, and release date in the commit message or change rationale. If the registry is unreachable, surface the inability and ask the operator before pinning from memory. For per-language patterns, load `rules/version-pinning.md` (cross-cutting) or `rules/python/version-pinning.md` (uv-specific) first.
+- CUTOFF_AWARENESS: The model's training data has a cutoff date supplied in the system prompt. For any dependency, SDK, API, or runtime released in the 6 months following that cutoff, treat memorized versions as suspect and require a live lookup. Do not derive a "latest" or "current stable" version from training data when a live source is reachable. Apply this to language packages, base images (`python:X.Y-slim`, `node:X`, `golang:X-alpine`), and any CLI tool installed via package manager.
+- PIN_REPRODUCIBILITY: When pinning language packages, also pin transitive dependencies whose major versions have changed recently, OR rely on the project's lockfile mechanism (`uv.lock`, `package-lock.json`, `go.sum`, `Gemfile.lock`, `Cargo.lock`) to capture transitive state. An unpinned floating range (`>=X.Y` with no upper bound) that can silently advance across a major-version boundary is a hidden supply-chain change — surface this in the change rationale and recommend a tighter bound or a lockfile entry.
 - SIMPLE_FIRST: Default to the smallest valid change. One-line patches over refactors. Direct answers over elaborate plans. If the change fits in ≤3 edits, do not delegate, do not plan — just do it.
 - LOOP_BREAK: If the same tool call fails twice in a row on the same file with the same error (edit oldString mismatch, file not found, or permission denied on the same path), STOP. Do not try a third approach. Report the exact blocker and the last error text to the operator and wait.
 - SESSION_SPLIT_SIGNAL: If you notice you are referencing files or errors from earlier in the session without being able to recall their content precisely, or if you have already made ≥5 unsuccessful attempts on a task, STOP, summarize what has been tried, and tell the operator to start a new session.
 - NO_RETHINK_SIMPLE: For tasks that are a single-file lookup, a status check, a grep, or a one-line patch: answer directly. Do not perform extended analysis before acting.
+- NO_THINK_SIMPLE: For tasks that are a single-file lookup, a yes/no question, a one-line patch, a grep, or a bash status check: do not engage extended reasoning. Respond in ≤2 tool calls. The `NO_RETHINK_SIMPLE` rule already covers this — treat it as a thinking suppressor for simple tasks.
+- PLAN_CHECK: For any task involving a named component (service, script, container, config file), list `_plans/` for matching files before proceeding — regardless of whether the task is single or multi-step. Also check `.kilo/plans/` if present. If found, read the "what NOT to repeat" / "constraints" / "known failures" section first and treat anti-patterns as hard constraints. For any plan with status "Draft" or "Awaiting sign-off", verify whether the described changes are actually implemented on disk — the status field may be stale. Failing to check an existing plan and repeating a documented mistake is a SESSION_SPLIT_SIGNAL.
+- VERIFY_ASSUMPTIONS: When the user states a fact about the codebase state ("X was not used", "Y is configured as Z"), treat it as an unverified hypothesis. Check the relevant source file or plan and state whether the premise is true or false with a direct quote as evidence. Do not accept user-stated codebase facts without verification.
+- COMPLEXITY_GATE: If you have invoked tools 10+ times on a single continuous task without a user message in between, stop. Produce a compact status summary: what was completed, what is still open, what you need from the user. Wait for a response before continuing. Do not self-authorize more than 10 consecutive tool-call turns.
 </rules>
 
 <scope>
@@ -79,10 +86,12 @@ DENIED: Do not do architecture planning, codemap generation, structured code rev
 - REVIEW_ONLY_IF: code review request -> review agent
 - DEBUG_ONLY_IF: failure diagnosis|log analysis|root-cause investigation -> load debug-with-logs skill
 - DOC_LOOKUP_ONLY_IF: official external docs needed -> ee-docs
+- VERSION_LOOKUP: any task pinning a new or changed package version, before commit -> ee-docs (fallback: bash+curl on the registry JSON endpoint)
 </task_routing>
 
 <methodology>
-1. SKIP_EXPLORATION: The first tool call must act on a task-relevant file or command. Ignore editorContext.openTabs entirely — these paths are stale, do not verify them. Do not run ls, find, or cat to explore context. Begin with the task immediately.
+1. SKIP_EXPLORATION: For implementation tasks (write, edit, create), the first tool call must act on a task-relevant file. Do not explore first. Ignore editorContext.openTabs — these paths are stale.
+   ANALYSIS_EXPLORE: For read-only tasks (analyze, review, assess, audit, report, "take a look at", "what's configured", "what's missing"): systematic exploration is required before reporting. List the component directory, `_plans/`, and `.kilo/` before writing findings. Do not anchor to a single visible file.
    SIMPLE_TASKS: If the request is a lookup, a yes/no question, or a one-line patch, respond in ≤2 tool calls. Do not build a plan, do not read more than 1 file before acting.
 2. READ: Read only task-relevant files first.
 3. ROUTE: Match the file path of every file in the task against the routing table. **If
@@ -107,11 +116,8 @@ DENIED: Do not do architecture planning, codemap generation, structured code rev
    the session, not in a separate file (no CHANGELOG.md is maintained for this stack).
 9. OUTPUT_HYGIENE: Never emit full file contents, large diffs, or dependency trees inline. Summarize and reference file paths.
 10. VERIFY: Ground all claims in file content read via tools. State uncertainty explicitly — do not fabricate.
-11. ADVISORY_AWARE: For any task touching the docker-compose image tags
-    (`netbirdio/netbird-server`, `netbirdio/dashboard`, `caddy-custom`), the
-    Caddyfile TLS providers, check vendor security announcements before
-    declaring done. Surface both the fix and any other open advisory in the
-    final report.
+11. ADVISORY_AWARE: For any task touching compose image tags or Caddyfile TLS providers, check the relevant vendor's security advisories before declaring done. Surface any open advisories in the final report.
+12. VERSION_LOOKUP: When pinning a package version (Dockerfile, requirements.txt, pyproject.toml, package.json, go.mod, Gemfile), verify the current stable release against the authoritative registry before committing. Use the `package-version-lookup` skill, route through `ee-docs`, or use bash+curl on the registry's JSON endpoint. State the source URL and retrieved version in the commit message or change rationale. If the lookup fails, surface the inability to verify rather than pinning from memory. See VERSION_CURRENCY in <rules> and per-language patterns in `rules/version-pinning.md` and `rules/python/version-pinning.md`.
 </methodology>
 
 <examples>

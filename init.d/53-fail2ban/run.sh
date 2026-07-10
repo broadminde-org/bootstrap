@@ -90,10 +90,22 @@ echo "=== 53-fail2ban: writing ${FILTER_DIR}/caddy-auth.conf ==="
 cat > "${FILTER_DIR}/caddy-auth.conf" <<'FILTER_EOF'
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
 # Matches Caddy JSON access log lines for 401/403 responses to /api/* paths.
+#
+# Log shape (one JSON object per line):
+#   {"level":"warn","ts":...,"request":{"remote_ip":"...","client_ip":"<HOST>","uri":"/api/..."},"status":401}
+#
+# "client_ip" is used instead of "remote_ip" because sase.tlicho.ca is
+# Cloudflare-fronted. Caddy resolves the real attacker IP via trusted_proxies
+# into "client_ip"; "remote_ip" would be a CF edge node address.
+#
+# "uri" and "client_ip" are nested inside "request{}"; "status" is a sibling
+# of "request" at the top level — so <HOST> must appear before "uri" in the
+# line, and "status" is matched separately at the end.
+#
 # Verify against real log lines with:
 #   fail2ban-regex /home/stack/netbird-docker/logs/caddy/access.log /etc/fail2ban/filter.d/caddy-auth.conf
 [Definition]
-failregex = .*"request".*"uri":"/api/.*".*"status":(401|403).*"remote_ip":"<HOST>"
+failregex = .*"client_ip":"<HOST>".*"uri":"/api/[^"]*".*"status":\s*(401|403)
 FILTER_EOF
 
 echo "Written ${FILTER_DIR}/caddy-auth.conf"
@@ -108,10 +120,21 @@ echo "=== 53-fail2ban: writing ${FILTER_DIR}/netbird-installer.conf ==="
 cat > "${FILTER_DIR}/netbird-installer.conf" <<'FILTER_EOF'
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
 # Matches Caddy JSON access log lines for any /install/* request (rate abuse detection).
+#
+# Log shape (one JSON object per line):
+#   {"level":"info","ts":...,"request":{"remote_ip":"...","client_ip":"<HOST>","uri":"/install/..."},"status":200}
+#
+# "client_ip" is used instead of "remote_ip" because sase.tlicho.ca is
+# Cloudflare-fronted. Caddy resolves the real attacker IP via trusted_proxies
+# into "client_ip"; banning "remote_ip" would ban a CF edge node address.
+#
+# "uri" and "client_ip" are nested inside "request{}" — both appear before
+# "status" in the serialised line, so the pattern anchors on "client_ip" first.
+#
 # Verify against real log lines with:
 #   fail2ban-regex /home/stack/netbird-docker/logs/caddy/access.log /etc/fail2ban/filter.d/netbird-installer.conf
 [Definition]
-failregex = .*"request".*"uri":"/install/.*".*"remote_ip":"<HOST>"
+failregex = .*"client_ip":"<HOST>".*"uri":"/install/[^"]*"
 FILTER_EOF
 
 echo "Written ${FILTER_DIR}/netbird-installer.conf"

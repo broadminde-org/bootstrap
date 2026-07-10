@@ -19,17 +19,6 @@ All agents generating or editing docs under `docs/`, `README.md`, `ARCHITECTURE.
   for Python, not vague descriptions.
 - Use repo-relative paths that can be directly opened by another agent.
 
-### No Invented Surface Area
-- Only document routes or HTTP paths present in `Caddyfile` (`@grpc`, `@gprc`,
-  `@websocket`, `@backend`, default `/*`) — cross-check every row against the actual
-  `Caddyfile` directives.
-- Before writing any route table, paste the relevant `Caddyfile` block verbatim as a
-  fenced code block and use it as a checklist.
-- Only document init.d steps that exist under `init.d/` — list every numbered
-  directory or `.sh` file with its full prefix.
-- Only document env vars present in `.env.example` (the canonical surface) — never
-  document a value only seen in `.env`.
-
 ### No Placeholder Sections
 - If a doc type does not apply (e.g. no Python in the stack today), omit the section
   entirely rather than writing a stub or placeholder.
@@ -54,3 +43,7 @@ All agents generating or editing docs under `docs/`, `README.md`, `ARCHITECTURE.
 - Any count mismatch between source and document is a **hard error** — do not close
   without resolving it.
 - Do not skip verification regardless of time pressure.
+
+### Stack-Specific Surface Constraints
+
+Stack-specific surface constraints (routes, init.d steps, env vars) live in the project's `.kilo/rules/docs-quality.md`.
