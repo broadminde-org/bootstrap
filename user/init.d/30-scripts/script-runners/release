@@ -1,3 +1,0 @@
-#!/usr/bin/env bash
-# Wrapper for release — installed by 30-scripts into $HOME/.local/bin/release.
-exec bash "$HOME/scripts/release" "$@"

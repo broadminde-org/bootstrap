@@ -54,5 +54,42 @@ else
   echo "  INFO: kvm kernel module not loaded — bare-metal or nested virt required"
 fi
 
+# ---------------------------------------------------------------------------
+# Kernel sysctls for KVM/libvirt bridge networking.
+# Required for VM network connectivity through libvirt bridges (NAT
+# forwarding, iptables bridge filtering). Persisted in a sysctl.d
+# drop-in so they survive reboots.
+# ---------------------------------------------------------------------------
+KVM_SYSCtl_FILE=/etc/sysctl.d/99-kvm-ctl.conf
+install -m 0755 -d /etc/sysctl.d
+
+if [[ -f "$KVM_SYSCtl_FILE" ]]; then
+  if sysctl -n net.ipv4.ip_forward 2>/dev/null | grep -qx 1 && \
+     sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null | grep -qx 1 && \
+     sysctl -n net.bridge.bridge-nf-call-ip6tables 2>/dev/null | grep -qx 1; then
+    echo "  KVM sysctls already active — skipping drop-in."
+  else
+    cat > "$KVM_SYSCtl_FILE" <<'KVM_SYSCTL_EOF'
+# Managed by bootstrap/init.d/57-kvm.
+# Required for KVM/libvirt bridge networking; do not edit by hand.
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+KVM_SYSCTL_EOF
+    sysctl --system >/dev/null
+    echo "  Applied KVM sysctls via ${KVM_SYSCtl_FILE}"
+  fi
+else
+  cat > "$KVM_SYSCtl_FILE" <<'KVM_SYSCTL_EOF'
+# Managed by bootstrap/init.d/57-kvm.
+# Required for KVM/libvirt bridge networking; do not edit by hand.
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+KVM_SYSCTL_EOF
+  sysctl --system >/dev/null
+  echo "  Applied KVM sysctls via ${KVM_SYSCtl_FILE}"
+fi
+
 echo ""
 echo "57-kvm complete."

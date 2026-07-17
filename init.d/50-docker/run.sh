@@ -134,6 +134,7 @@ NEW_DAEMON_JSON=$(cat <<DAEMON_EOF
   "userland-proxy": false,
   "ipv6": true,
   "fixed-cidr-v6": "${DOCKER_IPV6_FIXED_CIDR}",
+  "hosts": ["unix:///var/run/docker.sock"],
   "insecure-registries": ${INSECURE_JSON}
 }
 DAEMON_EOF
@@ -144,6 +145,32 @@ if [[ -f "$DAEMON_JSON" ]] && [[ "$(cat "$DAEMON_JSON")" == "$NEW_DAEMON_JSON" ]
 else
   printf '%s\n' "$NEW_DAEMON_JSON" > "$DAEMON_JSON"
   echo "Wrote daemon.json"
+fi
+
+# ---------------------------------------------------------------------------
+# Systemd override: remove -H fd:// from ExecStart.
+#
+# systemd's docker.service ships with `ExecStart=/usr/bin/dockerd -H fd://`
+# for socket activation. When `hosts` is present in daemon.json, this
+# fd:// flag conflicts — Docker refuses to start. The override replaces
+# the ExecStart line with a bare `/usr/bin/dockerd` so Docker reads its
+# hosts exclusively from daemon.json. This is a prerequisite for any
+# app step that adds TCP listeners to the hosts list (e.g. isogen's
+# docker TCP listener on :2375).
+# ---------------------------------------------------------------------------
+OVERRIDE_DIR="/etc/systemd/system/docker.service.d"
+OVERRIDE_FILE="${OVERRIDE_DIR}/override.conf"
+if [[ -f "$OVERRIDE_FILE" ]] && grep -q 'ExecStart=/usr/bin/dockerd$' "$OVERRIDE_FILE" 2>/dev/null; then
+  echo "systemd docker override already in place — skipping."
+else
+  mkdir -p "$OVERRIDE_DIR"
+  cat > "$OVERRIDE_FILE" <<'DOCKER_OVERRIDE_EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd
+DOCKER_OVERRIDE_EOF
+  systemctl daemon-reload
+  echo "Created systemd docker override (removed -H fd:// conflict)"
 fi
 
 # ---------------------------------------------------------------------------
