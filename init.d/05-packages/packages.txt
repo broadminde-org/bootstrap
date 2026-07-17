@@ -56,3 +56,23 @@ direnv
 
 # Native Node module compilation (node-gyp)
 build-essential
+
+# === Developer tooling ===
+
+# Shell script linting
+shellcheck
+
+# Fast recursive code search
+ripgrep
+
+# Terminal multiplexer for persistent remote sessions
+tmux
+
+# Process / port diagnostics
+lsof
+
+# File transfer / sync between hosts
+rsync
+
+# Tab completion in interactive shells
+bash-completion

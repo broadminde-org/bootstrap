@@ -116,13 +116,18 @@ fi
 # adds insecure-registries ONLY when REGISTRY is HTTP. The list is
 # built with jq from the bash array to avoid hand-rolled JSON escaping
 # bugs.
+#
+# Idempotent: builds the expected content in memory, compares against
+# the on-disk file, and skips the write when they match. This avoids
+# needlessly restarting Docker or tripping filesystem watches.
 if (( ${#INSECURE_REGISTRIES[@]} > 0 )); then
   INSECURE_JSON=$(printf '%s\n' "${INSECURE_REGISTRIES[@]}" | jq -R . | jq -s .)
 else
   INSECURE_JSON="[]"
 fi
 
-cat > /etc/docker/daemon.json <<DAEMON_EOF
+DAEMON_JSON="/etc/docker/daemon.json"
+NEW_DAEMON_JSON=$(cat <<DAEMON_EOF
 {
   "iptables": true,
   "ip6tables": true,
@@ -132,6 +137,14 @@ cat > /etc/docker/daemon.json <<DAEMON_EOF
   "insecure-registries": ${INSECURE_JSON}
 }
 DAEMON_EOF
+)
+
+if [[ -f "$DAEMON_JSON" ]] && [[ "$(cat "$DAEMON_JSON")" == "$NEW_DAEMON_JSON" ]]; then
+  echo "daemon.json already up to date — skipping."
+else
+  printf '%s\n' "$NEW_DAEMON_JSON" > "$DAEMON_JSON"
+  echo "Wrote daemon.json"
+fi
 
 # ---------------------------------------------------------------------------
 # IPv6 sysctl: required for Docker IPv6 port publishing end-to-end.

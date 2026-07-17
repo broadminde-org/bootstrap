@@ -7,3 +7,17 @@
 # (chromium, firefox, webkit) are installed via `npx playwright install --with-deps`.
 
 @playwright/test
+
+# --- Global CLI tools (from ee monorepo node setup) ---
+
+# Check for outdated npm dependencies
+npm-check-updates
+
+# Duplicate code detection for PR reviews
+jscpd
+
+# Kilo CLI for AI-assisted development
+@kilocode/cli
+
+# Process manager for Node.js services
+pm2
