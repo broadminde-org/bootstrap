@@ -15,7 +15,7 @@ extracting the other script families.
 
 ## File map (source → destination)
 
-All destinations are relative to `bootstrap/user-bootstrap/`.
+All destinations are relative to `bootstrap/user/`.
 
 ### Phase 1: Portable detectors (no dependencies)
 
@@ -101,7 +101,7 @@ needed — `30-scripts/run.sh` copies all of `scripts/` → `$HOME/scripts/` on 
 ### Create:
 
 ```
-bootstrap/user-bootstrap/scripts/
+bootstrap/user/scripts/
 ├── detectors.d/
 │   ├── compose.sh          # cp ee/infra/mcp/detectors.d/compose.sh
 │   ├── dockerfile.sh       # cp ee/infra/mcp/detectors.d/dockerfile.sh
@@ -118,7 +118,7 @@ bootstrap/user-bootstrap/scripts/
 ### Modify:
 
 ```
-bootstrap/user-bootstrap/
+bootstrap/user/
 └── _plans/
     └── extract-dev-infra.md   # THIS FILE
 ```

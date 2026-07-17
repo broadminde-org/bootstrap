@@ -7,7 +7,7 @@ This repo is split into **two tiers** that run in sequence:
 | Tier   | Runs as | Runner               | Location                       |
 |--------|---------|----------------------|--------------------------------|
 | root   | root    | `./init.sh`          | top-level `bootstrap/`         |
-| user   | user    | `./user-bootstrap/init.sh` | top-level `user-bootstrap/` |
+| user   | user    | `./user/init.sh` | top-level `user/` |
 
 The **root tier** turns a stock Debian/Ubuntu box into a deploy-ready
 host: apt is updated, a baseline sysadmin toolset is installed, a
@@ -18,7 +18,7 @@ installed, and — depending on the capability flags set in
 `bootstrap.conf.yml` — Docker CE, KVM, and CrowdSec are installed.
 
 After the root tier finishes, log in as the deploy user and run the
-**user tier** (`./user-bootstrap/init.sh`). It installs per-user
+**user tier** (`./user/init.sh`). It installs per-user
 tooling into `$HOME/.local/bin/` — `uv`, a uv-managed Python, the
 `kilo` CLI, Go toolchain, Node.js, direnv, and wrappers for the
 `llmdocs` and user scripts that ship in this repo. The entire
@@ -46,7 +46,7 @@ $EDITOR bootstrap.conf.yml
 sudo BOOTSTRAP_USER=luke BOOTSTRAP_PASSWORD='…' ./init.sh
 
 # ---- log out, log back in as the deploy user ----
-cd bootstrap/user-bootstrap
+cd bootstrap/user
 ./init.sh
 
 # ---- hand off to an app repo ----
@@ -71,12 +71,16 @@ Both runners accept the same selectors.
 
 ---
 
-## Capability flags
+## Configuration (`bootstrap.conf.yml`)
 
-`bootstrap.conf.yml` controls which provisioning steps run. Each step
-in `init.d/` may declare required capabilities via a `.requires` file;
-steps without one always run. A step is skipped when **any** of its
-required capabilities is disabled.
+`bootstrap.conf.yml` is a single file with two sections: `capabilities:` (which
+provisioning steps run) and `versions:` (which toolchain versions to install).
+
+### Capability flags
+
+Each step in `init.d/` may declare required capabilities via a `.requires` file;
+steps without one always run. A step is skipped when **any** of its required
+capabilities is disabled.
 
 | Capability | Steps gated | Default |
 |---|---|---|
@@ -88,9 +92,22 @@ required capabilities is disabled.
 Always-run steps (no `.requires`): 01-apt, 05-packages, 10-user,
 20-groups, 30-sudo, 51-ssh-hardening, 52-ufw, 53-fail2ban, 56-ssh-client.
 
-If `bootstrap.conf.yml` is missing, every capability is treated as
-enabled — backward-compatible with hosts that predate the capability
-system.
+If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
+versions default to `"latest"`.
+
+### Version pins
+
+The `versions:` section sets the toolchain version for each user-tier tool.
+Set a tool to `"latest"` to auto-resolve the newest stable release at install
+time, or pin an exact version string.
+
+| Tool | Env var | Description |
+|---|---|---|
+| `uv` | `EE_UV_VERSION` | Astral uv Python package manager |
+| `python` | `EE_PYTHON_VERSION` | CPython version installed via uv |
+| `kilo` | `KILO_VERSION` | Kilo CLI binary |
+| `go` | `EE_GO_VERSION` | Go toolchain |
+| `node` | `EE_NODE_VERSION` | Node.js (via nvm) |
 
 ### Example configurations
 
@@ -103,13 +120,20 @@ capabilities:
   public: true
 ```
 
-**Internal build server** (Docker + KVM + full dev toolchain):
+**Internal build server** (Docker + KVM + full dev toolchain, pinned versions):
 ```yaml
 capabilities:
   docker: true
   kvm: true
   dev: true
   public: false
+
+versions:
+  uv: "latest"
+  python: "3.13"
+  kilo: "latest"
+  go: "1.26.4"
+  node: "24.5.0"
 ```
 
 **Minimal private host** (bare baseline, no Docker, no extras):
@@ -127,14 +151,14 @@ capabilities:
 
 ```
 bootstrap/
-├── bootstrap.conf.yml                # capability flags (copy from example)
+├── bootstrap.conf.yml                # capability flags + toolchain version pins (copy from example)
 ├── example.bootstrap.conf.yml        # template — unconfigured
 ├── init.sh                           # ROOT-tier runner — picks up init.d/<NN>-* as root
 ├── init.d/
 │   ├── lib/
 │   │   ├── env.sh                    # sets EE_ROOT=bootstrap, toolchain version pins
 │   │   ├── common.sh                 # root check + DEBIAN_FRONTEND / NEEDRESTART_MODE exports
-│   │   └── caps.sh                   # capability-gating: load_caps, step_requires_caps
+│   │   └── conf.sh                   # unified config reader: load_conf, cap_enabled, step_requires_caps, get_pinned_version
 │   ├── 01-apt-update-upgrade/        # apt-get update + upgrade -y
 │   ├── 05-packages/                  # git, curl, wget, vim, htop, unzip, ca-certificates, sudo,
 │   │   └── packages.txt              #   gnupg, gettext-base, jq, openssl, direnv, build-essential
@@ -153,15 +177,15 @@ bootstrap/
 │   ├── 55-lazydocker/                # drops lazydocker into $SUDO_USER/.local/bin/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
 │   └── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
-├── user-bootstrap/                   # USER-tier — runs as the deploy user, not as root
+├── user/                   # USER-tier — runs as the deploy user, not as root
 │   ├── init.sh                       # user-tier runner — refuses root
 │   ├── init.d/
 │   │   ├── lib/
-│   │   │   ├── env.sh                # sets EE_ROOT=user-bootstrap, uv/python/kilo pins
-│   │   │   └── common.sh             # non-root check + sources env.sh
+│   │   │   └── common.sh             # non-root check + sources conf.sh, exports version pins
 │   │   ├── 10-llmdocs/               # installs `llmdocs` wrapper at $HOME/.local/bin/
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
-│   │   ├── 20-tooling/               # installs uv, uv-managed Python, kilo CLI
+│   │   ├── 20-python/               # installs uv + uv-managed Python
+│   │   ├── 22-kilo/                  # installs kilo CLI binary
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
 │   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
 │   │   └── 35-node/                  # installs Node.js via nvm + global npm packages
@@ -181,7 +205,7 @@ bootstrap/
   `20-groups`, `30-passwordless-sudo`, `40-profile`, and
   `55-lazydocker` require `SUDO_USER` to be set (i.e., invoked via
   `sudo`); the rest work as plain root.
-- **User tier** (`./user-bootstrap/init.sh`) — refuses to run as
+- **User tier** (`./user/init.sh`) — refuses to run as
   root. All steps operate on `$HOME` and need no privilege
   escalation.
 
@@ -198,7 +222,8 @@ Every step in both tiers is designed to be safe to re-run:
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
-- `20-tooling` — `uv --version`, `uv python list --only-installed`, and `kilo --version` are each checked; sub-tools that match are skipped.
+- `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
+- `22-kilo` — `kilo --version` is checked; reinstall only on mismatch.
 
 ---
 
@@ -216,6 +241,6 @@ Per-user tooling (`llmdocs/`, `scripts/`, the kilo CLI,
 `bootstrap/` and a `60-kilo-tooling/` step installed it from
 there. That mixed root-tier and user-tier concerns in one repo:
 host state and developer workspace state lived in the same tree.
-The split into `user-bootstrap/` puts per-user installs in a
+The split into `user/` puts per-user installs in a
 runner that is required NOT to run as root, returning the root
 tier to a pure host-provisioning role.

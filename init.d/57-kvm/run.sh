@@ -12,9 +12,10 @@
 #
 #   3. Validates that the KVM kernel module is loaded.
 #
-# Group membership (kvm, libvirt) is handled by 20-groups and must
-# have run before this step so the deploy user can manage VMs without
-# sudo. A fresh login is required after group changes take effect.
+# Group membership (kvm, libvirt) is added by this step after the
+# packages that create those groups are installed, so that membership
+# is only granted when KVM is actually present on the host. A fresh
+# login is required for group changes to take effect.
 #
 # Run as root (sudo ./init.sh 57-kvm).
 
@@ -26,6 +27,16 @@ apt-get install -y \
   libvirt-clients \
   bridge-utils \
   virtinst
+
+# Add the deploy user to the kvm and libvirt groups so they can manage
+# VMs without sudo. These groups are created by the packages above.
+# We own this membership here rather than in 20-groups so it is only
+# granted when KVM is actually installed on the host.
+if [[ -n "${SUDO_USER:-}" ]]; then
+  usermod -aG kvm "$SUDO_USER"
+  usermod -aG libvirt "$SUDO_USER"
+  echo "Added $SUDO_USER to kvm and libvirt groups"
+fi
 
 echo ""
 echo "=== 57-kvm: enabling libvirtd ==="

@@ -1,29 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# init.sh — bootstrap project initialization runner
+# init.sh — user-side bootstrap runner
 #
-# Runs all scripts in init.d/ in numeric order.
-# Supports two formats:
-#   - Flat files:   NN-description.sh       (e.g., 10-create-deploy-user.sh)
-#   - Directories:  NN-description/run.sh   (e.g., 50-docker/run.sh)
+# Second-tier bootstrap: runs AFTER the root `bootstrap/init.sh` has
+# finished and a non-root deploy user exists. Log in as that user and
+# run this script from the same cloned repo:
 #
-# Disabled scripts use .disabled suffix and are skipped.
+#   cd bootstrap/user
+#   ./init.sh                          # run all user-side steps
+#   ./init.sh --from 20                # run from step 20 onward
+#   ./init.sh 20                       # run only step 20
 #
-# Every script must be run as root (sudo) — bootstrap owns host
-# provisioning only. To continue into a non-root deployment, log in
-# as the deploy user and run that app's init.sh (e.g.
-# apps/<app>/init.sh inside its own repository).
+# The runner refuses to run as root — every step here installs per-user
+# tooling into $HOME, not into /usr/local or /etc. If a step needs
+# root, it does not belong in user; move it to
+# bootstrap/init.d/.
 #
 # Steps may declare required capabilities via a `.requires` file in
 # their step directory (one capability name per line). Capabilities
-# are enabled/disabled in `bootstrap.conf.yml`. Steps without a
-# `.requires` file always run.
+# are enabled/disabled in `bootstrap/bootstrap.conf.yml`. Steps
+# without a `.requires` file always run.
 #
-# Usage:
-#   ./init.sh                          # run all steps
-#   ./init.sh --from 25                # run from step 25 onward
-#   ./init.sh 25                       # run only step 25
+# Supported step formats:
+#   - Flat files:   NN-description.sh       (e.g., 10-create-tooling.sh)
+#   - Directories:  NN-description/run.sh   (e.g., 20-python/run.sh)
+#
+# Disabled scripts use a `.disabled` suffix and are skipped.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INIT_DIR="$SCRIPT_DIR/init.d"
@@ -34,16 +37,17 @@ if [[ ! -d "$INIT_DIR" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Prerequisite check (root + base tooling)
+# Prerequisite check (non-root + base tooling)
 # ---------------------------------------------------------------------------
 
-if [[ $EUID -ne 0 ]]; then
-  echo "Error: this script must be run as root (e.g., via sudo)." >&2
+if [[ $EUID -eq 0 ]]; then
+  echo "Error: this script must NOT be run as root." >&2
+  echo "Log in as the deploy user (e.g., luke) and rerun." >&2
   exit 1
 fi
 
 missing=0
-for cmd in apt-get curl find xargs; do
+for cmd in find xargs; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "  [FAIL] $cmd not found in PATH" >&2
     missing=1
@@ -64,7 +68,7 @@ only_number=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h)
-      sed -n '/^# Usage:/,/^$/p' "$0"
+      sed -n '/^# init.sh/,/^# Supported step formats:/p' "$0"
       exit 0
       ;;
     --from)
@@ -86,18 +90,9 @@ done
 # Load capability config
 # ---------------------------------------------------------------------------
 
-CAPS_CONFIG=""
-_hostname_conf="$SCRIPT_DIR/$(hostname).conf.yml"
-_default_conf="$SCRIPT_DIR/bootstrap.conf.yml"
-if [[ -f "$_hostname_conf" ]]; then
-  CAPS_CONFIG="$_hostname_conf"
-elif [[ -f "$_default_conf" ]]; then
-  CAPS_CONFIG="$_default_conf"
-fi
-unset _hostname_conf _default_conf
-
-# shellcheck source=init.d/lib/conf.sh
-. "$SCRIPT_DIR/init.d/lib/conf.sh"
+CAPS_CONFIG="$SCRIPT_DIR/../bootstrap.conf.yml"
+# shellcheck source=../init.d/lib/conf.sh
+. "$SCRIPT_DIR/../init.d/lib/conf.sh"
 load_conf "$CAPS_CONFIG"
 
 # ---------------------------------------------------------------------------
@@ -138,18 +133,17 @@ fi
 # ---------------------------------------------------------------------------
 
 failed=0
-declare -a failed_names=()
 
 mapfile -t sorted_nums < <(printf "%s\n" "${!steps_by_num[@]}" | sort -n)
 
 echo ""
 echo "==========================================="
-echo "  bootstrap host provisioning"
+echo "  bootstrap user-side provisioning"
+echo "  (running as $(id -un)@$(hostname))"
 echo "==========================================="
 echo ""
 
 for num in "${sorted_nums[@]}"; do
-  # Step selection.
   if [[ -n "$only_number" && "$num" != "$only_number" ]]; then
     continue
   fi
@@ -175,7 +169,6 @@ for num in "${sorted_nums[@]}"; do
     else
       echo "    FAILED (exit $?)." >&2
       (( failed++ )) || true
-      failed_names+=("$name")
     fi
   else
     chmod +x "$path"
@@ -184,19 +177,14 @@ for num in "${sorted_nums[@]}"; do
     else
       echo "    FAILED (exit $?)." >&2
       (( failed++ )) || true
-      failed_names+=("$name")
     fi
   fi
   echo ""
 done
 
 if [[ "$failed" -gt 0 ]]; then
-  echo "" >&2
-  echo "$failed script(s) failed:" >&2
-  for name in "${failed_names[@]}"; do
-    echo "  - $name" >&2
-  done
+  echo "$failed script(s) failed." >&2
   exit 1
 fi
 
-echo "All bootstrap init scripts completed successfully."
+echo "All user init scripts completed successfully."

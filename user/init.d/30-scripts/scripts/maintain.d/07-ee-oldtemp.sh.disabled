@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Remove the _oldtemp directory (archived project folders) from $HOME.
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
+
+OLDTEMP_DIR="$HOME/_oldtemp"
+
+if [[ ! -d "$OLDTEMP_DIR" ]]; then
+  log_skip "_oldtemp directory not found at $OLDTEMP_DIR"
+  exit 0
+fi
+
+size_before="$(human_size "$OLDTEMP_DIR")"
+log_info "removing _oldtemp directory (${size_before}) from $OLDTEMP_DIR"
+run_cmd rm -rf "$OLDTEMP_DIR"
+
+if [[ ! -d "$OLDTEMP_DIR" ]]; then
+  log_ok "removed _oldtemp directory (freed ${size_before})"
+else
+  log_err "failed to remove _oldtemp directory"
+fi

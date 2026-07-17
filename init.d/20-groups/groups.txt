@@ -1,17 +1,18 @@
-# Groups every deploy user is added to on top of `sudo`.
+# Groups every deploy user is added to unconditionally.
 #
-# `docker` is required for non-root docker access — 50-docker will
-# reuse the group that 20-groups creates here when it installs
-# docker-ce. `systemd-journal` lets the deploy user read `journalctl`
-# without sudo. `adm` is the historical "can read logs" group on
-# Debian/Ubuntu.
+# Only baseline / OS-level groups belong here — groups that should
+# exist on every host regardless of which capabilities are enabled.
+#
+# Capability-specific groups are owned by their respective steps:
+#   docker  → 50-docker/run.sh  (docker)
+#   kvm     → 57-kvm/run.sh     (kvm, libvirt)
+#
+# `systemd-journal` lets the deploy user read `journalctl` without
+# sudo. `adm` is the historical "can read logs" group on Debian/Ubuntu.
 #
 # Re-running is idempotent (usermod -aG; groupadd -f is a no-op when
 # the group already exists).
 
 adm
-docker
 sudo
 systemd-journal
-kvm
-libvirt

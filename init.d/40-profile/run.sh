@@ -8,7 +8,7 @@
 # Why root tier: the deploy user's login-shell environment is part of
 # "configuring the deploy user account" — same concern as
 # 10-create-deploy-user, 20-groups, and 30-passwordless-sudo. The
-# user-tier steps (10-llmdocs, 20-tooling, 30-kilo-session-report)
+# user-tier steps (10-llmdocs, 20-python, 30-kilo-session-report)
 # only need ~/.local/bin/ on PATH for their wrappers to be callable;
 # this PATH block is the prerequisite that makes that work without
 # hand-edits on every new host.

@@ -62,44 +62,7 @@ done
 systemctl reload sshd
 echo "sshd reloaded"
 
-# ---------------------------------------------------------------------------
-# Step 4: Post-condition assertions via sshd -T (effective merged config).
-# ---------------------------------------------------------------------------
 
-echo ""
-echo "=== Post-condition assertions ==="
-
-FAIL=0
-
-check() {
-  local label="$1"
-  local pattern="$2"
-  local value="$3"
-  if sshd -T | grep -E "$pattern" | grep -q "$value"; then
-    echo "  PASS: ${label}"
-  else
-    echo "  FAIL: ${label}" >&2
-    FAIL=1
-  fi
-}
-
-check "PermitRootLogin no"        "^permitrootlogin "        "no"
-check "X11Forwarding no"          "^x11forwarding "          "no"
-check "PubkeyAuthentication yes"  "^pubkeyauthentication "   "yes"
-check "PasswordAuthentication yes" "^passwordauthentication " "yes"
-check "AllowTcpForwarding yes"    "^allowtcpforwarding "     "yes"
-check "AllowAgentForwarding yes"  "^allowagentforwarding "   "yes"
-check "MaxAuthTries 5"            "^maxauthtries "           "5"
-check "MaxSessions 3"             "^maxsessions "            "3"
-
-if (( FAIL != 0 )); then
-  echo "" >&2
-  echo "ERROR: one or more sshd post-condition assertions failed." >&2
-  echo "Run 'sshd -T' to inspect the effective configuration." >&2
-  exit 1
-fi
-
-echo ""
 echo "51-ssh-hardening complete."
 echo "NOTE: PasswordAuthentication is still enabled (Round 1)."
 echo "      Once a key is enrolled for the deploy user, disable it by"

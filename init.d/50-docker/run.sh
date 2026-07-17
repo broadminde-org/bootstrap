@@ -34,14 +34,15 @@
 #
 # Run as root (sudo ./init.sh 50-docker).
 
-# EE_ROOT is exported by lib/env.sh (via common.sh) and points to the
-# bootstrap repo. If the operator wants DOCKER_REGISTRY read from a
-# .env instead of an env var, drop a `.env` next to init.sh:
+# Optional per-step .env override. If the operator wants DOCKER_REGISTRY
+# or DOCKER_IPV6_FIXED_CIDR read from a file rather than an env var,
+# drop a `.env` next to this run.sh (init.d/50-docker/.env):
 #   DOCKER_REGISTRY=http://registry.local:5000
-
-if [[ -f "$EE_ROOT/.env" ]]; then
-  set -a; source "$EE_ROOT/.env"; set +a
+_STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$_STEP_DIR/.env" ]]; then
+  set -a; source "$_STEP_DIR/.env"; set +a
 fi
+unset _STEP_DIR
 
 REGISTRY="${DOCKER_REGISTRY:-}"
 
@@ -101,6 +102,15 @@ printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComp
 apt-get update
 apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
   docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Add the deploy user to the docker group so they can use Docker
+# without sudo. The docker group is created by the docker-ce package
+# above. We own group membership here rather than in 20-groups so that
+# the docker group is only granted when Docker is actually installed.
+if [[ -n "${SUDO_USER:-}" ]]; then
+  usermod -aG docker "$SUDO_USER"
+  echo "Added $SUDO_USER to docker group"
+fi
 
 # Write daemon.json — preserves iptables, ip6tables, userland-proxy and
 # adds insecure-registries ONLY when REGISTRY is HTTP. The list is

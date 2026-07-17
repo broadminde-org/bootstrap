@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Bootstrap is a two-tier provisioning system for fresh cloud VPSes (Debian/Ubuntu). The root tier (`bootstrap/init.sh`) transforms a stock machine into a deploy-ready host: apt is updated, baseline packages are installed, a non-root deploy user is created with sudo membership, Docker CE with IPv6 is configured, SSH is hardened (server + client), ufw/fail2ban/crowdsec are installed, and `lazydocker` is dropped into the user's `~/.local/bin/`. The user tier (`user-bootstrap/init.sh`) runs as the deploy user and installs per-user tooling: `direnv` bashrc hook, `uv` with a uv-managed Python interpreter, the `kilo` CLI, Go toolchain with dev tools, Node.js via nvm with global npm packages, and wrapper scripts for `llmdocs` and `kilo-session-report`. After both tiers complete, app repositories (e.g. `netbird-docker`, `ansible`) run their own `init.sh` scripts as the deploy user and assume all bootstrap outputs — the deploy user, Docker, groups, PATH entries, and installed tooling — are already in place.
+Bootstrap is a two-tier provisioning system for fresh cloud VPSes (Debian/Ubuntu). The root tier (`bootstrap/init.sh`) transforms a stock machine into a deploy-ready host: apt is updated, baseline packages are installed, a non-root deploy user is created with sudo membership, Docker CE with IPv6 is configured, SSH is hardened (server + client), ufw/fail2ban/crowdsec are installed, and `lazydocker` is dropped into the user's `~/.local/bin/`. The user tier (`user/init.sh`) runs as the deploy user and installs per-user tooling: `direnv` bashrc hook, `uv` with a uv-managed Python interpreter, the `kilo` CLI, Go toolchain with dev tools, Node.js via nvm with global npm packages, and wrapper scripts for `llmdocs` and `kilo-session-report`. After both tiers complete, app repositories (e.g. `netbird-docker`, `ansible`) run their own `init.sh` scripts as the deploy user and assume all bootstrap outputs — the deploy user, Docker, groups, PATH entries, and installed tooling — are already in place.
 
 ## Tier Model
 
@@ -24,12 +24,13 @@ flowchart TD
     B --> N2["56-ssh-client"]
 
     N2 --> O["Log in as deploy user"]
-    O --> P["User Tier: user-bootstrap/init.sh"]
+    O --> P["User Tier: user/init.sh"]
     P --> Q["10-llmdocs"]
     P --> Q2["15-direnv"]
-    P --> R["20-tooling"]
+    P --> R["20-python"]
+    P --> R1b["22-kilo"]
     P --> R2["25-go"]
-    P --> S["30-kilo-session-report"]
+    P --> S["30-scripts"]
     P --> S2["35-node"]
 
     S2 --> T["Hand off to app repos"]
@@ -46,12 +47,12 @@ flowchart TD
 
 | Aspect | Root Tier | User Tier |
 |---|---|---|
-| Runner | `bootstrap/init.sh` | `user-bootstrap/init.sh` |
+| Runner | `bootstrap/init.sh` | `user/init.sh` |
 | Runs as | root (via `sudo`) | deploy user (non-root) |
 | Refuses | non-root (`EUID != 0`) | root (`EUID == 0`) |
 | Steps requiring `SUDO_USER` | `20-groups`, `30-passwordless-sudo`, `40-profile`, `55-lazydocker`, `56-ssh-client` | none |
 | Install target | `/etc`, `/usr`, system services | `$HOME/.local/bin/`, `$HOME/.local/share/`, `$HOME/.local/go/`, `$HOME/.nvm/` |
-| lib/ | `init.d/lib/env.sh` (EE_ROOT=bootstrap root, toolchain pins), `init.d/lib/common.sh` (root check, apt env vars) | `init.d/lib/env.sh` (EE_ROOT=user-bootstrap root, toolchain pins), `init.d/lib/common.sh` (non-root check) |
+| lib/ | `init.d/lib/conf.sh` (unified config reader), `init.d/lib/env.sh` (EE_ROOT), `init.d/lib/common.sh` (root check, apt env vars) | `init.d/lib/common.sh` (non-root check, sources conf.sh, exports version pins) |
 
 ### Pipeline Flow
 
@@ -75,15 +76,16 @@ flowchart LR
         R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7 --> R8 --> R9 --> R10 --> R11 --> R12 --> R13
     end
 
-    subgraph User["User Tier (user-bootstrap/init.sh)"]
+    subgraph User["User Tier (user/init.sh)"]
         direction TB
         U1["10 llmdocs wrapper"]
         U2["15 direnv hook"]
-        U3["20 uv + Python + kilo"]
+        U3["20 uv + Python"]
+        U3b["22 kilo CLI"]
         U4["25 Go toolchain"]
-        U5["30 kilo-session-report wrapper"]
+        U5["30 scripts + runners"]
         U6["35 Node.js via nvm"]
-        U1 --> U2 --> U3 --> U4 --> U5 --> U6
+        U1 --> U2 --> U3 --> U3b --> U4 --> U5 --> U6
     end
 
     subgraph Apps["App Repos"]
@@ -122,24 +124,29 @@ flowchart LR
 |---|---|---|---|
 | `10-llmdocs` | dir | Writes `$HOME/.local/bin/llmdocs` wrapper: `exec uv run --project <llmdocs dir> python -m llmdocs "$@"` | Wrapper rewritten each run (path may change if repo relocated) |
 | `15-direnv` | dir | Adds `eval "$(direnv hook bash)"` to `~/.bashrc`; creates profile-level `~/.config/direnv/direnvrc` scaffold | grep check on bashrc; skip direnvrc if already exists |
-| `20-tooling` | dir | Three sub-installs: (1) `uv` via official installer at `$HOME/.local/bin/uv`, (2) Python via `uv python install` under `~/.local/share/uv/python/`, (3) `kilo` CLI binary at `$HOME/.local/bin/kilo` from GitHub release (arch-aware: x64/arm64, baseline/musl variants, SHA256 verified via release JSON) | Each sub-tool independently version-checked; `uv --version`, `uv python list --only-installed`, `kilo --version`; only mismatched tools are installed |
+| `20-python` | dir | Two sub-installs: (1) `uv` via official installer at `$HOME/.local/bin/uv`, (2) Python via `uv python install` under `~/.local/share/uv/python/` | Each sub-tool independently version-checked; `uv --version`, `uv python list --only-installed`; only mismatched tools are installed |
+| `22-kilo` | dir | Installs `kilo` CLI binary at `$HOME/.local/bin/kilo` from GitHub release (arch-aware: x64/arm64, baseline/musl variants, SHA256 verified via release JSON) | Version-checked via `kilo --version`; reinstall only on mismatch |
 | `25-go` | dir | Installs Go binary to `~/.local/go/` (pinned via `EE_GO_VERSION`); writes Go shell environment block to `~/.profile` (GOROOT, GOPATH, GOPROXY, GOSUMDB, GOPRIVATE, PATH); installs dev tools (golangci-lint, gosec, govulncheck, air) to `~/go/bin/`; persists go env to `~/.config/go/env`; prunes orphan go toolchain binaries | Version check on `go version`; marker-guarded shell env block with stale cleanup; dev tools re-installed at @latest on every run (go install is fast when already at latest) |
-| `30-kilo-session-report` | dir | Writes `$HOME/.local/bin/kilo-session-report` wrapper: `exec uv run --script <path>/kilo-session-report.py "$@"` | Wrapper rewritten each run |
+| `30-scripts` | dir | Copies `scripts/` to `$HOME/scripts/`; installs script runners to `$HOME/.local/bin/` (including `kilo-session-report` wrapper) | Files overwritten each run |
 | `35-node` | dir | Installs nvm; installs Node.js (pinned via `EE_NODE_VERSION`); adds nvm sourcing to `~/.bashrc`; installs global npm packages from `packages.txt` (including `@playwright/test` with browser deps) | Version check on `node --version`; grep check on bashrc nvm block; per-package check via `npm list -g` |
 
-**User-tier step count: 6** (10, 15, 20, 25, 30, 35)
+**User-tier step count: 7** (10, 15, 20, 22, 25, 30, 35)
 
-## User-Tier Tools (20-tooling)
+## User-Tier Tools (20-python + 22-kilo)
 
 ### Version Pins
 
-| Tool | Version Pin | Source | Binary Location |
-|---|---|---|---|
-| `uv` | `0.8.13` | `https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION}/uv-installer.sh` | `$HOME/.local/bin/uv` |
-| Python (CPython) | `3.14` | `uv python install` | `~/.local/share/uv/python/cpython-3.14-.../bin/` (not on PATH) |
-| `kilo` | `v7.4.1` | `https://github.com/Kilo-Org/kilocode/releases/download/${KILO_VERSION}/kilo-linux-{x64\|arm64}{-baseline}{-musl}.tar.gz` | `$HOME/.local/bin/kilo` |
-| Go | `1.26.4` | `https://go.dev/dl/go${EE_GO_VERSION}.linux-{amd64\|arm64}.tar.gz` | `$HOME/.local/go/bin/go` |
-| Node.js | `24.5.0` | nvm (`nvm install ${EE_NODE_VERSION}`) | `$HOME/.nvm/versions/node/v${EE_NODE_VERSION}/bin/node` |
+Version pins live in the `versions:` section of `bootstrap.conf.yml` (alongside capability flags). Any tool may be set to `"latest"` to auto-resolve the newest stable release at install time, or pinned to an exact version string. The default pins in `example.bootstrap.conf.yml` are:
+
+| Tool | Default Pin | Env Var | Source | Binary Location |
+|---|---|---|---|---|
+| `uv` | `latest` | `EE_UV_VERSION` | `https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION}/uv-installer.sh` | `$HOME/.local/bin/uv` |
+| Python (CPython) | `3.13` | `EE_PYTHON_VERSION` | `uv python install` | `~/.local/share/uv/python/cpython-3.13-.../bin/` (not on PATH) |
+| `kilo` | `latest` | `KILO_VERSION` | `https://github.com/Kilo-Org/kilocode/releases/download/${KILO_VERSION}/kilo-linux-{x64\|arm64}{-baseline}{-musl}.tar.gz` | `$HOME/.local/bin/kilo` |
+| Go | `latest` | `EE_GO_VERSION` | `https://go.dev/dl/go${EE_GO_VERSION}.linux-{amd64\|arm64}.tar.gz` | `$HOME/.local/go/bin/go` |
+| Node.js | `latest` | `EE_NODE_VERSION` | nvm (`nvm install ${EE_NODE_VERSION}`) | `$HOME/.nvm/versions/node/v${EE_NODE_VERSION}/bin/node` |
+
+Version pins are read by `init.d/lib/conf.sh` via `get_pinned_version <tool>` and exported as env vars by `user/init.d/lib/common.sh`. Individual steps resolve `"latest"` to a concrete version via their own API calls (GitHub releases JSON, go.dev, nodejs.org). Env var overrides take precedence over the config file.
 
 ### Install Details
 
@@ -153,8 +160,8 @@ flowchart LR
 
 | Wrapper | Target | Invocation |
 |---|---|---|
-| `$HOME/.local/bin/llmdocs` | `user-bootstrap/llmdocs/` framework | `uv run --project <llmdocs root> python -m llmdocs` |
-| `$HOME/.local/bin/kilo-session-report` | `user-bootstrap/kilo-session-report.py` | `uv run --script <path>/kilo-session-report.py` |
+| `$HOME/.local/bin/llmdocs` | `user/llmdocs/` framework | `uv run --project <llmdocs root> python -m llmdocs` |
+| `$HOME/.local/bin/kilo-session-report` | `user/kilo-session-report.py` | `uv run --script <path>/kilo-session-report.py` |
 
 ## Relationship to App Repos
 
@@ -174,8 +181,8 @@ Bootstrap is a **prerequisite** — app repos (`netbird-docker`, `ansible`, etc.
 | ufw + fail2ban + crowdsec (from `52-ufw`, `53-fail2ban`, `54-crowdsec`) | `netbird-docker` | fail2ban jails reference `/home/stack/netbird-docker/logs/caddy/access.log`; crowdsec acquis.yaml references the same path |
 | SSH hardening (from `51-ssh-hardening`) | All app repos | `AllowUsers stack` restricts SSH access |
 | direnv hook (from `15-direnv`) | All app repos with `.envrc` | Per-directory environment loading; profile-level `direnvrc` scaffold for shared functions |
-| uv + Python 3.14 (from `20-tooling`) | `llmdocs`, `kilo-session-report`, app Python tooling | `uv run` is the preferred Python execution method |
-| kilo CLI (from `20-tooling`) | Agent-tuner workflow, `kilo-session-report` | Native binary for Kilo sessions |
+| uv + Python 3.13 (from `20-python`) | `llmdocs`, `kilo-session-report`, app Python tooling | `uv run` is the preferred Python execution method |
+| kilo CLI (from `22-kilo`) | Agent-tuner workflow, `kilo-session-report` | Native binary for Kilo sessions |
 | llmdocs framework (from `10-llmdocs`) | Docs-source repos | Repo-agnostic docs-to-markdown conversion |
 | Go toolchain + dev tools (from `25-go`) | Go app repos | Go binary in `~/.local/go/`, toolchain pin in `~/.profile`, dev tools (golangci-lint, gosec, govulncheck, air) in `~/go/bin/` |
 | Node.js + global npm packages (from `35-node`) | SvelteKit frontends, Playwright tests | Node.js via nvm (`EE_NODE_VERSION` pin), `@playwright/test` with browsers pre-installed |
@@ -184,7 +191,7 @@ Bootstrap is a **prerequisite** — app repos (`netbird-docker`, `ansible`, etc.
 
 ```mermaid
 flowchart LR
-    A["bootstrap/init.sh\n(root tier)"] --> B["user-bootstrap/init.sh\n(user tier)"]
+    A["bootstrap/init.sh\n(root tier)"] --> B["user/init.sh\n(user tier)"]
     B --> C["netbird-docker/init.sh\n(app tier)"]
     C --> D["ansible / other apps\n(app tier)"]
 
@@ -199,5 +206,5 @@ flowchart LR
 | Tier | Expected Steps | Found in Source | Status |
 |---|---|---|---|
 | Root (init.d/) | 01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56 = **13 steps** | 01-apt-update-upgrade, 05-packages, 10-create-deploy-user, 20-groups, 30-passwordless-sudo, 40-profile, 50-docker, 51-ssh-hardening, 52-ufw, 53-fail2ban, 54-crowdsec, 55-lazydocker, 56-ssh-client = **13 steps** | All accounted for |
-| User (user-bootstrap/init.d/) | 10, 15, 20, 25, 30, 35 = **6 steps** | 10-llmdocs, 15-direnv, 20-tooling, 25-go, 30-kilo-session-report, 35-node = **6 steps** | All accounted for |
-| **Total** | **19 steps** | **19 steps** | Complete |
+| User (user/init.d/) | 10, 15, 20, 22, 25, 30, 35 = **7 steps** | 10-llmdocs, 15-direnv, 20-python, 22-kilo, 25-go, 30-scripts, 35-node = **7 steps** | All accounted for |
+| **Total** | **20 steps** | **20 steps** | Complete |

@@ -17,8 +17,16 @@ vim
 htop
 unzip
 
+# Archiving
+p7zip-full
+
 # DNS troubleshooting (dig, nslookup, host)
 dnsutils
+
+# Network troubleshooting (ss, sockstat, traceroute, tcpdump)
+tcpdump
+traceroute
+iproute2
 
 # Trust anchors (apt + curl)
 ca-certificates
