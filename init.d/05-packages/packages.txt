@@ -76,3 +76,9 @@ rsync
 
 # Tab completion in interactive shells
 bash-completion
+
+# === mDNS ===
+
+# Multicast DNS name resolution (avahi-daemon + NSS plugin).
+# Enables *.local hostname resolution across the LAN.
+libnss-mdns
