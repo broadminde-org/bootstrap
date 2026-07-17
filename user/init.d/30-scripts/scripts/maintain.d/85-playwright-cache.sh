@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Remove Playwright browser binaries ($HOME/.cache/ms-playwright/).
-# Warning: 'npx playwright install' will be needed before running E2E tests.
+# @tier 3
+# @sudo false
+# @summary Remove Playwright browser binaries from user cache
+#
+# Removes $REAL_HOME/.cache/ms-playwright/ only.
+# Does NOT touch system-level Playwright installs.
 set -uo pipefail
-
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-CACHE_DIR="$HOME/.cache/ms-playwright"
+CACHE_DIR="$REAL_HOME/.cache/ms-playwright"
 
 if [[ ! -d "$CACHE_DIR" ]]; then
   log_skip "Playwright cache directory not found at $CACHE_DIR"

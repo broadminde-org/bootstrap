@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# FULL reset of Cascade indexing databases.
+# @tier 3
+# @sudo false
+# @summary Full reset of Cascade indexing databases
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-DB_DIR="$HOME/.codeium/windsurf/database"
+DB_DIR="$REAL_HOME/.codeium/windsurf/database"
 if [[ ! -d "$DB_DIR" ]]; then
   log_skip "Cascade database directory not found"
   exit 0

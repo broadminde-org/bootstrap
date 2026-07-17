@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
-# Wrapper for maintain — installed by 30-scripts into $HOME/.local/bin/maintain.
-exec bash "$HOME/scripts/maintain.d/run.sh" "$@"
+# maintain — Thin wrapper, delegates to maintain.d/run.sh
+set -euo pipefail
+source "$HOME/scripts/lib/env.sh"
+exec "${SCRIPT_ROOT}/maintain.d/run.sh" "$@"

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Clear stale Cascade snapshots (>24h old).
+# @tier 1
+# @sudo false
+# @summary Clear stale Cascade snapshots >24h
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-CASCADE_DIR="$HOME/.codeium/windsurf/cascade"
+CASCADE_DIR="$REAL_HOME/.codeium/windsurf/cascade"
 if [[ ! -d "$CASCADE_DIR" ]]; then
   log_skip "Cascade directory not found"
   exit 0

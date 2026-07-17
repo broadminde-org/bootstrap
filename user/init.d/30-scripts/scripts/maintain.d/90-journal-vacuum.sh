@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Vacuum systemd journal logs (>14 days).
+# @tier 3
+# @sudo true
+# @summary Vacuum systemd journal logs >14d
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"

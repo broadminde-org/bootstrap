@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Clear Kilo package cache ($HOME/.cache/kilo/packages/). Does NOT touch bin/.
+# @tier 2
+# @sudo false
+# @summary Clear Kilo package cache
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-CACHE_DIR="$HOME/.cache/kilo"
+CACHE_DIR="$REAL_HOME/.cache/kilo"
 PACKAGES_DIR="$CACHE_DIR/packages"
 
 if [[ ! -d "$PACKAGES_DIR" ]]; then

@@ -16,6 +16,7 @@ wget
 vim
 htop
 unzip
+xxd
 
 # Archiving
 p7zip-full

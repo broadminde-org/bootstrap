@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Flush PM2 logs (prefers 'pm2 flush'; falls back to truncating log files).
+# @tier 1
+# @sudo false
+# @summary Flush PM2 log files
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-PM2_LOG_DIR="$HOME/.pm2/logs"
+PM2_LOG_DIR="$EE_ROOT/.pm2/logs"
 
 if [[ ! -d "$PM2_LOG_DIR" ]]; then
   log_skip "PM2 log directory not found at $PM2_LOG_DIR"
@@ -15,7 +18,7 @@ size_before="$(human_size "$PM2_LOG_DIR")"
 log_info "PM2 logs before: $size_before"
 
 if require_cmd pm2; then
-  run_cmd pm2 flush
+  user_run pm2 flush
 else
   log_info "pm2 not found; truncating log files manually"
   while IFS= read -r -d '' logfile; do

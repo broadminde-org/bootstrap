@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Clear stale Cascade indexing databases (>14 days old).
+# @tier 3
+# @sudo false
+# @summary Clear stale Cascade indexing databases >14d
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-DB_DIR="$HOME/.codeium/windsurf/database"
+DB_DIR="$REAL_HOME/.codeium/windsurf/database"
 if [[ ! -d "$DB_DIR" ]]; then
   log_skip "Cascade database directory not found"
   exit 0

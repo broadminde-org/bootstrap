@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Drop OS pagecache (gentle: level 1, not dentries/inodes).
+# @tier 3
+# @sudo true
+# @summary Drop OS pagecache
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"

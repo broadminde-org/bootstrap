@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Delete VSCodium cached extension VSIX archives.
 # Safe — extension download cache; extensions are re-downloaded on demand.
+# @tier 2
+# @sudo false
+# @summary Delete VSCodium cached extension VSIX
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-CACHE_DIR="$HOME/.vscodium-server/data/CachedExtensionVSIXs"
+CACHE_DIR="$REAL_HOME/.vscodium-server/data/CachedExtensionVSIXs"
 
 if [[ ! -d "$CACHE_DIR" ]]; then
   log_skip "VSCodium VSIX cache directory not found at $CACHE_DIR"

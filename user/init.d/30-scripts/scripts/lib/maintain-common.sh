@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Common helpers for maintain.d steps.
+# Common helpers for maintain.d and diagnose.d steps.
 # Sourced — do not exec. No `set -e` here (callers control that).
 
+# Derive SCRIPT_ROOT and EE_ROOT from sibling env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 # Colors (no-op if not a tty)
@@ -45,12 +46,37 @@ sudo_run() {
     run_cmd sudo "$@"
     return $?
   fi
-  log_skip "needs sudo (non-interactive); run with sudo if needed"
+  log_skip "needs sudo (non-interactive); run via 'sudo maintain ...' if needed"
   return 0
 }
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+# EE_ROOT detection: env override, then git, then hardcoded fallback.
+detect_ee_root() {
+  if [[ -n "${EE_ROOT:-}" && -d "$EE_ROOT" ]]; then
+    printf '%s\n' "$EE_ROOT"
+    return
+  fi
+  local git_root
+  git_root="$(git -C "${BASH_SOURCE[0]%/*}" rev-parse --show-toplevel 2>/dev/null)" || true
+  if [[ -n "$git_root" && -d "$git_root" ]]; then
+    printf '%s\n' "$git_root"
+    return
+  fi
+  printf '%s\n' "$HOME"
+}
+
+# Emits one path per line: EE_ROOT plus each apps/* subdir.
+project_paths() {
+  local root
+  root="$(detect_ee_root)"
+  printf '%s\n' "$root"
+  if [[ -d "$root/apps" ]]; then
+    find "$root/apps" -mindepth 1 -maxdepth 1 -type d | sort
+  fi
 }
 
 human_size() {
@@ -60,3 +86,21 @@ human_size() {
     printf '0\n'
   fi
 }
+
+# When run via sudo, resolve the real user's home directory.
+if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
+  REAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+else
+  REAL_HOME="$HOME"
+fi
+export REAL_HOME
+
+# Run a command as the real user (drops sudo if we're root via sudo).
+user_run() {
+  if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    run_cmd sudo -u "$SUDO_USER" "$@"
+  else
+    run_cmd "$@"
+  fi
+}
+export -f user_run

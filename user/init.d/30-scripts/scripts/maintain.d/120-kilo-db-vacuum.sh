@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Vacuum the Kilo SQLite database to reclaim space.
+# @tier 3
+# @sudo false
+# @summary Vacuum Kilo SQLite database
+#
 # DISRUPTIVE: Kilo process must NOT be running (SQLite locks the DB while a writer exists).
 # Only runs when explicitly enabled via --all flag.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-KILO_DB="$HOME/.local/share/kilo/kilo.db"
+KILO_DB="$REAL_HOME/.local/share/kilo/kilo.db"
 
 if [[ ! -f "$KILO_DB" ]]; then
   log_skip "Kilo database not found at $KILO_DB"
@@ -21,7 +24,7 @@ fi
 size_before=$(du -h "$KILO_DB" 2>/dev/null | awk '{print $1}')
 
 # Check if Kilo process is running
-if pgrep -u "$USER" -f 'kilo serve' >/dev/null 2>&1; then
+if pgrep -u "${SUDO_USER:-$USER}" -f 'kilo serve' >/dev/null 2>&1; then
   log_warn "Kilo process is running — DB vacuum will be skipped (lock risk)"
   log_info "stop Kilo first, then re-run with --all --only 35"
   exit 0

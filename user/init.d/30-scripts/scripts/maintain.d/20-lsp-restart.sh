@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Restart language servers ONLY. Does NOT touch windsurf-server / vscode-server / codeium —
 # that would invalidate the file index and force a slow reindex on reconnect.
+# @tier 2
+# @sudo false
+# @summary Restart LSP processes
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"

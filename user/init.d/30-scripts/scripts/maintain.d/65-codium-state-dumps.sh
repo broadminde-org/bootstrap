@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Remove VSCodium crash/state dump directories older than 7 days.
 # Safe — historical telemetry data; crash dumps are small but accumulate.
+# @tier 1
+# @sudo false
+# @summary Remove VSCodium crash dumps >7d
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-DUMP_DIR="$HOME/.local/state/VSCodium"
+DUMP_DIR="$REAL_HOME/.local/state/VSCodium"
 RETENTION_DAYS=7
 
 if [[ ! -d "$DUMP_DIR" ]]; then

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Wipe the Kilo state directory entirely.
+# @tier 3
+# @sudo false
+# @summary Wipe Kilo state directory entirely
+#
 # EXTREMELY DISRUPTIVE: total loss of agent state, session history, storage, and tool outputs.
 # Only runs when explicitly enabled via --all flag.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-KILO_STATE_DIR="$HOME/.local/share/kilo"
+KILO_STATE_DIR="$REAL_HOME/.local/share/kilo"
 
 if [[ ! -d "$KILO_STATE_DIR" ]]; then
   log_skip "Kilo state directory not found at $KILO_STATE_DIR"
@@ -14,7 +17,7 @@ if [[ ! -d "$KILO_STATE_DIR" ]]; then
 fi
 
 # Check if Kilo process is running
-if pgrep -u "$USER" -f 'kilo serve' >/dev/null 2>&1; then
+if pgrep -u "${SUDO_USER:-$USER}" -f 'kilo serve' >/dev/null 2>&1; then
   log_warn "Kilo process is running — cannot reset state while agent is active"
   log_info "stop Kilo first, then re-run with --all --only 45"
   exit 0

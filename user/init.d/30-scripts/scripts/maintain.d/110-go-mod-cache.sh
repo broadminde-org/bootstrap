@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Clear Go module cache. forces re-download of all modules.
+# @tier 3
+# @sudo false
+# @summary Clear Go module cache
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
@@ -11,6 +13,6 @@ fi
 
 before="$(human_size "$(go env GOMODCACHE 2>/dev/null)")"
 log_info "GOMODCACHE before: $before"
-run_cmd go clean -modcache
+user_run go clean -modcache
 after="$(human_size "$(go env GOMODCACHE 2>/dev/null)")"
 log_ok "GOMODCACHE after: $after"
