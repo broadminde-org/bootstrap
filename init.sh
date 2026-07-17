@@ -84,7 +84,16 @@ done
 # Load capability config
 # ---------------------------------------------------------------------------
 
-CAPS_CONFIG="$SCRIPT_DIR/bootstrap.conf.yml"
+CAPS_CONFIG=""
+_hostname_conf="$SCRIPT_DIR/$(hostname).conf.yml"
+_default_conf="$SCRIPT_DIR/bootstrap.conf.yml"
+if [[ -f "$_hostname_conf" ]]; then
+  CAPS_CONFIG="$_hostname_conf"
+elif [[ -f "$_default_conf" ]]; then
+  CAPS_CONFIG="$_default_conf"
+fi
+unset _hostname_conf _default_conf
+
 # shellcheck source=init.d/lib/caps.sh
 . "$SCRIPT_DIR/init.d/lib/caps.sh"
 load_caps "$CAPS_CONFIG"

@@ -28,6 +28,13 @@ if [[ -n "${SUDO_USER:-}" ]]; then
   exit 0
 fi
 
+# If invoked via sudo from a non-root account, a deploy user already
+# exists — skip the creation step entirely.
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+  echo "==> Running as sudo from '${SUDO_USER}' — deploy user already exists, skipping."
+  exit 0
+fi
+
 set +e
 if [[ -z "${BOOTSTRAP_USER:-}" ]]; then
   read -r -p "Username for the deploy account (leave blank to skip): " BOOTSTRAP_USER

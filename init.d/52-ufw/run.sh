@@ -53,8 +53,12 @@ MulticastDNS=no
 RESOLVED_EOF
 
 echo "Written ${RESOLVED_DROP_IN}"
-systemctl reload systemd-resolved
-echo "systemd-resolved reloaded"
+if systemctl cat systemd-resolved &>/dev/null; then
+  systemctl reload systemd-resolved
+  echo "systemd-resolved reloaded"
+else
+  echo "systemd-resolved not present — drop-in written for future use, skipping reload"
+fi
 
 # ---------------------------------------------------------------------------
 # Step 2: Install ufw.

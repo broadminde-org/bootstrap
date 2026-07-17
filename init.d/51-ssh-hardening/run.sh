@@ -12,11 +12,12 @@
 #      when the insecure default values are still present — idempotent).
 #      Covers PermitRootLogin and X11Forwarding.
 #
-#   2. Installs a drop-in snippet at /etc/ssh/sshd_config.d/60-hardening.conf
-#      that contains the full authoritative policy (PermitRootLogin no,
-#      X11Forwarding no, AllowUsers stack, MaxAuthTries 3,
-#      LoginGraceTime 20). Numbered 60 so it wins over cloud-init's
-#      50-cloud-init.conf drop-in on future re-provisions.
+#   2. Installs two drop-in snippets into /etc/ssh/sshd_config.d/,
+#      numbered above cloud-init's 50-cloud-init.conf so they win:
+#
+#        60-auth.conf     — auth methods (Round 1: password still enabled;
+#                           disable in a later round once keys are enrolled)
+#        61-hardening.conf — connection limits and forwarding policy
 #
 # Both steps are fully idempotent — running this script a second time
 # produces the same end state and does NOT interrupt active sessions
@@ -30,8 +31,7 @@
 
 SSHD_CONFIG=/etc/ssh/sshd_config
 DROP_IN_DIR=/etc/ssh/sshd_config.d
-DROP_IN_DST="${DROP_IN_DIR}/60-hardening.conf"
-DROP_IN_SRC="$(dirname "$0")/60-hardening.conf"
+STEP_DIR="$(dirname "$0")"
 
 echo "=== 51-ssh-hardening: patching base sshd_config ==="
 
@@ -45,15 +45,15 @@ sed -i 's/^X11Forwarding yes$/X11Forwarding no/' "$SSHD_CONFIG"
 echo "Base sshd_config patched (PermitRootLogin, X11Forwarding)"
 
 # ---------------------------------------------------------------------------
-# Step 2: Install the hardening drop-in.
-# The drop-in wins over cloud-init's 50-cloud-init.conf because sshd
-# processes sshd_config.d/*.conf in lexicographic order and uses the
-# FIRST occurrence of each directive.
+# Step 2: Install the hardening drop-ins.
 # ---------------------------------------------------------------------------
 
 install -m 0755 -d "$DROP_IN_DIR"
-install -m 0644 "$DROP_IN_SRC" "$DROP_IN_DST"
-echo "Installed ${DROP_IN_DST}"
+
+for conf in 60-auth.conf 61-hardening.conf; do
+  install -m 0644 "${STEP_DIR}/${conf}" "${DROP_IN_DIR}/${conf}"
+  echo "Installed ${DROP_IN_DIR}/${conf}"
+done
 
 # ---------------------------------------------------------------------------
 # Step 3: Reload sshd to apply changes without dropping active sessions.
@@ -83,10 +83,14 @@ check() {
   fi
 }
 
-check "PermitRootLogin no"  "^permitrootlogin "  " no"
-check "X11Forwarding no"    "^x11forwarding "    " no"
-check "AllowUsers stack"    "^allowusers "       " stack"
-check "MaxAuthTries 3"      "^maxauthtries "     " 3"
+check "PermitRootLogin no"        "^permitrootlogin "        "no"
+check "X11Forwarding no"          "^x11forwarding "          "no"
+check "PubkeyAuthentication yes"  "^pubkeyauthentication "   "yes"
+check "PasswordAuthentication yes" "^passwordauthentication " "yes"
+check "AllowTcpForwarding yes"    "^allowtcpforwarding "     "yes"
+check "AllowAgentForwarding yes"  "^allowagentforwarding "   "yes"
+check "MaxAuthTries 5"            "^maxauthtries "           "5"
+check "MaxSessions 3"             "^maxsessions "            "3"
 
 if (( FAIL != 0 )); then
   echo "" >&2
@@ -97,3 +101,6 @@ fi
 
 echo ""
 echo "51-ssh-hardening complete."
+echo "NOTE: PasswordAuthentication is still enabled (Round 1)."
+echo "      Once a key is enrolled for the deploy user, disable it by"
+echo "      setting PasswordAuthentication no in 60-auth.conf and reloading sshd."
