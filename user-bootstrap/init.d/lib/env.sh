@@ -3,8 +3,8 @@
 #
 # Lives at user-bootstrap/init.d/lib/env.sh. Sets EE_ROOT to the
 # user-bootstrap folder (one level up from init.d/) so the user-side
-# steps can locate llmdocs/, kilo-session-report.py, vscode/, and
-# netbird/opencode/ by relative path.
+# steps can locate llmdocs/, scripts/, vscode/, and opencode/ by
+# relative path.
 #
 # Idempotent — uses _EE_USER_BOOTSTRAP_ENV_LOADED so it does not collide
 # with bootstrap/init.d/lib/env.sh if both are sourced into the same
@@ -34,5 +34,7 @@ export EE_ROOT INIT_ROOT SCRIPT_ROOT
 export EE_UV_VERSION="${EE_UV_VERSION:-0.8.13}"
 export EE_PYTHON_VERSION="${EE_PYTHON_VERSION:-3.14}"
 export KILO_VERSION="${KILO_VERSION:-v7.4.1}"
+export EE_GO_VERSION="${EE_GO_VERSION:-1.26.4}"
+export EE_NODE_VERSION="${EE_NODE_VERSION:-24.5.0}"
 
 export CGO_ENABLED="${CGO_ENABLED:-0}"

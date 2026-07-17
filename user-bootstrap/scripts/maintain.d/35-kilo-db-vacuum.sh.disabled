@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Vacuum the Kilo SQLite database to reclaim space.
+# DISRUPTIVE: Kilo process must NOT be running (SQLite locks the DB while a writer exists).
+# Only runs when explicitly enabled via --all flag.
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
+
+KILO_DB="$HOME/.local/share/kilo/kilo.db"
+
+if [[ ! -f "$KILO_DB" ]]; then
+  log_skip "Kilo database not found at $KILO_DB"
+  exit 0
+fi
+
+if ! require_cmd sqlite3; then
+  log_skip "sqlite3 not installed — cannot vacuum"
+  exit 0
+fi
+
+size_before=$(du -h "$KILO_DB" 2>/dev/null | awk '{print $1}')
+
+# Check if Kilo process is running
+if pgrep -u "$USER" -f 'kilo serve' >/dev/null 2>&1; then
+  log_warn "Kilo process is running — DB vacuum will be skipped (lock risk)"
+  log_info "stop Kilo first, then re-run with --all --only 35"
+  exit 0
+fi
+
+log_info "vacuuming $KILO_DB (${size_before})"
+run_cmd sqlite3 "$KILO_DB" VACUUM 2>/dev/null || {
+  log_err "VACUUM failed — database may be locked"
+  exit 1
+}
+
+# WAL checkpoint cleanup
+run_cmd sqlite3 "$KILO_DB" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
+
+size_after=$(du -h "$KILO_DB" 2>/dev/null | awk '{print $1}')
+log_ok "vacuumed Kilo DB: ${size_before} → ${size_after}"

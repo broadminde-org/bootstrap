@@ -16,6 +16,17 @@
 #     enforced; the password is always (re)applied.
 #
 # Run as root (sudo ./init.sh 10-create-deploy-user).
+#
+# Auto-skip when running via sudo: if the script has a SUDO_USER,
+# the admin is already a real user and doesn't need a deploy account
+# created for them.  This handles the case where someone is running
+# bootstrap on an existing machine.
+
+if [[ -n "${SUDO_USER:-}" ]]; then
+  echo "==> Detected sudo (caller: ${SUDO_USER}) — skipping deploy-user creation."
+  echo "    Subsequent steps will operate on SUDO_USER (${SUDO_USER})."
+  exit 0
+fi
 
 set +e
 if [[ -z "${BOOTSTRAP_USER:-}" ]]; then

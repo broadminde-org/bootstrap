@@ -1,0 +1,9 @@
+# Global npm packages installed by 35-node/run.sh.
+#
+# One package per line. Lines starting with # are comments.
+# Packages already installed are skipped (idempotent).
+#
+# @playwright/test gets special handling: after install, browsers
+# (chromium, firefox, webkit) are installed via `npx playwright install --with-deps`.
+
+@playwright/test

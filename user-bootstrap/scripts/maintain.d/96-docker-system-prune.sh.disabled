@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Prune ALL unused Docker data (except volumes).
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
+
+if ! require_cmd docker; then
+  log_skip "docker not installed"
+  exit 0
+fi
+
+run_cmd docker system prune -a -f
+log_ok "Docker system pruned (aggressive)"

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper for kilo-session-report.py — installed by 30-scripts into
+# $HOME/.local/bin/kilo-session-report on every run.
+exec uv run --script "$HOME/scripts/kilo-session-report.py" "$@"

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper for stack — installed by 30-scripts into $HOME/.local/bin/stack.
+exec bash "$HOME/scripts/stack" "$@"

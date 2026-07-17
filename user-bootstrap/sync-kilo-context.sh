@@ -4,14 +4,14 @@ set -euo pipefail
 # sync-kilo-context.sh — copy the live Kilo context set into this repo.
 #
 # Copies agents/, rules/, skills/, and commands/ from ~/.config/kilo/
-# into user-bootstrap/netbird/opencode/ so the bootstrap repo stays
+# into user-bootstrap/opencode/ so the bootstrap repo stays
 # current with the evolving context set.
 #
 # Usage:
 #   ./sync-kilo-context.sh
 
 SRC="$HOME/.config/kilo"
-DST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/netbird/opencode"
+DST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/opencode"
 
 if [[ ! -d "$SRC" ]]; then
   echo "Error: source $SRC not found." >&2

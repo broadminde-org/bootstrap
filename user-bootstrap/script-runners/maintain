@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper for maintain — installed by 30-scripts into $HOME/.local/bin/maintain.
+exec bash "$HOME/scripts/maintain.d/run.sh" "$@"

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Remove Puppeteer browser binaries ($HOME/.cache/puppeteer/).
+# Warning: puppeteer will re-download browsers on next install.
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
+
+CACHE_DIR="$HOME/.cache/puppeteer"
+
+if [[ ! -d "$CACHE_DIR" ]]; then
+  log_skip "Puppeteer cache directory not found at $CACHE_DIR"
+  exit 0
+fi
+
+size_before="$(human_size "$CACHE_DIR")"
+log_info "removing Puppeteer browser cache (${size_before}) from $CACHE_DIR"
+log_warn "puppeteer will re-download browsers on next install"
+run_cmd rm -rf "$CACHE_DIR"
+
+if [[ ! -d "$CACHE_DIR" ]]; then
+  log_ok "removed Puppeteer browser cache (freed ${size_before})"
+else
+  log_err "failed to remove Puppeteer browser cache"
+fi

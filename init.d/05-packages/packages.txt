@@ -44,3 +44,6 @@ openssl
 
 # Per-directory environment loading (.envrc → shell env)
 direnv
+
+# Native Node module compilation (node-gyp)
+build-essential
