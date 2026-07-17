@@ -1,0 +1,35 @@
+# bootstrap.conf.yml
+# Host provisioning capability flags.
+#
+# Each flag controls a group of init.d steps. Steps declare required
+# capabilities via a `.requires` file in their step directory (one
+# capability name per line). A step whose `.requires` file lists at
+# least one disabled capability is skipped.
+#
+# Steps without a `.requires` file always run — those are baseline
+# host-provisioning steps that every server needs (apt, packages,
+# deploy user, groups, sudo, ssh hardening, ufw, fail2ban).
+#
+# Capabilities currently defined:
+#
+#   docker  Docker CE + lazydocker. Required for any host that runs
+#           containers (app servers, CI runners, registries).
+#
+#   kvm     KVM virtualization: qemu-kvm, libvirt, virtinst,
+#           bridge-utils. Required for hosts that run VMs.
+#
+#   dev     User-tier dev toolchain: uv, Python, Go, Node.js, kilo,
+#           direnv, llmdocs, and user scripts. Enable on dev
+#           workstations and CI/build hosts; disable on pure
+#           deployment / infrastructure servers.
+#
+#   public  CrowdSec IPS (LAPI + iptables bouncer + Central API).
+#           Enable on internet-facing servers; disable on internal/
+#           private hosts where the overhead and telemetry are
+#           unnecessary.
+
+capabilities:
+  docker: true
+  kvm: false
+  dev: false
+  public: false

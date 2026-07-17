@@ -15,6 +15,11 @@ set -euo pipefail
 # as the deploy user and run that app's init.sh (e.g.
 # apps/<app>/init.sh inside its own repository).
 #
+# Steps may declare required capabilities via a `.requires` file in
+# their step directory (one capability name per line). Capabilities
+# are enabled/disabled in `bootstrap.conf.yml`. Steps without a
+# `.requires` file always run.
+#
 # Usage:
 #   ./init.sh                          # run all steps
 #   ./init.sh --from 25                # run from step 25 onward
@@ -76,6 +81,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---------------------------------------------------------------------------
+# Load capability config
+# ---------------------------------------------------------------------------
+
+CAPS_CONFIG="$SCRIPT_DIR/bootstrap.conf.yml"
+# shellcheck source=init.d/lib/caps.sh
+. "$SCRIPT_DIR/init.d/lib/caps.sh"
+load_caps "$CAPS_CONFIG"
+
+# ---------------------------------------------------------------------------
 # Collect steps: flat files + directory scripts, sorted by numeric prefix
 # ---------------------------------------------------------------------------
 
@@ -134,6 +148,12 @@ for num in "${sorted_nums[@]}"; do
   path="${steps_by_num[$num]}"
   kind="${steps_kind[$num]}"
   name="$(basename "$path")"
+
+  if ! step_requires_caps "$path"; then
+    echo "--> $name  (skipped — capability not enabled)"
+    echo ""
+    continue
+  fi
 
   echo "==> Running $name"
   if [[ "$kind" == "dir" ]]; then

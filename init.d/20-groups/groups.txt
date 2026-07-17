@@ -13,3 +13,5 @@ adm
 docker
 sudo
 systemd-journal
+kvm
+libvirt
