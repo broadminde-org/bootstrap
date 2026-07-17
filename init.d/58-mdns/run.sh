@@ -2,24 +2,28 @@
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
 
-# 58-mdns — Enable mDNS hostname resolution and LAN IP hostname mapping.
+# 58-mdns — Enable mDNS hostname resolution via Avahi.
 #
-# Two independent fixes so the host can be reached by hostname from
+# Three independent fixes so the host can be reached by hostname from
 # other LAN hosts:
 #
 #   1. Adds mdns4_minimal [NOTFOUND=return] to the hosts line in
 #      /etc/nsswitch.conf so .local names resolve via Avahi mDNS.
 #      Fully idempotent — sed replaces only when the old pattern matches.
 #
-#   2. Adds the host's primary LAN IP + hostname to /etc/hosts as a
-#      static fallback for hosts that don't run mDNS themselves.
-#      Marker-guarded so bootstrap re-runs only touch its own line.
+#   2. Ensures /etc/hosts maps 127.0.1.1 to the FQDN (hostname + domain
+#      suffix, obtained from DHCP/DNS search domain), with the short
+#      hostname as an alias. This is the standard Debian convention.
+#
+#   3. Writes /etc/avahi/avahi-daemon.conf with detected physical
+#      interfaces in allow-interfaces and use-ipv6=yes, then restarts
+#      avahi-daemon. Idempotent — skips write when config matches.
 #
 # Run as root (sudo ./init.sh 58-mdns).
 
 NSSWITCH_CONF=/etc/nsswitch.conf
 HOSTS_FILE=/etc/hosts
-HOSTS_MARKER="# bootstrap-58-mdns"
+AVAHi_CONF=/etc/avahi/avahi-daemon.conf
 
 echo "=== 58-mdns: adding mDNS to nsswitch hosts line ==="
 
@@ -41,48 +45,72 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Add LAN IP hostname mapping to /etc/hosts.
-# Marker-guarded so only bootstrap's own line is managed.
+# Step 2: Detect domain suffix from DHCP/DNS and ensure FQDN at 127.0.1.1.
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== 58-mdns: detecting LAN IP for /etc/hosts ==="
+echo "=== 58-mdns: detecting domain suffix for /etc/hosts FQDN ==="
 
-HOSTNAME="$(hostname)"
+HOSTNAME="$(hostname -s)"
 
-LAN_INTERFACE="$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')"
-if [[ -z "$LAN_INTERFACE" ]]; then
-  echo "WARNING: no default IPv4 route found — skipping /etc/hosts mapping." >&2
+DOMAIN="$(grep '^domain ' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | head -1)"
+
+if [[ -n "$DOMAIN" ]]; then
+  FQDN="${HOSTNAME}.${DOMAIN}"
+  DESIRED_LINE="127.0.1.1\t${FQDN} ${HOSTNAME}"
+  echo "Detected domain: ${DOMAIN} → FQDN: ${FQDN}"
 else
-  LAN_IP="$(ip -4 addr show "$LAN_INTERFACE" 2>/dev/null | awk '/inet / {print $2; exit}' | cut -d/ -f1)"
-  if [[ -z "$LAN_IP" ]]; then
-    echo "WARNING: no IPv4 address on interface $LAN_INTERFACE — skipping /etc/hosts mapping." >&2
-  elif [[ "$LAN_IP" = "127."* ]]; then
-    echo "WARNING: loopback IP ($LAN_IP) on $LAN_INTERFACE — skipping /etc/hosts mapping." >&2
-  else
-    DOMAIN="$(hostname -d 2>/dev/null || true)"
-    if [[ -n "$DOMAIN" && "$DOMAIN" != "(none)" ]]; then
-      HOSTS_ENTRY="${LAN_IP}\t${HOSTNAME} ${HOSTNAME}.${DOMAIN}  ${HOSTS_MARKER}"
-    else
-      HOSTS_ENTRY="${LAN_IP}\t${HOSTNAME}  ${HOSTS_MARKER}"
-    fi
-
-    if grep -qF "${HOSTS_MARKER}" "$HOSTS_FILE" 2>/dev/null; then
-      EXISTING="$(grep -F "${HOSTS_MARKER}" "$HOSTS_FILE")"
-      if echo "$EXISTING" | grep -qF "${LAN_IP}"; then
-        echo "/etc/hosts already has bootstrap-managed entry for ${LAN_IP} — skipping."
-      else
-        echo "/etc/hosts has a stale bootstrap entry (IP changed). Updating."
-        sed -i "/${HOSTS_MARKER}/d" "$HOSTS_FILE"
-        printf '%b\n' "$HOSTS_ENTRY" >> "$HOSTS_FILE"
-        echo "Updated /etc/hosts: ${LAN_IP} → ${HOSTNAME}"
-      fi
-    else
-      printf '%b\n' "$HOSTS_ENTRY" >> "$HOSTS_FILE"
-      echo "Added to /etc/hosts: ${LAN_IP} → ${HOSTNAME}"
-    fi
-  fi
+  DESIRED_LINE="127.0.1.1\t${HOSTNAME}"
+  echo "No domain detected — using short hostname only."
 fi
+
+CURRENT_LINE="$(grep '^127\.0\.1\.1[[:space:]]' "$HOSTS_FILE" 2>/dev/null || true)"
+
+if [[ -z "$CURRENT_LINE" ]]; then
+  printf '%b\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
+  echo "Added 127.0.1.1 entry: ${DESIRED_LINE}"
+elif echo "$CURRENT_LINE" | grep -qF "${FQDN:-${HOSTNAME}}"; then
+  echo "/etc/hosts 127.0.1.1 entry is already correct — skipping."
+else
+  sed -i '/^127\.0\.1\.1[[:space:]]/d' "$HOSTS_FILE"
+  printf '%b\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
+  echo "Updated 127.0.1.1 entry: ${DESIRED_LINE}"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3: Generate avahi-daemon.conf from template using envsubst.
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "=== 58-mdns: configuring avahi-daemon ==="
+
+STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE="${STEP_DIR}/avahi-daemon.conf.template"
+
+detect_physical_interfaces() {
+  ip -br link show 2>/dev/null \
+    | awk '$1 != "lo" {print $1}' \
+    | grep -v '^docker\|^br-\|^veth\|^virbr\|^lxc\|^cali\|^flannel\|^cni\|^tunl\|^kube\|^wg\|^tailscale'
+}
+
+INTERFACES="$(detect_physical_interfaces | paste -sd ',' -)"
+ALLOW_INTERFACES="${INTERFACES:+allow-interfaces=${INTERFACES}}"
+echo "Physical interfaces: ${INTERFACES:-none detected}"
+
+NEW_CONF="$(ALLOW_INTERFACES="$ALLOW_INTERFACES" envsubst < "$TEMPLATE")"
+
+install -m 0755 -d /etc/avahi
+
+if [[ -f "$AVAHi_CONF" ]] && [[ "$(cat "$AVAHi_CONF")" == "$NEW_CONF" ]]; then
+  echo "avahi-daemon.conf already up to date — skipping."
+else
+  printf '%s\n' "$NEW_CONF" > "$AVAHi_CONF"
+  echo "Wrote avahi-daemon.conf"
+fi
+
+systemctl enable --now avahi-daemon 2>/dev/null || true
+systemctl restart avahi-daemon
+echo "avahi-daemon restarted"
 
 echo ""
 echo "58-mdns complete."

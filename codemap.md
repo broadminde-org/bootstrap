@@ -19,11 +19,12 @@ flowchart TD
     B --> J["51-ssh-hardening"]
     B --> K["52-ufw"]
     B --> L["53-fail2ban"]
-    B --> M["54-crowdsec"]
-    B --> N["55-lazydocker"]
-    B --> N2["56-ssh-client"]
+     B --> M["54-crowdsec"]
+     B --> N["55-lazydocker"]
+     B --> N2["56-ssh-client"]
+     B --> N2b["58-mdns"]
 
-    N2 --> O["Log in as deploy user"]
+     N2b --> O["Log in as deploy user"]
     O --> P["User Tier: user/init.sh"]
     P --> Q["10-llmdocs"]
     P --> Q2["15-direnv"]
@@ -73,7 +74,8 @@ flowchart LR
         R11["54 crowdsec"]
         R12["55 lazydocker"]
         R13["56 SSH client defaults"]
-        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7 --> R8 --> R9 --> R10 --> R11 --> R12 --> R13
+        R14["58 mDNS / Avahi"]
+        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7 --> R8 --> R9 --> R10 --> R11 --> R12 --> R13 --> R14
     end
 
     subgraph User["User Tier (user/init.sh)"]
@@ -115,6 +117,7 @@ flowchart LR
 | `54-crowdsec` | dir | Registers CrowdSec apt repo via `install.crowdsec.net`; installs crowdsec + crowdsec-firewall-bouncer-iptables; installs crowdsecurity/sshd and crowdsecurity/caddy collections; appends Caddy log path to `/etc/crowdsec/acquis.yaml`; enables/starts both services | Apt repo script overwrites existing sources; `cscli collections install` skips already-installed; acquis.yaml append skipped if path already present |
 | `55-lazydocker` | dir | Downloads lazydocker tarball from GitHub, verifies SHA256, installs binary to `$SUDO_USER/.local/bin/lazydocker` | Version detected via `lazydocker --version`; reinstall only on mismatch; pinned at `v0.25.2` |
 | `56-ssh-client` | dir | Writes SSH client defaults (`Host *` block) to `$SUDO_USER/.ssh/config` (ServerAliveInterval, ControlMaster, ControlPersist, UpdateHostKeys, HashKnownHosts) with `Include ~/.ssh/hosts.d/*`; adds stale ControlMaster cleanup snippet to `$SUDO_USER/.bashrc` | Marker-guarded in both files; four case handling for .ssh/config (new, patched, user-managed Host*, append); skips when markers present |
+| `58-mdns` | dir | Patches nsswitch.conf with `mdns4_minimal`; writes `/etc/hosts` 127.0.1.1 line with FQDN (domain from `/etc/resolv.conf`); generates `/etc/avahi/avahi-daemon.conf` with detected physical interfaces and `use-ipv6=yes`; restarts avahi-daemon | nsswitch.conf sed is idempotent; hosts line skipped if already correct; avahi-daemon.conf compared bytewise before write; avahi-daemon restarted each run |
 
 **Root-tier step count: 13** (01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56)
 
@@ -205,6 +208,6 @@ flowchart LR
 
 | Tier | Expected Steps | Found in Source | Status |
 |---|---|---|---|
-| Root (init.d/) | 01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56 = **13 steps** | 01-apt-update-upgrade, 05-packages, 10-create-deploy-user, 20-groups, 30-passwordless-sudo, 40-profile, 50-docker, 51-ssh-hardening, 52-ufw, 53-fail2ban, 54-crowdsec, 55-lazydocker, 56-ssh-client = **13 steps** | All accounted for |
+| Root (init.d/) | 01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 58 = **14 steps** | 01-apt-update-upgrade, 05-packages, 10-create-deploy-user, 20-groups, 30-passwordless-sudo, 40-profile, 50-docker, 51-ssh-hardening, 52-ufw, 53-fail2ban, 54-crowdsec, 55-lazydocker, 56-ssh-client, 58-mdns = **14 steps** | All accounted for |
 | User (user/init.d/) | 10, 15, 20, 22, 25, 30, 35 = **7 steps** | 10-llmdocs, 15-direnv, 20-python, 22-kilo, 25-go, 30-scripts, 35-node = **7 steps** | All accounted for |
-| **Total** | **20 steps** | **20 steps** | Complete |
+| **Total** | **21 steps** | **21 steps** | Complete |

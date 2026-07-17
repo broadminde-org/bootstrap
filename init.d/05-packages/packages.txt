@@ -81,4 +81,5 @@ bash-completion
 
 # Multicast DNS name resolution (avahi-daemon + NSS plugin).
 # Enables *.local hostname resolution across the LAN.
+avahi-daemon
 libnss-mdns
