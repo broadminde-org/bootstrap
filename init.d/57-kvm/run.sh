@@ -8,9 +8,18 @@
 #
 #   1. Installs QEMU/KVM, libvirt, and supporting packages.
 #
-#   2. Enables and starts libvirtd.
+#   2. Creates /opt/kvm/ (data/vm-images/isos subdirs), owned by
+#      the deploy user. Apps reference these via their .env.
 #
-#   3. Validates that the KVM kernel module is loaded.
+#   3. Enables and starts libvirtd.
+#
+#   4. Validates that the KVM kernel module is loaded (/dev/kvm).
+#
+#   5. Persists bridge-networking sysctls so VM NAT and bridge
+#      forwarding survive reboots.
+#
+#   6. Reports the libvirt GID so apps (e.g. kvm-ctl) can set KVM_GID
+#      in their .env for Docker volume permission matching.
 #
 # Group membership (kvm, libvirt) is added by this step after the
 # packages that create those groups are installed, so that membership
@@ -36,51 +45,95 @@ if [[ -n "${SUDO_USER:-}" ]]; then
   usermod -aG kvm "$SUDO_USER"
   usermod -aG libvirt "$SUDO_USER"
   echo "Added $SUDO_USER to kvm and libvirt groups"
+  if ! groups "$SUDO_USER" 2>/dev/null | grep -q '\blibvirt\b'; then
+    echo "  NOTE: Group changes require a new login to take effect."
+  fi
+
+  # Create /opt/kvm tree — owned by the deploy user so apps don't need root.
+  # Subdirs match env vars that kvm-ctl and other KVM apps reference.
+  KVM_OPT=/opt/kvm
+  install -m 0755 -d "${KVM_OPT}/data" "${KVM_OPT}/vm-images" "${KVM_OPT}/isos"
+  chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$KVM_OPT"
+  echo "Created $KVM_OPT/{data,vm-images,isos} (owner: $SUDO_USER)"
+
+  # Write system-wide env vars so all shells (and docker compose) pick them up.
+  # /etc/profile.d/ scripts are sourced by login shells and bash --login.
+  cat > /etc/profile.d/kvm.sh <<KVM_ENV_EOF
+# Managed by bootstrap/init.d/57-kvm. Do not edit by hand.
+export KVM_CTL_DATA_DIR=${KVM_OPT}/data
+export KVM_CTL_VM_DISK_DIR=${KVM_OPT}/vm-images
+export KVM_CTL_ISOS_DIR=${KVM_OPT}/isos
+KVM_ENV_EOF
+  chmod 0644 /etc/profile.d/kvm.sh
+  echo "Wrote /etc/profile.d/kvm.sh (sourced by login shells)"
 fi
 
 echo ""
 echo "=== 57-kvm: enabling libvirtd ==="
-systemctl enable --now libvirtd
+if ! systemctl enable --now libvirtd 2>/dev/null; then
+  echo "ERROR: libvirtd failed to start. Check: sudo systemctl status libvirtd" >&2
+  exit 1
+fi
+
+# Verify libvirtd is actually running (enable --now can succeed but
+# the daemon may crash immediately).
+if ! systemctl is-active --quiet libvirtd; then
+  echo "ERROR: libvirtd is not active after enable. Check: sudo systemctl status libvirtd" >&2
+  exit 1
+fi
+echo "  libvirtd is active"
 
 echo ""
 echo "=== Post-condition assertions ==="
 
-systemctl is-active libvirtd || { echo "ERROR: libvirtd not active" >&2; exit 1; }
-echo "  PASS: libvirtd is active"
-
-if lsmod | grep -q '^kvm\b'; then
-  echo "  PASS: kvm kernel module loaded"
+# Verify KVM hardware acceleration is available. /dev/kvm is the
+# authoritative check — it confirms both the kernel module is loaded
+# AND the CPU has VT-x/AMD-V. lsmod alone can show the module present
+# but without actual hardware support (e.g. in nested virt without
+# proper config).
+if [[ -e /dev/kvm ]]; then
+  echo "  PASS: /dev/kvm present — KVM hardware acceleration available"
 else
-  echo "  INFO: kvm kernel module not loaded — bare-metal or nested virt required"
+  if lsmod | grep -q '^kvm\b'; then
+    echo "  WARNING: kvm module loaded but /dev/kvm missing — check BIOS VT-x/AMD-V" >&2
+  else
+    echo "  INFO: kvm kernel module not loaded — bare-metal or nested virt required"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # Kernel sysctls for KVM/libvirt bridge networking.
-# Required for VM network connectivity through libvirt bridges (NAT
-# forwarding, iptables bridge filtering). Persisted in a sysctl.d
-# drop-in so they survive reboots.
+#
+# net.ipv4.ip_forward              — allows the host to forward packets
+#                                    between VM virtual NICs and the
+#                                    physical interface. Without it, VMs
+#                                    have no outbound internet access.
+#
+# net.bridge.bridge-nf-call-iptables — routes bridged (L2) traffic through
+#                                    iptables (L3) rules so ufw/Docker
+#                                    firewall rules apply to VM traffic
+#                                    crossing a libvirt bridge.
+#
+# net.bridge.bridge-nf-call-ip6tables — same for ip6tables (IPv6).
+#
+# Persisted in a sysctl.d drop-in so they survive reboots.
 # ---------------------------------------------------------------------------
-KVM_SYSCtl_FILE=/etc/sysctl.d/99-kvm-ctl.conf
+KVM_SYSCTL_FILE=/etc/sysctl.d/99-kvm-ctl.conf
 install -m 0755 -d /etc/sysctl.d
 
-if [[ -f "$KVM_SYSCtl_FILE" ]]; then
-  if sysctl -n net.ipv4.ip_forward 2>/dev/null | grep -qx 1 && \
-     sysctl -n net.bridge.bridge-nf-call-iptables 2>/dev/null | grep -qx 1 && \
-     sysctl -n net.bridge.bridge-nf-call-ip6tables 2>/dev/null | grep -qx 1; then
-    echo "  KVM sysctls already active — skipping drop-in."
-  else
-    cat > "$KVM_SYSCtl_FILE" <<'KVM_SYSCTL_EOF'
-# Managed by bootstrap/init.d/57-kvm.
-# Required for KVM/libvirt bridge networking; do not edit by hand.
-net.ipv4.ip_forward = 1
-net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-KVM_SYSCTL_EOF
-    sysctl --system >/dev/null
-    echo "  Applied KVM sysctls via ${KVM_SYSCtl_FILE}"
+NEED_SYSCTLS=0
+for setting in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables; do
+  val="$(sysctl -n "$setting" 2>/dev/null || echo '0')"
+  if [[ "$val" != "1" ]]; then
+    NEED_SYSCTLS=1
+    break
   fi
+done
+
+if [[ "$NEED_SYSCTLS" -eq 0 ]]; then
+  echo "  KVM sysctls already active — skipping drop-in."
 else
-  cat > "$KVM_SYSCtl_FILE" <<'KVM_SYSCTL_EOF'
+  cat > "$KVM_SYSCTL_FILE" <<'KVM_SYSCTL_EOF'
 # Managed by bootstrap/init.d/57-kvm.
 # Required for KVM/libvirt bridge networking; do not edit by hand.
 net.ipv4.ip_forward = 1
@@ -88,7 +141,26 @@ net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 KVM_SYSCTL_EOF
   sysctl --system >/dev/null
-  echo "  Applied KVM sysctls via ${KVM_SYSCtl_FILE}"
+  echo "  Applied KVM sysctls via ${KVM_SYSCTL_FILE}"
+fi
+
+# ---------------------------------------------------------------------------
+# Report libvirt GID — apps like kvm-ctl need this for Docker volume
+# permission matching (KVM_GID in .env).
+# ---------------------------------------------------------------------------
+LIBVIRT_GID="$(getent group libvirt | cut -d: -f3 || echo '')"
+if [[ -n "$LIBVIRT_GID" ]]; then
+  echo ""
+  echo "  libvirt GID: $LIBVIRT_GID (set KVM_GID=$LIBVIRT_GID in app .env)"
+fi
+
+# ---------------------------------------------------------------------------
+# AppArmor check — libvirt AppArmor profiles can block non-standard
+# storage paths for VM images and ISOs.
+# ---------------------------------------------------------------------------
+if command -v aa-status &>/dev/null && aa-status --enabled 2>/dev/null; then
+  echo "  AppArmor is enabled. Verify libvirt profiles allow your storage paths."
+  echo "  See: /etc/apparmor.d/libvirt/"
 fi
 
 echo ""
