@@ -1,22 +1,24 @@
 ---
 name: option-generation
-description: Generate 2–3 viable alternatives, evaluate, and recommend with rationale
+description: Generate 2-3 viable alternatives for a technical decision, evaluate with criteria, and recommend with rationale. Use before making architecture or technology choices.
 ---
-<purpose>Offer balanced architectural choices by presenting multiple feasible options.</purpose>
-<steps>
-1. frame_decision: state the question in one sentence
-2. generate_alternatives: list 2–3 feasible options with short names and descriptions
-3. evaluate: compare each on performance, scalability, complexity, maintainability, risk, cost
-4. recommend: select one with rationale
-5. document_rejections: note strongest reason each non-selected option was rejected
-</steps>
-<output_format>
-- Decision title line
-- Table of alternatives with criteria and verdict
+
+# Option Generation
+
+## Methodology
+1. FRAME_DECISION: State the decision clearly. What are we choosing? What constraints apply?
+2. GENERATE_ALTERNATIVES: Produce 2-3 feasible options. Each must be realistically implementable.
+3. EVALUATE: Score each option on: performance, scalability, implementation complexity, maintainability, risk, and cost (time+money).
+4. RECOMMEND: Pick one option with rationale. Explain why the recommended option beats alternatives on the most important criteria.
+5. DOCUMENT_REJECTIONS: For each rejected option, state the specific criteria that eliminated it.
+
+## Output Format
+- Decision title (one line)
+- Table: Option / Performance / Scalability / Complexity / Maintainability / Risk / Cost / Verdict
 - Rationale paragraph
-</output_format>
-<anti_patterns>
-- single_option: do not present only one
-- straw_man: do not construct straw-man alternatives — all options must be genuinely viable
-- missing_rationale: always include rationale
-</anti_patterns>
+- Rejected options with elimination reason
+
+## Anti-Patterns
+- SINGLE_OPTION: Presenting only one choice with no alternatives
+- STRAW_MAN: Including an obviously terrible option to make the preferred one look good
+- MISSING_RATIONALE: Recommending without explaining why on the criteria that matter

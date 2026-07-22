@@ -1,21 +1,22 @@
 ---
 name: context-gathering
-description: Assess existing systems, constraints & non-functional requirements before design
+description: Assess existing systems, constraints, and non-functional requirements before design work begins. Run BEFORE option-generation or plan-writing.
 ---
-<scope>
-USE_BEFORE: design work begins
-</scope>
 
-<methodology>
-1. INVENTORY: use codebase-inventory skill for file tree, deps & entry points
-2. READ_DOCS: scan ADRs, RFCs, design docs
-3. IDENTIFY_NFR: scale, latency, availability, compliance, budget constraints
-4. MAP_DEBT: note legacy & technical debt constraints
-5. ASSESS_TEAM: evaluate team size, expertise & operational maturity
-6. DOCUMENT_ASSUMPTIONS: list unspecified items clearly
-</methodology>
+# Context Gathering
 
-<anti_patterns>
-- START_OPTIONS_EARLY: do not generate options before gathering context
-- TRUST_SINGLE_SOURCE: do not treat one file/README as authoritative
-</anti_patterns>
+## Scope
+Run before any design or architecture work. Never start generating options without this step.
+
+## Methodology
+1. INVENTORY: Run codebase-inventory skill to understand existing structure.
+2. READ_DOCS: Read existing ADRs, RFCs, design docs, architecture decision records.
+3. IDENTIFY_NFR: Extract non-functional requirements — scale targets, latency budgets, availability SLA, compliance (GDPR, SOC2), budget constraints.
+4. MAP_DEBT: Identify legacy systems, known technical debt, and migration-in-progress.
+5. ASSESS_TEAM: Note team size, expertise distribution, and development maturity.
+6. DOCUMENT_ASSUMPTIONS: Every assumption not verified by source → list explicitly with [ASSUMPTION] prefix.
+
+## Anti-Patterns
+- START_OPTIONS_EARLY: Generating alternatives before understanding constraints
+- TRUST_SINGLE_SOURCE: Relying on one doc or one person's claim without cross-reference
+- MISSING_NFR: Designing without knowing scale/latency/availability targets

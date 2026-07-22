@@ -1,0 +1,3 @@
+from host_standards.logging_config import configure_logging
+from host_standards.resources import register as register_resources
+from host_standards.tools.standards import register as register_standards_tools

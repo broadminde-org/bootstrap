@@ -1,17 +1,12 @@
----
-description: "Operational safety: timeouts, Docker hygiene, SSH best practices"
----
-<timeouts>
-- Use `--max-time` or flags to prevent hangs; add timeouts for tests and builds.
-- Check non-blocking commands every 10–30s; report after 2m of no progress.
-</timeouts>
-<docker_compose>
-- Always use `--remove-orphans`; never `sudo docker`; advise docker group fix on perm errors.
-</docker_compose>
-<npm>
-- Never use `sudo npm`; advise setup of user prefix on EACCES.
-</npm>
-<ssh_ops>
-- Set ConnectTimeout=10 and ServerAliveInterval=5; reuse connections via ControlMaster.
-- Example: `ssh -o ControlMaster=auto -o ControlPath=...`
-</ssh_ops>
+# Safety & Operations
+
+## Scope
+All tasks involving shell commands, Docker, npm, SSH, or long-running operations.
+
+## Rules
+- TIMEOUTS: All network requests must use `--max-time` / `--connect-timeout`. Blocking operations must be polled every 10-30s with a 2-minute no-progress timeout.
+- DOCKER: Always `docker compose down --remove-orphans` before `docker compose up -d`. Never `sudo docker`. Always `--remove-orphans` on down commands.
+- NPM: Never `sudo npm`. If EACCES, advise user to configure npm prefix or use nvm.
+- SSH: `ConnectTimeout=10`, `ServerAliveInterval=5`. Prefer `ControlMaster auto` for session reuse.
+- DESTRUCTIVE_GUARD: Commands that delete data, drop tables, or remove volumes require explicit user confirmation. Present the exact command and wait for a yes/no.
+- RATE_LIMIT: Respect API rate limits. Back off exponentially on 429 responses.

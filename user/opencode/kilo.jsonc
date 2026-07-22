@@ -1,0 +1,21 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "instructions": ["~/.config/kilo/rules/*.md"],
+  "mcp": {
+    "standards": {
+      "type": "remote",
+      "url": "http://localhost:8766/mcp",
+      "enabled": true
+    }
+  },
+  "permission": {
+    "bash": "allow",
+    "edit": "allow",
+    "read": {
+      "*": "allow"
+    },
+    "webfetch": "allow",
+    "external_directory": "allow",
+    "standards_*": "allow"
+  }
+}

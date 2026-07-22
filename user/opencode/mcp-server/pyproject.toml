@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "host-standards"
+version = "0.1.0"
+description = "MCP server that indexes and serves coding standards, guidelines, and reference material"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "mcp[cli]>=1.27,<2",
+    "pydantic>=2",
+]
+
+[project.scripts]
+host-standards = "host_standards.__main__:main"
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["T201"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.17",
+]

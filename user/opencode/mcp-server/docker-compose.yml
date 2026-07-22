@@ -1,0 +1,25 @@
+services:
+  host-standards:
+    build: .
+    ports:
+      - "8766:8766"
+    environment:
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8766
+      - MCP_LOG_LEVEL=WARNING
+      - STANDARDS_DIR=/standards
+    volumes:
+      - /home/stack/.config/kilo/standards:/standards:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8766/mcp', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

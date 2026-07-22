@@ -21,6 +21,12 @@
 #   6. Reports the libvirt GID so apps (e.g. kvm-ctl) can set KVM_GID
 #      in their .env for Docker volume permission matching.
 #
+#   7. Installs a udev rule that sets the group of QEMU serial-console
+#      PTY devices to libvirt-qemu with mode 0660, so the deploy user
+#      (already a member of libvirt-qemu) can read/write them without
+#      sudo. The devpts mount defaults to gid=tty,mode=0600 on Debian,
+#      which blocks non-root access — this rule overrides it.
+#
 # Group membership (kvm, libvirt) is added by this step after the
 # packages that create those groups are installed, so that membership
 # is only granted when KVM is actually present on the host. A fresh
@@ -161,6 +167,45 @@ fi
 if command -v aa-status &>/dev/null && aa-status --enabled 2>/dev/null; then
   echo "  AppArmor is enabled. Verify libvirt profiles allow your storage paths."
   echo "  See: /etc/apparmor.d/libvirt/"
+fi
+
+# ---------------------------------------------------------------------------
+# udev rule — fix PTY permissions for QEMU serial consoles.
+#
+# The devpts filesystem on Debian is mounted with gid=tty,mode=0600,
+# which forces all PTY nodes to be group:tty with owner-only (0600)
+# permissions. QEMU runs as libvirt-qemu, so its serial-console PTYs
+# are owned by libvirt-qemu:tty with no group access — blocking the
+# deploy user (who is in the libvirt-qemu group) from reading them
+# via virsh console or direct PTY access.
+#
+# This udev rule matches PTYs owned by libvirt-qemu and overrides the
+# group to libvirt-qemu with mode 0660, granting read/write to
+# members of that group.
+# ---------------------------------------------------------------------------
+UDEV_RULE_FILE=/etc/udev/rules.d/99-kvm-pty.rules
+UDEV_RULE='SUBSYSTEM=="tty", KERNEL=="pts/*", OWNER=="libvirt-qemu", GROUP="libvirt-qemu", MODE="0660"'
+UDEV_RULE_HEADER="# Managed by bootstrap/init.d/57-kvm. Do not edit by hand."
+
+NEED_UDEV=0
+if [[ ! -f "$UDEV_RULE_FILE" ]]; then
+  NEED_UDEV=1
+else
+  CURRENT_RULE="$(grep -v '^#' "$UDEV_RULE_FILE" | grep -v '^$' || true)"
+  if [[ "$CURRENT_RULE" != "$UDEV_RULE" ]]; then
+    NEED_UDEV=1
+  fi
+fi
+
+if [[ "$NEED_UDEV" -eq 1 ]]; then
+  install -m 0755 -d /etc/udev/rules.d
+  printf '%s\n%s\n' "$UDEV_RULE_HEADER" "$UDEV_RULE" > "$UDEV_RULE_FILE"
+  udevadm control --reload
+  udevadm trigger --subsystem-match=tty
+  echo "  Installed udev rule: ${UDEV_RULE_FILE}"
+  echo "  (PTY devices owned by libvirt-qemu will get group:libvirt-qemu mode:0660)"
+else
+  echo "  udev rule already up to date — skipping."
 fi
 
 echo ""

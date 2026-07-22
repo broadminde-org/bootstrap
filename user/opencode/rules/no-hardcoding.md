@@ -1,13 +1,11 @@
----
-description: Never hardcode domains, secrets, API keys, or env-specific values.
----
-<env_vars>
-- Use env vars for all runtime config; use `_FILE` suffix for secrets.
-- Track `.env.example`; gitignore `.env`.
-</env_vars>
-<templates>
-- Use template files (`.tpl`, `.example`) for deployment configs; provide `init.sh` to render.
-</templates>
-<prohibitions>
-- Do not hardcode domains or ports; use `${VAR}` patterns.
-</prohibitions>
+# No Hardcoding
+
+## Scope
+All languages. Apply to every task that writes configuration, constants, or runtime values.
+
+## Rules
+- ENV_VARS: Runtime config goes in environment variables. Use `_FILE` suffix pattern for secret values.
+- DOTENV: Track `.env.example` in git. `.env` is ALWAYS gitignored and NEVER committed.
+- TEMPLATES: Template files (`.tpl`, `.example`, `.template`) are source of truth. Rendered files are output, not hand-edited.
+- NO_HARDCODED: Never hardcode domains, ports, URLs, paths, or credentials in source files. Use env vars, config files, or flag defaults.
+- DEFAULT_PORTS: Port defaults in config are acceptable only as fallbacks. Env var must override.
