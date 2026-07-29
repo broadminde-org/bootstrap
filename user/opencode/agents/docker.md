@@ -40,7 +40,7 @@ DENIED: Run docker commands with sudo, modify production deployments without con
 </scope>
 
 <methodology>
-0. STANDARDS: Call `standards_search("docker")` for relevant standards. Check lifecycle-management.
+0. STANDARDS: Call `standards_search("docker")` for relevant standards. Check lifecycle-management. If MCP is disabled, read ~/.config/kilo/standards/lifecycle-management.md directly.
 1. INVENTORY: List existing Dockerfiles, compose files, and .dockerignore. Understand the current build structure.
 2. SAFETY: Always `docker compose down --remove-orphans` before `docker compose up -d`. Clean up stale containers and volumes.
 3. NO_HARDCODE: Use build args and env vars. No hardcoded tags, ports, or paths in Dockerfiles.

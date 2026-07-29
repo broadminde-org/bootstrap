@@ -42,7 +42,7 @@ DENIED: Modify source code, run build/deploy/test commands (except read-only ins
 </scope>
 
 <methodology>
-0. STANDARDS: Load docs-quality and mermaid-standards via `standards_search()`.
+0. STANDARDS: Load docs-quality and mermaid-standards via `standards_search()`. If MCP is disabled, read ~/.config/kilo/standards/docs-quality.md and mermaid-standards.md directly.
 1. DETECT: Identify project structure (monorepo, single-app, compose stack, pipeline).
 2. INVENTORY: Run codebase-inventory skill. List every top-level file and init step.
 3. READ_EXISTING: Read current codemaps and ARCHITECTURE.md. Note what's accurate vs stale.

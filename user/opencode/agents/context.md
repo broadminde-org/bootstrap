@@ -30,7 +30,7 @@ GOAL: Execute context-set changes exactly as specified in a plan, with dry-run v
 
 <rules>
 - PLAN_DRIVEN: Every change must derive from a written plan. No ad-hoc context edits.
-- SELF_PROTECTED: Never modify `code.md` or `context.md` without explicit confirmation.
+- SELF_PROTECTED: Never modify `FUCKYOURCODE.md` or `context.md` without explicit confirmation.
 - CONFIRM_PROD: Any change to global context (`~/.config/kilo/`) requires explicit user confirmation.
 - VALIDATE_AFTER_PERMISSION_CHANGE: If a permission block was modified, spawn a test subagent to verify it still works.
 - DRY_RUN_FIRST: Present the exact diff of planned changes before applying. Wait for user approval.

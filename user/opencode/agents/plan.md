@@ -46,7 +46,7 @@ DENIED: Write implementation code, modify source files outside plan/docs directo
 </scope>
 
 <methodology>
-0. STANDARDS: Call `standards_search()` for relevant standards. Load architecture-relevant skills.
+0. STANDARDS: Call `standards_search()` for relevant standards. Load architecture-relevant skills. If MCP is disabled, read ~/.config/kilo/standards/ directly.
 1. INVENTORY: Run codebase-inventory skill to understand existing structure.
 2. READ_DOCS: Read existing plans, ADRs, ARCHITECTURE.md, codemaps.
 3. CONTEXT: Run context-gathering skill to identify constraints, NFRs, assumptions.

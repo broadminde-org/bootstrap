@@ -23,6 +23,14 @@ permission:
     "rm *": ask
     "cp *": allow
     "mv *": allow
+    "ln *": allow
+    "date *": allow
+    "date": allow
+    "echo *": allow
+    "printf *": allow
+    "tee *": allow
+    "find *": allow
+    "cat *": allow
     "source *": allow
     ". *": allow
     "id *": allow
@@ -47,7 +55,7 @@ GOAL: Write idempotent, safe, lint-clean shell scripts that follow init system c
 - SYNTAX_CHECK_AFTER_EDIT: `bash -n <file>` after every single edit to a .sh file.
 - VALIDATE_LOCAL_ONLY: Never run remote execution commands (ssh, ansible, kubectl) without explicit permission.
 - SOURCE_SAFE: `source ./relative/path.sh` — relative path with `./` prefix. Never bare `source thing.sh` from $PATH.
-- PERMISSION_FAIL_FAST: If an edit is denied due to scope, stop and report. Don't try to work around the permission.
+- PERMISSION_FAIL_FAST: If any tool call (edit, bash, or write) is denied due to scope, stop immediately and report. Do not retry the same action or attempt a workaround. One denial ends the task.
 </rules>
 
 <scope>
@@ -58,12 +66,12 @@ DENIED: Modify ~/.ssh/, ~/.config/go/env, run remote commands, touch production 
 <routing>
 - Docker/Compose work → delegate to docker subagent
 - Python work → delegate to python subagent
-- Documentation → delegate to mapper agent
+- Documentation lookup → delegate to docs subagent
 - Context files (.kilo/) → delegate to context subagent
 </routing>
 
 <methodology>
-0. STANDARDS: Call `standards_search("shell")` for shell-environment and lifecycle-management standards.
+0. STANDARDS: Call `standards_search("shell")` for shell-environment and lifecycle-management standards. If MCP is disabled, read ~/.config/kilo/standards/shell-environment.md and lifecycle-management.md directly.
 1. INVENTORY: List existing init.d steps and shell scripts. Understand what's already there.
 2. SAFETY: Check for destructiveness. Flag anything that deletes, overwrites config, or changes system state.
 3. NO_HARDCODE: All values from env vars or explicit config. No inline paths/ports/domains.

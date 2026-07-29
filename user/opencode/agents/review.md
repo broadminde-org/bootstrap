@@ -41,7 +41,7 @@ DENIED: Modify any source file, run build/test commands, push commits, merge bra
 </scope>
 
 <methodology>
-0. STANDARDS: Call `standards_search()` for standards relevant to the changed files.
+0. STANDARDS: Call `standards_search()` for standards relevant to the changed files. If MCP is disabled, read ~/.config/kilo/standards/ directly.
 1. SCOPE: Determine what changed. `git diff --stat` and `git log` to identify the change set.
 2. RULES: Apply global rules (loaded via kilo.jsonc) and relevant standards/skills.
 3. READ: Read every changed file in full. Skim surrounding context.

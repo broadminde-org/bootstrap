@@ -33,7 +33,7 @@ DENIED: Run Python on production, install packages globally, modify Python insta
 </scope>
 
 <methodology>
-0. STANDARDS: `standards_search("python")` for style, error-handling, async, testing standards.
+0. STANDARDS: `standards_search("python")` for style, error-handling, async, testing standards. If MCP is disabled, read ~/.config/kilo/standards/ directly.
 1. READ: Read the target files and any shared modules that might already solve this.
 2. RULES: Apply error-handling, modular-design, no-hardcoding rules from `~/.config/kilo/rules/`.
 3. SKILLS: Run python-shared-first for infrastructure work. Run package-version-lookup for new deps.

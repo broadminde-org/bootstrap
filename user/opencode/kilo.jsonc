@@ -6,6 +6,7 @@
       "type": "remote",
       "url": "http://localhost:8766/mcp",
       "enabled": true
+      //"enabled": false
     }
   },
   "permission": {
