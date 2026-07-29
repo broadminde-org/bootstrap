@@ -1,0 +1,17 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@0.0.38"
+      ]
+    },
+    "svelte": {
+      "type": "remote",
+      "url": "https://mcp.svelte.dev/mcp"
+    }
+  }
+}

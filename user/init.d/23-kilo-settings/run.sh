@@ -22,7 +22,14 @@
 # _config/kilo/ deploys:
 #   agents/    — agent definitions (marketplace agents)
 #   commands/  — slash commands
-#   kilo.jsonc — merged config (instructions glob + MCP + permissions)
+#   kilo.json  — MCP servers. Mirrors what the Kilo Marketplace installs
+#                for the Playwright MCP (@playwright/mcp via npx; node/npx
+#                is provided by 35-node). Also carries the Svelte docs MCP
+#                as a remote server (https://mcp.svelte.dev/mcp — hosted by
+#                the Svelte team, always tracks current docs, no local deps,
+#                degrades gracefully when offline). Kilo deep-merges this
+#                with kilo.jsonc, so the two files stay separate concerns.
+#   kilo.jsonc — merged base config (instructions glob; no permissions)
 #
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
@@ -83,21 +90,28 @@ for dir in agents commands; do
 done
 
 # ---------------------------------------------------------------------------
-# 3. Deploy kilo.jsonc
+# 3. Deploy kilo.json / kilo.jsonc
 # ---------------------------------------------------------------------------
-# Permissions are intentionally omitted — they accumulate naturally during
-# sessions as the user approves commands. Baking them in here would carry
-# stale, machine-specific allow-lists to every new host.
+# Permissions are intentionally omitted from both — they accumulate naturally
+# during sessions as the user approves commands. Baking them in here would
+# carry stale, machine-specific allow-lists to every new host.
+#
+# NOTE: cp overwrites the target. That is safe for the curated keys these
+# skeleton files carry (mcp, instructions, $schema), but if a skeleton file
+# ever grows user-scoped keys, re-running this step will clobber the live
+# file's accumulated values.
 
-KILO_JSON_SRC="$SRC_CONFIG/kilo.jsonc"
-KILO_JSON="$KILO_CONFIG/kilo.jsonc"
+for cfg in kilo.json kilo.jsonc; do
+  cfg_src="$SRC_CONFIG/$cfg"
+  cfg_dst="$KILO_CONFIG/$cfg"
 
-if [[ ! -f "$KILO_JSON_SRC" ]]; then
-  echo "WARNING: $KILO_JSON_SRC not found — skipping kilo.jsonc." >&2
-else
-  cp "$KILO_JSON_SRC" "$KILO_JSON"
-  echo "  deployed kilo.jsonc"
-fi
+  if [[ ! -f "$cfg_src" ]]; then
+    echo "  skipped $cfg (not found in skeleton)"
+    continue
+  fi
+  cp "$cfg_src" "$cfg_dst"
+  echo "  deployed $cfg"
+done
 
 # ---------------------------------------------------------------------------
 # 4. Deploy from _kilo/  -->  ~/.kilo/
@@ -115,7 +129,6 @@ for dir in skills; do
   fi
   rm -rf "${dst}"
   cp -r "$src" "$dst"
-  local count
   count="$(find "$dst" -name '*.md' | wc -l)"
   echo "  deployed $dir/  (${count} .md files)"
 done
@@ -162,8 +175,9 @@ fi
 
 echo ""
 echo "23-kilo-settings: context set deployed."
-echo "  ~/.config/kilo/:  agents/ commands/ kilo.jsonc"
+echo "  ~/.config/kilo/:  agents/ commands/ kilo.json (playwright MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
 echo "  MCP server:       http://localhost:8766/mcp (host-standards)"
+echo "  Playwright MCP:   npx @playwright/mcp (needs node/npx from 35-node)"
 echo ""
 echo "Restart kilo (or reload config) to pick up the new context."
