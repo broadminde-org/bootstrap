@@ -23,8 +23,16 @@
 #   4. Appends the Caddy JSON log path to /etc/crowdsec/acquis.yaml so
 #      CrowdSec tails the access log once Phase 2 is applied. The
 #      append is idempotent (skipped if the path is already present).
-#      CrowdSec tolerates a missing log file — it emits a warning but
-#      does NOT hard-fail — so this step is safe to run before Phase 2.
+#      The path is whichever of the central (~/infra/caddy) or legacy
+#      (netbird-docker) log actually exists — central preferred — so
+#      re-running never points acquisition at a dead path while the
+#      legacy caddy is still the edge. CrowdSec tolerates a missing log
+#      file — it emits a warning but does NOT hard-fail — so this step
+#      is safe to run before Phase 2.
+#
+#   4b. Adds the deploy user to the crowdsec group so `cscli` works
+#      without sudo (user-tier 60-caddy generates its bouncer key this
+#      way). local_api_credentials.yaml is root:crowdsec 0640.
 #
 #   5. Enables and starts both services.
 #
@@ -42,7 +50,26 @@
 # Run as root (sudo ./init.sh 54-crowdsec).
 
 ACQUIS_YAML=/etc/crowdsec/acquis.yaml
-CADDY_LOG_PATH=/home/stack/netbird-docker/logs/caddy/access.log
+
+# Caddy JSON log path — same exists-based resolution as 53-fail2ban:
+# the legacy netbird path keeps working until the migration removes it;
+# the central path (deploy home ~/infra/caddy) is preferred once present
+# and is the default on new hosts.
+LEGACY_CADDY_LOG=/home/stack/netbird-docker/logs/caddy/access.log
+CENTRAL_CADDY_LOG=""
+if [[ -n "${SUDO_USER:-}" ]]; then
+  CENTRAL_CADDY_LOG="$(getent passwd "$SUDO_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
+fi
+
+if [[ -n "$CENTRAL_CADDY_LOG" && -f "$CENTRAL_CADDY_LOG" ]]; then
+  CADDY_LOG_PATH="$CENTRAL_CADDY_LOG"
+elif [[ -f "$LEGACY_CADDY_LOG" ]]; then
+  CADDY_LOG_PATH="$LEGACY_CADDY_LOG"
+elif [[ -n "$CENTRAL_CADDY_LOG" ]]; then
+  CADDY_LOG_PATH="$CENTRAL_CADDY_LOG"
+else
+  CADDY_LOG_PATH="$LEGACY_CADDY_LOG"
+fi
 
 echo "=== 54-crowdsec: adding CrowdSec apt repository ==="
 
@@ -92,17 +119,30 @@ echo ""
 echo "=== 54-crowdsec: appending Caddy log source to ${ACQUIS_YAML} ==="
 
 if ! grep -qF "$CADDY_LOG_PATH" "$ACQUIS_YAML" 2>/dev/null; then
-  cat >> "$ACQUIS_YAML" <<'ACQUIS_EOF'
+  cat >> "$ACQUIS_YAML" <<ACQUIS_EOF
 
 ---
 filenames:
-  - /home/stack/netbird-docker/logs/caddy/access.log
+  - $CADDY_LOG_PATH
 labels:
   type: caddy
 ACQUIS_EOF
   echo "Appended Caddy log source to ${ACQUIS_YAML}"
 else
   echo "Caddy log source already present in ${ACQUIS_YAML} — skipping append"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4b: Add the deploy user to the crowdsec group.
+#
+# /etc/crowdsec/local_api_credentials.yaml is root:crowdsec 0640 on Debian —
+# group membership lets the deploy user run `cscli` (e.g. `cscli bouncers
+# add` from user/init.d/60-caddy) without sudo. usermod -aG is idempotent.
+# ---------------------------------------------------------------------------
+
+if [[ -n "${SUDO_USER:-}" ]]; then
+  usermod -aG crowdsec "$SUDO_USER"
+  echo "Added $SUDO_USER to the crowdsec group (cscli access without sudo)"
 fi
 
 # ---------------------------------------------------------------------------

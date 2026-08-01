@@ -19,15 +19,21 @@
 #   kvm     KVM virtualization: qemu-kvm, libvirt, virtinst, bridge-utils.
 #           Required for hosts that run VMs.
 #
-#   dev     User-tier dev toolchain: uv, Python, Go, Node.js, kilo, direnv,
-#           llmdocs, and user scripts. Enable on dev workstations and CI/build
-#           hosts; disable on pure deployment / infrastructure servers.
+#   dev     Playwright browser dependencies (06-playwright-deps). Enable on
+#           hosts that run browser automation tests. The user tier itself is
+#           NOT capability-gated — per-user tooling always installs.
 #
 #   public  CrowdSec IPS (LAPI + iptables bouncer + Central API). Enable on
 #           internet-facing servers; disable on internal/private hosts.
+#
+#   caddy   Central Caddy reverse proxy (one per host, Docker). Installs to
+#           ~/infra/caddy via the user tier and provides a shared edge reverse
+#           proxy for all app stacks on the host. Snippets register via
+#           caddy-route. Requires docker. Gated on both: docker AND caddy.
 
 capabilities:
   docker: true
+  caddy: true
   kvm: false
   dev: false
   public: false

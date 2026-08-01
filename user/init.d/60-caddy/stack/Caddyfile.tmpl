@@ -1,0 +1,14 @@
+# Central Caddy — global options only. App routes arrive via the Admin API
+# (routes.d + caddy-route reconcile); this file must never gain site blocks.
+{
+	admin unix//run/caddy-admin.sock
+	email ${ACME_EMAIL}
+	log {
+		output file /data/logs/access.log {
+			roll_size 100mb
+			roll_keep 5
+		}
+		format json
+	}
+$CROWDSEC_SECTION
+}

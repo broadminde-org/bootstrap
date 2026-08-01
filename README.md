@@ -21,12 +21,36 @@ After the root tier finishes, log in as the deploy user and run the
 **user tier** (`./user/init.sh`). It installs per-user
 tooling into `$HOME/.local/bin/` — `uv`, a uv-managed Python, the
 `kilo` CLI, Go toolchain, Node.js, direnv, and wrappers for the
-`llmdocs` and user scripts that ship in this repo. The entire
-user tier is gated behind the `dev` capability flag.
+`llmdocs` and user scripts that ship in this repo — and, when the
+`caddy` capability is enabled, provisions the host's central Caddy
+reverse proxy at `~/infra/caddy/`. The user tier is **not**
+capability-gated as a whole; individual steps declare their own
+`.requires`.
 
 After both tiers finish, individual apps (e.g. `apps/<app>/` in
 their own repository) take over and run their own `init.sh` as the
 deploy user.
+
+### Central Caddy (60-caddy)
+
+When both `docker` and `caddy` capabilities are enabled, the user tier
+installs **one Caddy reverse proxy per host** at `~/infra/caddy/`
+(everything deploy-user owned — the step runs as the deploy user and
+needs only docker group membership). It listens on 80/443 and serves
+TLS for every app on the host. App stacks register Caddyfile snippets
+via `caddy-route`:
+
+```bash
+caddy-route register myapp ./myapp.caddy   # add a site
+caddy-route deregister myapp               # remove it
+caddy-route list                           # see what's running
+```
+
+Snippets are plain Caddyfile site blocks (no global options — ACME email,
+logging, CrowdSec, and Admin API are owned centrally). The container
+runs `caddy run --resume` so registered apps survive restarts/reboots.
+
+Full documentation: [docs/central-caddy.md](docs/central-caddy.md)
 
 ---
 
@@ -40,7 +64,7 @@ cd bootstrap
 
 # Configure capabilities for this host.
 cp example.bootstrap.conf.yml bootstrap.conf.yml
-# Edit bootstrap.conf.yml — set docker, kvm, dev, public to true/false.
+# Edit bootstrap.conf.yml — set docker, caddy, kvm, dev, public to true/false.
 $EDITOR bootstrap.conf.yml
 
 sudo BOOTSTRAP_USER=luke BOOTSTRAP_PASSWORD='…' ./init.sh
@@ -84,13 +108,16 @@ capabilities is disabled.
 
 | Capability | Steps gated | Default |
 |---|---|---|
+| `caddy` | user-tier 60-caddy | `true` |
 | `docker` | 50-docker, 55-lazydocker | `true` |
 | `kvm` | 57-kvm | `false` |
-| `dev` | 40-profile + all 6 user-tier steps | `false` |
+| `dev` | 06-playwright-deps | `false` |
 | `public` | 54-crowdsec | `false` |
 
-Always-run steps (no `.requires`): 01-apt, 05-packages, 10-user,
-20-groups, 30-sudo, 51-ssh-hardening, 52-ufw, 53-fail2ban, 56-ssh-client.
+Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
+20-groups, 30-sudo, 40-profile, 51-ssh-hardening, 52-ufw, 53-fail2ban,
+56-ssh-client, 58-mdns. The user tier always runs; per-step gating applies
+(e.g. 60-caddy requires `docker` + `caddy`).
 
 If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
 versions default to `"latest"`.
@@ -111,19 +138,31 @@ time, or pin an exact version string.
 
 ### Example configurations
 
-**Public app server** (Docker + CrowdSec, no dev tooling, no VMs):
+**Full public app server** (Docker + Central Caddy + CrowdSec + Playwright browser deps):
 ```yaml
 capabilities:
   docker: true
+  caddy: true
+  kvm: false
+  dev: true
+  public: true
+```
+
+**Public app server** (Docker + CrowdSec, no VMs, no browser-test deps):
+```yaml
+capabilities:
+  docker: true
+  caddy: true
   kvm: false
   dev: false
   public: true
 ```
 
-**Internal build server** (Docker + KVM + full dev toolchain, pinned versions):
+**Internal build server** (Docker + KVM + Playwright deps, pinned versions, no edge proxy):
 ```yaml
 capabilities:
   docker: true
+  caddy: false
   kvm: true
   dev: true
   public: false
@@ -140,6 +179,7 @@ versions:
 ```yaml
 capabilities:
   docker: false
+  caddy: false
   kvm: false
   dev: false
   public: false
@@ -176,19 +216,28 @@ bootstrap/
 │   ├── 54-crowdsec/                  # CrowdSec LAPI + iptables bouncer
 │   ├── 55-lazydocker/                # drops lazydocker into $SUDO_USER/.local/bin/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
-│   └── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
+│   ├── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
+│   └── 58-mdns/                       # mDNS via nsswitch + avahi-daemon (template rendered)
 ├── user/                   # USER-tier — runs as the deploy user, not as root
 │   ├── init.sh                       # user-tier runner — refuses root
 │   ├── init.d/
 │   │   ├── lib/
 │   │   │   └── common.sh             # non-root check + sources conf.sh, exports version pins
 │   │   ├── 10-llmdocs/               # installs `llmdocs` wrapper at $HOME/.local/bin/
+│   │   ├── 12-bashrc/                # ~/.local/bin + ~/.kilo/bin PATH block in ~/.bashrc
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
 │   │   ├── 20-python/               # installs uv + uv-managed Python
 │   │   ├── 22-kilo/                  # installs kilo CLI binary
+│   │   ├── 23-kilo-settings/         # deploys Kilo global context from skeleton dirs
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
 │   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
-│   │   └── 35-node/                  # installs Node.js via nvm + global npm packages
+│   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
+│   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
+│   │   └── 60-caddy/                 # central Caddy reverse proxy (one per host)
+│   │       ├── .requires             # docker, caddy
+│   │       ├── run.sh                # installs to ~/infra/caddy (runs as deploy user)
+│   │       └── stack/                # Dockerfile, compose.yaml, Caddyfile.tmpl, .env.example,
+│   │           └── bin/              #   caddy-route, acmedns-register
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)
 │   ├── scripts/                      # user scripts (e.g., kilo-session-report.py)
 │   ├── script-runners/               # thin wrappers deployed to $HOME/.local/bin/
@@ -221,6 +270,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `40-profile` — the PATH block is wrapped in stable BEGIN/END markers; if both markers are present, the content between them is compared to the canonical snippet and the file is left alone when they match.
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
+- `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; `docker compose up -d` is a no-op when unchanged; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `22-kilo` — `kilo --version` is checked; reinstall only on mismatch.

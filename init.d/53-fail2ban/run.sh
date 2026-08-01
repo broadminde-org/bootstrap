@@ -20,17 +20,42 @@
 #
 # Dependencies:
 #   Phase 1  — ufw must be active (banaction = ufw).
-#   Phase 2  — Caddy JSON log at
-#              /home/stack/netbird-docker/logs/caddy/access.log must
-#              exist for the caddy-auth and netbird-installer jails.
-#              fail2ban tolerates a missing log path at startup — it
-#              emits a warning but does NOT hard-fail.
+#   Phase 2  — Caddy JSON log must exist for the caddy-auth and
+#              netbird-installer jails. Path resolution order:
+#              $CADDY_LOG_PATH (env override), then whichever of the
+#              central (~/infra/caddy) or legacy (netbird-docker) log
+#              actually exists — central preferred — then the central
+#              path as the default for new hosts. fail2ban tolerates a
+#              missing log path at startup — it emits a warning but does
+#              NOT hard-fail.
 #
 # Run as root (sudo ./init.sh 53-fail2ban).
 
 JAIL_LOCAL=/etc/fail2ban/jail.local
 FILTER_DIR=/etc/fail2ban/filter.d
-CADDY_LOG=/home/stack/netbird-docker/logs/caddy/access.log
+
+# Caddy JSON log path. The legacy netbird path keeps working until the
+# netbird migration removes it — an exists-based preference means re-running
+# this step never blinds the jails on a host whose edge is still the legacy
+# caddy. CADDY_LOG_PATH (environment) overrides everything for non-standard
+# layouts.
+LEGACY_CADDY_LOG=/home/stack/netbird-docker/logs/caddy/access.log
+CENTRAL_CADDY_LOG=""
+if [[ -n "${SUDO_USER:-}" ]]; then
+  CENTRAL_CADDY_LOG="$(getent passwd "$SUDO_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
+fi
+
+if [[ -n "${CADDY_LOG_PATH:-}" ]]; then
+  CADDY_LOG="$CADDY_LOG_PATH"
+elif [[ -n "$CENTRAL_CADDY_LOG" && -f "$CENTRAL_CADDY_LOG" ]]; then
+  CADDY_LOG="$CENTRAL_CADDY_LOG"
+elif [[ -f "$LEGACY_CADDY_LOG" ]]; then
+  CADDY_LOG="$LEGACY_CADDY_LOG"
+elif [[ -n "$CENTRAL_CADDY_LOG" ]]; then
+  CADDY_LOG="$CENTRAL_CADDY_LOG"
+else
+  CADDY_LOG="$LEGACY_CADDY_LOG"
+fi
 
 echo "=== 53-fail2ban: installing fail2ban ==="
 
@@ -47,7 +72,7 @@ apt-get install -y fail2ban
 echo ""
 echo "=== 53-fail2ban: writing ${JAIL_LOCAL} ==="
 
-cat > "$JAIL_LOCAL" <<'JAIL_EOF'
+cat > "$JAIL_LOCAL" <<JAIL_EOF
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
 [DEFAULT]
 bantime  = 1h
@@ -65,7 +90,7 @@ maxretry = 5
 enabled  = true
 port     = 443
 filter   = caddy-auth
-logpath  = /home/stack/netbird-docker/logs/caddy/access.log
+logpath  = $CADDY_LOG
 maxretry = 10
 findtime = 5m
 
@@ -73,7 +98,7 @@ findtime = 5m
 enabled  = true
 port     = 443
 filter   = netbird-installer
-logpath  = /home/stack/netbird-docker/logs/caddy/access.log
+logpath  = $CADDY_LOG
 maxretry = 20
 findtime = 1m
 JAIL_EOF
@@ -103,7 +128,7 @@ cat > "${FILTER_DIR}/caddy-auth.conf" <<'FILTER_EOF'
 # line, and "status" is matched separately at the end.
 #
 # Verify against real log lines with:
-#   fail2ban-regex /home/stack/netbird-docker/logs/caddy/access.log /etc/fail2ban/filter.d/caddy-auth.conf
+#   fail2ban-regex /home/<deploy>/infra/caddy/logs/access.log /etc/fail2ban/filter.d/caddy-auth.conf
 [Definition]
 failregex = .*"client_ip":"<HOST>".*"uri":"/api/[^"]*".*"status":\s*(401|403)
 FILTER_EOF
@@ -132,7 +157,7 @@ cat > "${FILTER_DIR}/netbird-installer.conf" <<'FILTER_EOF'
 # "status" in the serialised line, so the pattern anchors on "client_ip" first.
 #
 # Verify against real log lines with:
-#   fail2ban-regex /home/stack/netbird-docker/logs/caddy/access.log /etc/fail2ban/filter.d/netbird-installer.conf
+#   fail2ban-regex /home/<deploy>/infra/caddy/logs/access.log /etc/fail2ban/filter.d/netbird-installer.conf
 [Definition]
 failregex = .*"client_ip":"<HOST>".*"uri":"/install/[^"]*"
 FILTER_EOF

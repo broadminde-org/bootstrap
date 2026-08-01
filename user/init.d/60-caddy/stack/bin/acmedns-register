@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STACK_DIR="${STACK_DIR:-$HOME/infra/caddy}"
+ACME_DNS_URL="${ACME_DNS_URL:-https://auth.acme-dns.io}"
+CRED_FILE="$STACK_DIR/acmedns.json"
+
+die() { echo "acmedns-register: $*" >&2; exit 1; }
+require() { command -v "$1" >/dev/null 2>&1 || die "$1 is required (run 05-packages first)"; }
+
+usage() {
+  cat >&2 <<EOF
+Usage: acmedns-register
+
+One-time ACME-DNS credential registration for the host's central Caddy.
+Creates $CRED_FILE (0600) and prints the _acme-challenge CNAME records
+you must add to DNS for each delegated name.
+
+Environment:
+  ACME_DNS_URL     acme-dns server (default: https://auth.acme-dns.io)
+EOF
+  exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Step 1: Register with the acme-dns server (idempotent — skip if we
+# already have a credential file). The step ships an empty-object `{}`
+# placeholder so the compose volume mount always has a file — that is NOT
+# a credential and must not suppress registration.
+# ---------------------------------------------------------------------------
+
+require curl
+require jq
+
+if [[ -f "$CRED_FILE" ]] && jq -e 'has("fulldomain")' "$CRED_FILE" >/dev/null 2>&1; then
+  echo "acmedns.json already exists at $CRED_FILE — skipping registration."
+  echo "To re-register, remove the file and re-run."
+  exit 0
+fi
+
+echo "Registering with $ACME_DNS_URL …"
+resp="$(curl -fsS -X POST "$ACME_DNS_URL/register" \
+  -H 'Content-Type: application/json' \
+  --data '{"register": {}}')"
+
+echo ""
+echo "Registration response:"
+echo "$resp" | jq .
+
+fulldomain="$(echo "$resp" | jq -r '.fulldomain')"
+subdomain="$(echo "$resp" | jq -r '.subdomain')"
+
+# ---------------------------------------------------------------------------
+# Step 2: Inject server_url (required by caddy-dns/acmedns v0.5+) and save.
+# ---------------------------------------------------------------------------
+
+mkdir -p "$(dirname "$CRED_FILE")"
+echo "$resp" | jq -c --arg url "$ACME_DNS_URL" '. + {server_url: $url}' > "$CRED_FILE"
+chmod 600 "$CRED_FILE"
+echo "Saved: $CRED_FILE"
+
+# ---------------------------------------------------------------------------
+# Step 3: Instructions for the operator.
+# ---------------------------------------------------------------------------
+
+echo ""
+echo "===================================================================="
+echo "  DNS delegation required"
+echo "===================================================================="
+echo ""
+echo "For each name that needs DNS-01, add this CNAME record:"
+echo ""
+echo "  _acme-challenge.<your-name>  CNAME  ${subdomain}.${fulldomain}"
+echo ""
+echo "For example, to secure *.host.broadminde.org:"
+echo "  _acme-challenge.host.broadminde.org  CNAME  ${subdomain}.${fulldomain}"
+echo ""
+echo "Verify delegation with:"
+echo "  dig +short CNAME _acme-challenge.<your-name>"
+echo ""
+echo "The Caddy container must be RESTARTED (not reloaded) after changing"
+echo "acmedns.json — the DNS provider reads it only at init."
+echo ""
+echo "===================================================================="

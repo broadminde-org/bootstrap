@@ -1,0 +1,50 @@
+# Central Caddy — one edge reverse proxy per host.
+# Runs from ~/infra/caddy (deploy-user owned; installed by bootstrap user/init.d/60-caddy).
+name: caddy
+
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CADDY_VERSION: "2.11.4"
+    image: caddy-custom:latest
+    pull_policy: build
+    container_name: caddy
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--resume"]
+    ports:
+      - "0.0.0.0:80:80"
+      - "[::]:80:80"
+      - "0.0.0.0:443:443"
+      - "[::]:443:443"
+    environment:
+      CROWDSEC_BOUNCER_KEY: "${CROWDSEC_BOUNCER_KEY:-}"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./acmedns.json:/etc/caddy/acmedns.json:ro
+      - ./logs:/data/logs
+      - ../edge:/srv/edge:ro                        # convention: static roots for file_server snippets (~/infra/edge)
+      - caddy_data:/data
+      - caddy_config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--unix-socket", "/run/caddy-admin.sock", "http://localhost/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    networks:
+      - edge
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+    external: true
+    name: edge

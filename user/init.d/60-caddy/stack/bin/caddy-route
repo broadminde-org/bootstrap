@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STACK_DIR="${STACK_DIR:-$HOME/infra/caddy}"
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+SOCK="docker exec caddy curl -s --unix-socket /run/caddy-admin.sock"
+HASH_FILE="$STACK_DIR/.last-pushed.sha256"
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: caddy-route <command> [args]
+
+Commands:
+  register    <app> <file.caddy>   validate → routes.d → reconcile
+  deregister  <app>                rm routes.d/<app>.caddy → reconcile
+  list                             routes.d files vs live server hosts
+  reconcile                        combined adapt → merge → POST /load
+EOF
+  exit 1
+}
+
+die() { echo "caddy-route: $*" >&2; exit 1; }
+
+# App names become routes.d/<app>.caddy paths — keep them traversal-safe.
+check_app_name() {
+  [[ "$1" =~ ^[a-zA-Z0-9._-]+$ ]] || die "invalid app name '$1' (allowed: letters, digits, dot, underscore, dash)"
+}
+
+# ---------------------------------------------------------------------------
+# validate — adapted solo + must NOT have a global block
+# ---------------------------------------------------------------------------
+
+validate() {
+  local snippet="$1"
+  local app="$2"
+
+  [[ -f "$snippet" ]] || die "snippet not found: $snippet"
+
+  # Reject global blocks explicitly: a bare `{` as the first non-comment,
+  # non-blank token. `caddy adapt` ACCEPTS global blocks, so adapt alone
+  # does not enforce the snippet contract (§2.2).
+  local first_token
+  first_token="$(grep -vE '^[[:space:]]*(#|$)' "$snippet" | head -n1 | awk '{print $1}')"
+  if [[ "$first_token" == "{" ]]; then
+    die "snippet '$app' contains a global block — site blocks only (§2.2)"
+  fi
+
+  docker cp "$snippet" caddy:/tmp/check.caddy
+  if ! docker exec caddy caddy adapt --config /tmp/check.caddy --adapter caddyfile >/dev/null 2>&1; then
+    echo "Validation failed for '$snippet':"
+    docker exec caddy caddy adapt --config /tmp/check.caddy --adapter caddyfile 2>&1 || true
+    die "snippet '$app' does not adapt"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# reconcile — combined adapt → merge → POST /load
+# ---------------------------------------------------------------------------
+
+reconcile() {
+  shopt -s nullglob
+  local files=("$STACK_DIR"/routes.d/*.caddy)
+  shopt -u nullglob
+
+  docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile > "$tmp/global.json"
+
+  if [[ ${#files[@]} -eq 0 ]]; then
+    # Zero snippets: the merged config is the adapted global config alone.
+    # This MUST still be pushed (subject to hash-skip) — skipping the POST
+    # when the last app is deregistered would leave it running forever
+    # (and resurrected from autosave on restart). Never `cat` an unmatched
+    # glob (reads stdin and hangs) or adapt an empty file (errors).
+    cp "$tmp/global.json" "$tmp/merged.json"
+  else
+    cat "${files[@]}" > "$tmp/combined.caddy"
+    docker cp "$tmp/combined.caddy" caddy:/tmp/combined.caddy
+    docker exec caddy caddy adapt --config /tmp/combined.caddy --adapter caddyfile > "$tmp/apps.json"
+    jq -s '.[0] * .[1]' "$tmp/global.json" "$tmp/apps.json" > "$tmp/merged.json"
+  fi
+
+  local new_hash
+  new_hash="$(sha256sum "$tmp/merged.json" | cut -d' ' -f1)"
+
+  if [[ -f "$HASH_FILE" ]]; then
+    local old_hash
+    old_hash="$(head -n1 "$HASH_FILE")"
+    if [[ "$new_hash" == "$old_hash" ]]; then
+      echo "Config unchanged — skipping /load"
+      return 0
+    fi
+  fi
+
+  docker cp "$tmp/merged.json" caddy:/tmp/merged.json
+  local out code body
+  out="$($SOCK -X POST "http://localhost/load" \
+    -H 'Content-Type: application/json' \
+    -d @/tmp/merged.json -w $'\n%{http_code}')"
+  code="${out##*$'\n'}"
+  body="${out%$'\n'*}"
+
+  if [[ "$code" != "200" ]]; then
+    echo "POST /load returned HTTP $code:"
+    echo "$body"
+    echo ""
+    echo "Caddy logs (tail 20):"
+    docker logs caddy --tail 20 >&2 || true
+    # Return (not die) so cmd_register's rollback path can run.
+    return 1
+  fi
+
+  echo "$new_hash" > "$HASH_FILE"
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "Reconcile: pushed global-only config (routes.d empty)"
+  else
+    echo "Reconcile: pushed ${#files[@]} snippet(s)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# register — validate → copy → reconcile
+# ---------------------------------------------------------------------------
+
+cmd_register() {
+  local app="${1:-}" snippet="${2:-}"
+  local dest="$STACK_DIR/routes.d/${app}.caddy"
+
+  [[ -n "$app" && -n "$snippet" ]] || usage
+  check_app_name "$app"
+  [[ -d "$STACK_DIR/routes.d" ]] || die "routes.d/ not found — run init.d/60-caddy first"
+
+  validate "$snippet" "$app"
+
+  cp "$snippet" "$dest"
+
+  if ! reconcile; then
+    rm -f "$dest"
+    echo "Rolled back: removed routes.d/${app}.caddy (rejected by /load)" >&2
+    reconcile
+    exit 1
+  fi
+
+  echo "Registered: $app"
+}
+
+# ---------------------------------------------------------------------------
+# deregister — rm → reconcile
+# ---------------------------------------------------------------------------
+
+cmd_deregister() {
+  local app="${1:-}"
+  local file="$STACK_DIR/routes.d/${app}.caddy"
+
+  [[ -n "$app" ]] || usage
+  check_app_name "$app"
+
+  if [[ -f "$file" ]]; then
+    rm "$file"
+    reconcile
+    echo "Deregistered: $app"
+  else
+    echo "Not registered: $app"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# list — routes.d files vs live server hosts
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+  local live
+  live="$($SOCK http://localhost/config/apps/http/servers 2>/dev/null)" || true
+
+  echo "=== routes.d (disk) ==="
+  shopt -s nullglob
+  local files=("$STACK_DIR"/routes.d/*.caddy)
+  shopt -u nullglob
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "  (empty)"
+  else
+    for f in "${files[@]}"; do
+      echo "  $(basename "$f")"
+    done
+  fi
+
+  echo ""
+  echo "=== Live server names ==="
+  # The Admin API returns {"error":"invalid traversal path…"} when no servers
+  # exist — exclude error payloads before listing keys. jq failure (empty or
+  # malformed response, e.g. container unreachable) also yields empty names.
+  local names
+  names="$(echo "$live" | jq -r 'if type == "object" and (has("error") | not) then keys[] else empty end' 2>/dev/null)" || true
+  if [[ -z "$names" ]]; then
+    echo "  (no servers loaded)"
+  else
+    echo "  ${names//$'\n'/$'\n'  }"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# dispatch
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+  register)    shift; cmd_register "$@" ;;
+  deregister)  shift; cmd_deregister "$@" ;;
+  list)        cmd_list ;;
+  reconcile)   reconcile ;;
+  *)           usage ;;
+esac
