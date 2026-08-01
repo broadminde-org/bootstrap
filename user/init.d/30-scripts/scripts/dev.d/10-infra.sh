@@ -11,37 +11,41 @@ case "${1:-up}" in
       exit 0
     fi
 
-    log "Starting infra services..."
-    infra_svcs=$(compose_cmd config --services 2>/dev/null || true)
-    if [[ -n "$infra_svcs" ]]; then
-      compose_cmd up -d --remove-orphans
-    else
-      log_skip "No services defined in compose file"
+    # Infra is opt-in: only services named in DEV_INFRA_SERVICES (from .env)
+    # are started. Unset/empty means dev touches no containers — compose
+    # files written for deployment (no profiles) are left alone.
+    infra_svcs=()
+    read -ra infra_svcs <<< "${DEV_INFRA_SERVICES:-}"
+    if [[ ${#infra_svcs[@]} -eq 0 ]]; then
+      log_skip "DEV_INFRA_SERVICES not set — no infra services to start"
+      exit 0
     fi
+
+    log "Starting infra services: ${infra_svcs[*]}..."
+    # No --remove-orphans: with an explicit service list it would reap
+    # containers outside the list (e.g. app containers started by stack).
+    compose_cmd up -d "${infra_svcs[@]}"
 
     # Wait for healthchecks. ps JSON always has a "Health" key — only a
     # non-empty value ("Health":"<state>") means a healthcheck exists.
-    if [[ -n "$infra_svcs" ]]; then
-      for i in $(seq 1 30); do
-        all_healthy=true
-        while IFS= read -r svc; do
-          [[ -z "$svc" ]] && continue
-          svc_json=$(compose_cmd ps "$svc" --format json 2>/dev/null || true)
-          if echo "$svc_json" | grep -q '"Health":"[a-z]' \
-              && ! echo "$svc_json" | grep -q '"Health":"healthy"'; then
-            all_healthy=false
-          fi
-        done <<< "$infra_svcs"
-        if $all_healthy; then
-          ok "Infra services are healthy"
-          break
+    for i in $(seq 1 30); do
+      all_healthy=true
+      for svc in "${infra_svcs[@]}"; do
+        svc_json=$(compose_cmd ps "$svc" --format json 2>/dev/null || true)
+        if echo "$svc_json" | grep -q '"Health":"[a-z]' \
+            && ! echo "$svc_json" | grep -q '"Health":"healthy"'; then
+          all_healthy=false
         fi
-        if [[ $i -eq 30 ]]; then
-          warn "Some infra services not healthy after 60s, continuing anyway..."
-        fi
-        sleep 2
       done
-    fi
+      if $all_healthy; then
+        ok "Infra services are healthy"
+        break
+      fi
+      if [[ $i -eq 30 ]]; then
+        warn "Some infra services not healthy after 60s, continuing anyway..."
+      fi
+      sleep 2
+    done
     ;;
 
   down)

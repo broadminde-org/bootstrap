@@ -14,6 +14,8 @@ set -euo pipefail
 # docker-compose.yml, .air.toml, backend/.air.toml, frontend/package.json.
 # Auto-port: LISTEN_ADDR defaults to :0; the backend writes .dev/backend.port
 # and Vite's port is parsed from its log into .dev/frontend.port.
+# Infra is opt-in: `dev up` starts only the compose services named in
+# DEV_INFRA_SERVICES (set in .env); unset means no containers are touched.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVD_DIR="${SCRIPT_DIR}/dev.d"
