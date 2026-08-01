@@ -70,7 +70,9 @@ echo "Kilo home dir: $KILO_HOME"
 # ---------------------------------------------------------------------------
 
 deploy_dir() {
-  local name="$1" src="$SRC_CONFIG/$name" dst="$KILO_CONFIG/$name"
+  local name="$1"
+  local src="$SRC_CONFIG/$name"
+  local dst="$KILO_CONFIG/$name"
 
   if [[ ! -d "$src" ]]; then
     echo "  skipped $name/ (not found in skeleton)"

@@ -122,8 +122,11 @@ install_node() {
     nvm install "${EE_NODE_VERSION}"
   fi
 
-  # Final guard: verify the active version matches the pin exactly
-  nvm use "$EE_NODE_VERSION"
+  # Final guard: verify the active version matches the pin exactly.
+  # --delete-prefix permanently removes any `prefix`/`globalconfig` lines from
+  # the user/global/builtin npmrc files (nvm's own remedy — they are
+  # incompatible with nvm and make plain `nvm use` fail with exit 11).
+  nvm use --delete-prefix "$EE_NODE_VERSION"
   INSTALLED_VERSION="$(node --version | sed 's/^v//')"
   if [[ "$INSTALLED_VERSION" != "$EE_NODE_VERSION" ]]; then
     echo "ERROR: requested Node.js ${EE_NODE_VERSION} but installed ${INSTALLED_VERSION}" >&2
@@ -147,7 +150,9 @@ install_packages() {
   echo "--- Installing global npm packages"
 
   source "$NVM_DIR/nvm.sh" >/dev/null 2>&1
-  nvm use "$EE_NODE_VERSION" >/dev/null 2>&1
+  # --delete-prefix: see install_node — keeps this step working even if a
+  # stray npmrc prefix reappears.
+  nvm use --delete-prefix "$EE_NODE_VERSION" >/dev/null 2>&1
 
   local has_playwright=false
   npm_list=$(npm list -g --depth=0 2>/dev/null || true)
@@ -181,7 +186,11 @@ install_packages() {
 
   if [ "$has_playwright" = true ]; then
     echo "--- Installing Playwright browsers"
-    npx playwright install --with-deps chromium firefox webkit
+    # No --with-deps: installing OS libraries needs root (passworded sudo
+    # fails unattended). System deps are installed by the root tier
+    # (bootstrap/init.d/06-playwright-deps); verify with
+    # `npx playwright install-deps --dry-run chromium`.
+    npx playwright install chromium firefox webkit
     echo "Playwright browsers installed."
   fi
 }
