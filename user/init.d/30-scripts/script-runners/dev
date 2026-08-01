@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Wrapper for dev — installed by 30-scripts into $HOME/.local/bin/dev.
+exec bash "$HOME/scripts/dev" "$@"
