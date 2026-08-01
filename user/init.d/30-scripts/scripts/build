@@ -1,0 +1,445 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1091
+set -euo pipefail
+
+# build — Single-project build pipeline (frontend → swag → go generate → binary → docker)
+#
+# Generalized from the ee monorepo's infra/mcp/build.d/run.sh orchestrator:
+# PWD-based single-project operation (no --all, no app arg, no project_resolve),
+# ee-only steps (05-caddy, 35-connectors) dropped, IMAGE_REGISTRY from env/.env
+# only. Installed by user/init.d/30-scripts into $HOME/scripts/build and
+# invoked via the $HOME/.local/bin/build runner shim.
+#
+# Usage:
+#   build                  Build the project in $PWD
+#   build --no-docker      Skip Docker image build
+#   build --frontend-only  Build only frontend
+#   build --binary-only    Build only Go binary
+#   build --docker-only    Build only Docker image (requires binary exists)
+#   build clean            Remove build artifacts
+#
+# Run from the project root ($PWD — no discovery). Requires at least one of:
+# Dockerfile, frontend/package.json, backend/main.go, main.go, go.mod,
+# backend/go.mod.
+#
+# Output:
+#   build-results/<YYYYMMDD-HHMMSS>/build.md           — build log
+#   build-results/<YYYYMMDD-HHMMSS>/build-events.jsonl — structured step events
+#   build-results/latest                               — symlink to newest run
+#   dist/<app>                                         — Go binary
+#   dist/frontend/                                     — built frontend assets
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUILDD_DIR="${SCRIPT_DIR}/build.d"
+
+print_help() {
+  cat <<'EOF'
+Usage: build [options]
+       build clean [--dry-run]
+
+Options:
+  --no-docker        Skip Docker image build
+  --no-push          Do not push the built image to the registry
+  --tag <t>          Image tag to build (+push) instead of "latest"
+  --frontend-only    Build only frontend
+  --binary-only      Build only Go binary
+  --docker-only      Build only Docker image (requires an existing binary)
+  --dry-run          With clean: show what would be removed, remove nothing
+  --verbose, -v      Stream step output to stdout as well as build.md
+  --debug            Extra failure diagnostics in build.md (implies --verbose)
+  --help, -h         Show this help
+
+Subcommands:
+  clean              Remove build artifacts: frontend/build, frontend/dist,
+                     frontend/.svelte-kit, frontend/node_modules/.vite,
+                     backend/static, static/, build-results/, and dist/.
+                     Note: dist/ is per-project here, so clean removes the
+                     whole directory (in the ee monorepo dist/ was shared
+                     across apps and clean left it alone).
+
+Environment:
+  IMAGE_REGISTRY     Registry prefix for image tags/pushes (env or .env)
+  IMAGE_TAG          Default tag when --tag is not given (default: latest)
+  EE_RESULTS_KEEP    How many build-results/<ts> dirs to keep (default: 10,
+                     0 disables pruning)
+
+Run from the project root ($PWD — no discovery). Requires at least one of:
+Dockerfile, frontend/package.json, backend/main.go, main.go, go.mod,
+backend/go.mod.
+
+Build hooks: executable scripts at scripts/build-hooks/<name> in the project
+run at fixed points (post-binary, post-docker) with BUILD_HOOK_* env vars set.
+
+Output:
+  build-results/<YYYYMMDD-HHMMSS>/build.md           build log
+  build-results/<YYYYMMDD-HHMMSS>/build-events.jsonl structured step events
+  build-results/latest -> <ts>                       newest run
+  dist/<app>                                         Go binary
+  dist/frontend/                                     built frontend assets
+EOF
+}
+
+# --help works from any directory (before the project-root marker check).
+for _a in "$@"; do
+  case "$_a" in
+    --help|-h) print_help; exit 0 ;;
+  esac
+done
+
+PROJECT_DIR="$PWD"
+
+if [[ ! -f "$PROJECT_DIR/Dockerfile" \
+   && ! -f "$PROJECT_DIR/frontend/package.json" \
+   && ! -f "$PROJECT_DIR/backend/main.go" \
+   && ! -f "$PROJECT_DIR/main.go" \
+   && ! -f "$PROJECT_DIR/go.mod" \
+   && ! -f "$PROJECT_DIR/backend/go.mod" ]]; then
+  echo "Error: not a project root: $PROJECT_DIR" >&2
+  echo "  (looked for Dockerfile, frontend/package.json, backend/main.go, main.go, go.mod, backend/go.mod)" >&2
+  exit 1
+fi
+
+DETECTED_APP="$(basename "$PROJECT_DIR")"
+DIST_DIR="$PROJECT_DIR/dist"
+TIMESTAMP=$(date -u +"%Y%m%d-%H%M%S")
+
+source "${SCRIPT_DIR}/lib/version.sh"
+source "${SCRIPT_DIR}/lib/retention.sh"
+# log/ok/warn/fail/sep + step helpers come from build.d/common.sh so the
+# orchestrator and steps share one definition (ee defined them twice).
+source "${BUILDD_DIR}/common.sh"
+
+# Project-local env (IMAGE_REGISTRY, IMAGE_TAG defaults, etc.)
+if [[ -f "$PROJECT_DIR/.env" ]]; then
+  set -a; source "$PROJECT_DIR/.env"; set +a
+fi
+
+MODE="build"
+DRY_RUN=false
+DOCKER_BUILD=true
+FRONTEND_ONLY=false
+BINARY_ONLY=false
+DOCKER_ONLY=false
+PUSH_IMAGE=true
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+VERBOSE=false
+DEBUG=false
+
+# IMAGE_REGISTRY comes from the environment / .env only (ee's ee.conf.yml
+# grep logic was dropped in the generalization).
+REGISTRY="${IMAGE_REGISTRY:-}"
+export IMAGE_REGISTRY="$REGISTRY"
+
+# Parse args
+args=("$@")
+i=0
+while [[ $i -lt ${#args[@]} ]]; do
+  arg="${args[$i]}"
+  case "$arg" in
+    --no-docker) DOCKER_BUILD=false ;;
+    --no-push) PUSH_IMAGE=false ;;
+    --frontend-only) FRONTEND_ONLY=true ;;
+    --binary-only) BINARY_ONLY=true ;;
+    --docker-only) DOCKER_ONLY=true ;;
+    --tag) i=$((i+1)); IMAGE_TAG="${args[$i]:-}" ;;
+    --tag=*) IMAGE_TAG="${arg#--tag=}" ;;
+    --dry-run) DRY_RUN=true ;;
+    --verbose|-v) VERBOSE=true ;;
+    --debug) DEBUG=true; VERBOSE=true ;;
+    --help|-h) print_help; exit 0 ;;  # unreachable (pre-scanned above); kept for clarity
+    --*) echo "Unknown option: $arg" >&2; exit 1 ;;
+    clean)
+      if [[ "$MODE" != "build" ]]; then echo "Unexpected positional: $arg" >&2; exit 1; fi
+      MODE="clean"
+      ;;
+    *) echo "Unexpected positional: $arg (single-project build takes no app argument)" >&2; exit 1 ;;
+  esac
+  i=$((i+1))
+done
+export IMAGE_TAG
+
+# ===========================================================================
+# Clean subcommand
+# ===========================================================================
+
+clean_path() {
+  local p="$1"
+  if [[ ! -e "$p" && ! -L "$p" ]]; then return 0; fi
+  local resolved
+  resolved="$(readlink -f "$p" 2>/dev/null || echo "")"
+  if [[ -z "$resolved" || "$resolved" != "$PROJECT_DIR"/* ]]; then
+    warn "Refusing to clean outside PROJECT_DIR: $p"; return 0
+  fi
+  if $DRY_RUN; then echo "  would remove: $p"; return 0; fi
+  rm -rf -- "$p"
+  ok "removed: $p"
+}
+
+clean_project() {
+  log "[${DETECTED_APP}] Cleaning build artifacts..."
+  clean_path "$PROJECT_DIR/frontend/build"
+  clean_path "$PROJECT_DIR/frontend/dist"
+  clean_path "$PROJECT_DIR/frontend/.svelte-kit"
+  clean_path "$PROJECT_DIR/frontend/node_modules/.vite"
+  clean_path "$PROJECT_DIR/backend/static"
+  clean_path "$PROJECT_DIR/static"
+  clean_path "$PROJECT_DIR/build-results"
+  # Deliberate simplification: dist/ is per-project now (ee shared one dist/
+  # across apps and cleaned per-app subdirs only).
+  clean_path "$PROJECT_DIR/dist"
+  ok "[${DETECTED_APP}] Clean complete"
+}
+
+if [[ "$MODE" == "clean" ]]; then
+  clean_project
+  exit 0
+fi
+
+# ===========================================================================
+# Build subcommand — runner over build.d/
+# ===========================================================================
+
+build_project() {
+  local start_time end_time duration
+  start_time=$(date +%s)
+
+  local app="$DETECTED_APP"
+  local app_dir="$PROJECT_DIR"
+  local build_results_dir="${app_dir}/build-results/${TIMESTAMP}"
+  mkdir -p "$build_results_dir"
+  local log_file="${build_results_dir}/build.md"
+
+  # Version identifiers
+  local semver
+  if [[ -f "${app_dir}/VERSION" ]]; then
+    semver="$(tr -d '[:space:]' < "${app_dir}/VERSION")"
+  else
+    semver="0.0.0"
+  fi
+
+  local build_num git_sha dirty_suffix
+  build_num=$(next_build_number "${app_dir}")
+  git_sha="$(git -C "${app_dir}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  if [[ -n "$(git -C "${app_dir}" status --porcelain 2>/dev/null | grep -v '\.build-number$' || true)" ]]; then
+    dirty_suffix="-dirty"
+  else
+    dirty_suffix=""
+  fi
+
+  log "${app} v${semver} build ${build_num} (${git_sha})${dirty_suffix:+ [dirty]}"
+
+  local frontend_dir="${app_dir}/frontend"
+  local dist_dir="${DIST_DIR}"
+  local static_dir="${app_dir}/static"
+  if [[ -d "${app_dir}/backend" && -f "${app_dir}/backend/main.go" ]]; then
+    static_dir="${app_dir}/backend/static"
+  fi
+
+  local version_full="v${semver}-b${build_num}-${git_sha}${dirty_suffix}"
+  local version_tag="v${semver}-b${build_num}"
+  version_tag="${version_tag//\//-}"
+
+  # Export BUILD_HOOK_* env vars for build.d/ steps
+  export BUILD_HOOK_APP="$app"
+  export BUILD_HOOK_APP_DIR="$app_dir"
+  export BUILD_HOOK_PROJECT_DIR="$PROJECT_DIR"
+  export BUILD_HOOK_DIST_DIR="$dist_dir"
+  export BUILD_HOOK_SEMVER="$semver"
+  export BUILD_HOOK_BUILD_NUM="$build_num"
+  export BUILD_HOOK_GIT_SHA="$git_sha"
+  export BUILD_HOOK_VERSION_FULL="$version_full"
+  export BUILD_HOOK_REGISTRY="$REGISTRY"
+  export BUILD_HOOK_IMAGE_TAG="$IMAGE_TAG"
+  export BUILD_HOOK_PUSH_IMAGE="$PUSH_IMAGE"
+  export BUILD_HOOK_LOG_FILE="$log_file"
+  export BUILD_HOOK_VERSION_TAG="$version_tag"
+  export BUILD_HOOK_SEMVER_TAG="v${semver}"
+  export BUILD_HOOK_VERBOSE="$VERBOSE"
+  export BUILD_HOOK_DEBUG="$DEBUG"
+
+  # Initialize step events log
+  local events_log="${build_results_dir}/build-events.jsonl"
+  : > "$events_log"
+  export STEP_EVENTS_LOG="$events_log"
+
+  # Initialize build.md log
+  cat > "$log_file" << EOF
+# Build Results — ${app}
+
+**Timestamp:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")  
+**App:** ${app}  
+**Command:** build
+
+---
+
+## Configuration
+
+| Setting | Value |
+|---------|-------|
+| App Directory | ${app_dir} |
+| Frontend Directory | ${frontend_dir} |
+| Static Directory | ${static_dir} |
+| Dist Directory | ${dist_dir} |
+| Docker Build | ${DOCKER_BUILD} |
+| Frontend Only | ${FRONTEND_ONLY} |
+| Binary Only | ${BINARY_ONLY} |
+| Docker Only | ${DOCKER_ONLY} |
+| Registry | ${REGISTRY:-<local-only>} |
+| Image Tag | ${IMAGE_TAG} |
+| Push | ${PUSH_IMAGE} |
+| Semver | ${semver} |
+| Build Number | ${build_num} |
+| Git SHA | ${git_sha} |
+| Version Full | ${version_full} |
+| Verbose | ${VERBOSE} |
+| Debug | ${DEBUG} |
+
+---
+
+## Build Steps
+
+EOF
+
+  # Phase state tracking
+  local errors=""
+  local frontend_failed=false
+  local binary_failed=false
+
+  # Determine which steps to run based on flags (ee's 05-caddy and
+  # 35-connectors steps were dropped in the generalization)
+  local step_order=()
+  if [[ "$BINARY_ONLY" == false && "$DOCKER_ONLY" == false ]]; then
+    step_order+=(10-frontend)
+  fi
+  if [[ "$BINARY_ONLY" == false && "$FRONTEND_ONLY" == false && "$DOCKER_ONLY" == false ]]; then
+    step_order+=(15-swag)
+  fi
+  if [[ "$BINARY_ONLY" == false && "$FRONTEND_ONLY" == false && "$DOCKER_ONLY" == false ]]; then
+    step_order+=(20-go-generate)
+  fi
+  if [[ "$FRONTEND_ONLY" == false && "$DOCKER_ONLY" == false ]]; then
+    step_order+=(30-binary)
+  fi
+  if [[ "$FRONTEND_ONLY" == false && "$BINARY_ONLY" == false && "$DOCKER_BUILD" == true ]]; then
+    step_order+=(40-docker)
+  fi
+
+  # Retention: prune old build-results before creating new ones
+  prune_results_dir "${app_dir}/build-results" "${EE_RESULTS_KEEP:-10}"
+
+  # Run build.d/ steps
+  local step_name
+  for step_name in "${step_order[@]}"; do
+    local step_file="${BUILDD_DIR}/${step_name}.sh"
+    if [[ ! -f "$step_file" ]]; then
+      warn "Step file not found: ${step_file}"
+      continue
+    fi
+
+    # Skip remaining steps if frontend failed
+    if $frontend_failed && [[ "$step_name" != "10-frontend" ]]; then
+      local step_label=""
+      case "$step_name" in
+        15-swag) step_label="Swag (OpenAPI spec generation)" ;;
+        20-go-generate) step_label="Go Generate (sourcemap)" ;;
+        30-binary) step_label="Go Binary Build" ;;
+        40-docker) step_label="Docker Image Build" ;;
+      esac
+      echo "### ${step_label}" >> "$log_file"
+      echo "" >> "$log_file"
+      echo "**${step_label}: SKIPPED** — frontend build failed (refusing to ship a backend-only binary)" >> "$log_file"
+      echo "" >> "$log_file"
+      local skip_ts
+      skip_ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      echo "{\"ts\":\"${skip_ts}\",\"event\":\"step_skip\",\"step\":\"${step_name}\",\"label\":\"${step_label}\",\"reason\":\"frontend build failed\"}" >> "$STEP_EVENTS_LOG"
+      continue
+    fi
+
+    # Skip docker step if binary build failed
+    if $binary_failed && [[ "$step_name" == "40-docker" ]]; then
+      local docker_step_label="Docker Image Build"
+      echo "### ${docker_step_label}" >> "$log_file"
+      echo "" >> "$log_file"
+      echo "**${docker_step_label}: SKIPPED** — binary build failed (refusing to ship an image with a stale binary)" >> "$log_file"
+      echo "" >> "$log_file"
+      local skip_ts2
+      skip_ts2="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      echo "{\"ts\":\"${skip_ts2}\",\"event\":\"step_skip\",\"step\":\"${step_name}\",\"label\":\"${docker_step_label}\",\"reason\":\"binary build failed\"}" >> "$STEP_EVENTS_LOG"
+      continue
+    fi
+
+    # Run the step
+    if bash "$step_file"; then
+      :
+    else
+      if [[ "$step_name" == "10-frontend" ]]; then
+        frontend_failed=true
+        errors="${errors}frontend build failed; "
+      elif [[ "$step_name" == "30-binary" ]]; then
+        binary_failed=true
+        errors="${errors}30-binary failed; "
+      else
+        errors="${errors}${step_name} failed; "
+      fi
+    fi
+  done
+
+  # Calculate duration
+  end_time=$(date +%s)
+  duration=$((end_time - start_time))
+
+  # Update latest symlink
+  ln -sfn "${TIMESTAMP}" "${app_dir}/build-results/latest"
+
+  # Final result section
+  echo "---" >> "$log_file"
+  echo "" >> "$log_file"
+  echo "## Summary" >> "$log_file"
+  echo "" >> "$log_file"
+  echo "| Step | Status |" >> "$log_file"
+  echo "|------|--------|" >> "$log_file"
+
+  if [[ -d "$frontend_dir" || "$FRONTEND_ONLY" == true ]]; then
+    if ! $frontend_failed; then
+      echo "| Frontend | ✅ SUCCESS |" >> "$log_file"
+    else
+      echo "| Frontend | ❌ FAILED |" >> "$log_file"
+    fi
+  fi
+  if [[ "$FRONTEND_ONLY" == false ]]; then
+    local binary_status="SUCCESS"
+    if [[ -n "$errors" ]]; then
+      if echo "$errors" | grep -q "frontend\|binary\|docker"; then
+        binary_status="FAILED"
+      fi
+    fi
+    echo "| Go Binary | $([ "$binary_status" = "FAILED" ] && echo '❌' || echo '✅') $binary_status |" >> "$log_file"
+  fi
+  if [[ "$DOCKER_BUILD" == true && "$FRONTEND_ONLY" == false && "$BINARY_ONLY" == false ]]; then
+    local docker_status="SUCCESS"
+    if echo "$errors" | grep -q "docker"; then
+      docker_status="FAILED"
+    fi
+    echo "| Docker Image | $([ "$docker_status" = "FAILED" ] && echo '❌' || echo '✅') $docker_status |" >> "$log_file"
+  fi
+
+  echo "" >> "$log_file"
+  echo "**Duration:** ${duration}s" >> "$log_file"
+  echo "" >> "$log_file"
+
+  if [[ -z "$errors" ]]; then
+    write_build_number "${app_dir}" "${build_num}"
+    echo "**Result: SUCCESS** ✅" >> "$log_file"
+    ok "[$app] Build complete (${duration}s) — build ${build_num} committed"
+    return 0
+  else
+    echo "**Result: FAILED** ❌" >> "$log_file"
+    echo "" >> "$log_file"
+    echo "**Errors:** ${errors}" >> "$log_file"
+    fail "[$app] Build failed"
+    return 1
+  fi
+}
+
+# Main
+build_project
