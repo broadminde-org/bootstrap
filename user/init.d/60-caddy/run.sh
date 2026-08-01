@@ -6,8 +6,11 @@
 #
 # Installs to ~/infra/caddy (everything deploy-user owned — this step runs
 # AS the deploy user), syncs the stack files, renders the Caddyfile
-# template, builds the custom Docker image, and starts the container.
-# Idempotent: safe to re-run.
+# template, and builds the custom Docker image. It NEVER starts a stopped
+# container — bringing up the host's edge is an explicit operator action
+# (`cd ~/infra/caddy && docker compose up -d`). When the container is
+# already running, an update is applied in place (recreate on change) and
+# routes.d replayed. Idempotent: safe to re-run.
 #
 # Privileges needed: docker group membership (root tier, 50-docker) for
 # docker/compose, and — only when the `public` capability is on — crowdsec
@@ -65,8 +68,17 @@ if cap_enabled public; then
   if grep -q '^CROWDSEC_BOUNCER_KEY=$' "$STACK_DIR/.env" 2>/dev/null; then
     if command -v cscli >/dev/null 2>&1; then
       echo "Generating CrowdSec bouncer key for caddy-edge …"
-      if bkey="$(cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
-        sed -i "s/^CROWDSEC_BOUNCER_KEY=.*/CROWDSEC_BOUNCER_KEY=$bkey/" "$STACK_DIR/.env"
+      if ! bkey="$(cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
+        # A stale caddy-edge bouncer (e.g. from a previous partial run)
+        # blocks re-creation by name — remove it and regenerate so the
+        # step is self-healing instead of permanently running unprotected.
+        cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
+        bkey="$(cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
+      fi
+      if [[ -n "$bkey" ]]; then
+        # `|` delimiter: cscli keys are base64 (charset A-Za-z0-9+/=) —
+        # a `/`-delimited s/// would break on most keys.
+        sed -i "s|^CROWDSEC_BOUNCER_KEY=.*|CROWDSEC_BOUNCER_KEY=$bkey|" "$STACK_DIR/.env"
         echo "Bouncer key written to $STACK_DIR/.env"
       else
         echo "WARNING: cscli failed — is $USER in the crowdsec group (54-crowdsec)? Running without CrowdSec" >&2
@@ -183,7 +195,11 @@ if [[ ! -f "$STACK_DIR/Caddyfile" ]] || [[ "$(cat "$STACK_DIR/Caddyfile")" != "$
 fi
 
 # ---------------------------------------------------------------------------
-# Step 8: Build (on change), start/ensure running, reconcile (on change).
+# Step 8: Build + autosave hygiene (on change); apply only when already
+# running. This step NEVER starts a stopped container — bringing up the
+# host's edge is an explicit operator action (`docker compose up -d` in the
+# live dir). When the container IS running, the operator already opted in:
+# an update is applied in place (recreate on change) and routes.d replayed.
 # ---------------------------------------------------------------------------
 
 if [[ "$changed" -eq 1 ]]; then
@@ -191,63 +207,90 @@ if [[ "$changed" -eq 1 ]]; then
 
   compose build
 
-  # Wipe autosave so restart replays global config fresh (not stale --resume).
-  # Also drop the hash file so reconcile pushes once.
+  # Wipe autosave + push hash so the next start replays the global config
+  # from --config (never a stale --resume) and reconcile pushes exactly once.
+  # `compose run` here is a transient, port-less utility container, not the
+  # service — the service itself is not started.
   compose run --rm --no-deps --entrypoint rm caddy -f /config/autosave.json 2>/dev/null || true
   rm -f "$STACK_DIR/.last-pushed.sha256"
 else
   echo "No changes — caddy stack is up to date."
 fi
 
-# up -d is a no-op when the container is already running the current config;
-# running it unconditionally also recovers a stopped container (which comes
-# back from autosave via --resume — correct without a reconcile).
-compose up -d
+# Sample running state only AFTER the build, which can take minutes: an
+# operator may have stopped (or started) caddy mid-run, and this step must
+# NEVER start a stopped container. was_running also gates the post-condition
+# checks below.
+was_running=0
+docker ps -q --filter 'name=^caddy$' 2>/dev/null | grep -q . && was_running=1
 
-# Wait healthy (returns immediately when already healthy).
-echo "Waiting for caddy to become healthy …"
-status=""
-for _i in $(seq 1 60); do
-  status="$(docker inspect -f '{{.State.Health.Status}}' caddy 2>/dev/null)" || status=""
-  if [[ "$status" == "healthy" ]]; then
-    break
+if [[ "$was_running" -eq 1 ]]; then
+  # Already running (operator opted in): apply in place. up -d recreates on
+  # config change, no-op when already current.
+  compose up -d
+
+  # Wait healthy (returns immediately when already healthy).
+  echo "Waiting for caddy to become healthy …"
+  status=""
+  for _i in $(seq 1 60); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' caddy 2>/dev/null)" || status=""
+    if [[ "$status" == "healthy" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$status" != "healthy" ]]; then
+    echo "ERROR: caddy did not become healthy after 60s" >&2
+    docker logs caddy --tail 30 >&2
+    exit 1
   fi
-  sleep 1
-done
-if [[ "$status" != "healthy" ]]; then
-  echo "ERROR: caddy did not become healthy after 60s" >&2
-  docker logs caddy --tail 30 >&2
-  exit 1
-fi
-echo "Caddy is healthy"
+  echo "Caddy is healthy"
 
-if [[ "$changed" -eq 1 ]]; then
-  # Replay routes.d.
-  echo "Replaying routes.d via reconcile …"
+  # Replay routes.d. Unconditional: the hash-skip makes it a no-op when
+  # converged, and running it every time heals divergence — e.g. a previous
+  # run that wiped autosave but aborted before its reconcile.
   "$STACK_DIR/bin/caddy-route" reconcile
+else
+  echo ""
+  echo "Caddy is provisioned but NOT started — this step never starts it automatically."
+  if port_conflicts="$(ss -tlnH '( sport = :80 or sport = :443 )' 2>/dev/null)" && [[ -n "$port_conflicts" ]]; then
+    echo ""
+    echo "WARNING: ports 80/443 are currently in use by another service:" >&2
+    ss -tlnpH '( sport = :80 or sport = :443 )' >&2 2>/dev/null || echo "$port_conflicts" >&2
+    echo "Resolve the conflict (or remap ports via $STACK_DIR/compose.override.yaml) before starting." >&2
+  fi
+  echo ""
+  echo "To bring it up:"
+  echo "  cd $STACK_DIR && docker compose up -d"
+  if [[ "$changed" -eq 1 ]]; then
+    echo "Config changed since it last ran — after starting, replay routes once:"
+    echo "  caddy-route reconcile"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# Step 9: Post-condition checks.
+# Step 9: Post-condition checks (only meaningful against a running container).
 # ---------------------------------------------------------------------------
 
-echo ""
-echo "=== Post-condition assertions ==="
+if [[ "$was_running" -eq 1 ]]; then
+  echo ""
+  echo "=== Post-condition assertions ==="
 
-# Validate rendered Caddyfile adapts.
-if docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-  echo "  PASS: Caddyfile adapts"
-else
-  echo "  FAIL: Caddyfile does not adapt:"
-  docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 || true
-  exit 1
-fi
+  # Validate rendered Caddyfile adapts.
+  if docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+    echo "  PASS: Caddyfile adapts"
+  else
+    echo "  FAIL: Caddyfile does not adapt:"
+    docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 || true
+    exit 1
+  fi
 
-# Verify route listing works.
-if "$STACK_DIR/bin/caddy-route" list >/dev/null 2>&1; then
-  echo "  PASS: caddy-route list works"
-else
-  echo "  WARNING: caddy-route list failed"
+  # Verify route listing works.
+  if "$STACK_DIR/bin/caddy-route" list >/dev/null 2>&1; then
+    echo "  PASS: caddy-route list works"
+  else
+    echo "  WARNING: caddy-route list failed"
+  fi
 fi
 
 echo ""

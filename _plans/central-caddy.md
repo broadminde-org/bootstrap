@@ -152,10 +152,15 @@ Dual-mode by construction:
 - Container runs `caddy run --config /etc/caddy/Caddyfile --resume`:
   unplanned restarts/reboots resume `autosave.json` (named volume) — apps come
   back with no orchestration.
-- Intentional stack updates (`./user/init.sh 60-caddy`): step deletes
-  `autosave.json` before `up` → fresh global config → `reconcile` replays
-  `routes.d/`. This avoids the stale-autosave trap when the *global* Caddyfile
-  changes (`--resume` ignores `--config` whenever autosave exists).
+- **The step never starts a stopped container.** Bringing the edge up is an
+  explicit operator action (`cd ~/infra/caddy && docker compose up -d`), so
+  an unattended user-tier run can never grab 80/443. When the container IS
+  already running, the step applies updates in place: on config change it
+  deletes `autosave.json` (via a transient port-less `compose run`), rebuilds,
+  recreates, waits healthy, and `reconcile` replays `routes.d/` — avoiding
+  the stale-autosave trap (`--resume` ignores `--config` whenever autosave
+  exists). When it is NOT running, the step only provisions/builds/wipes and
+  prints the start + `caddy-route reconcile` instructions.
 
 ### 2.4 Central container
 
@@ -296,11 +301,19 @@ host network access is involved).
    `/srv/edge`). Sync `stack/` → `~/infra/caddy` (compare-before-write;
    restart only when Dockerfile/compose/template changed).
 4. Render `Caddyfile.tmpl` → `Caddyfile` (CrowdSec section gated on key).
-5. `docker network create edge` if absent; `docker compose build`; if
-   config/image changed → clear `autosave.json`, `up -d`, wait healthy,
-   `caddy-route reconcile`.
-6. Post-condition checks: `caddy adapt` validates rendered Caddyfile;
-   healthcheck passes; `routes.d` replay converged (`list` matches files).
+5. `docker network create edge` if absent; `docker compose build` and clear
+   `autosave.json` + push-hash when config/image changed (wipe uses a
+   transient port-less `compose run` — the service is not started by it).
+   Then, **only when the container was already running**: `up -d` (recreate
+   on change), wait healthy, `caddy-route reconcile` **unconditionally** —
+   the hash-skip makes it a no-op when converged, and it heals a previous
+   run that wiped autosave but aborted before its own reconcile. When the
+   container is stopped/absent the step **never starts it** (user decision
+   2026-08-01, superseding the earlier auto-up and the brief refusal-guard
+   designs): it prints a port-conflict warning if 80/443 are held
+   (`ss -tlnH`), then the start + `caddy-route reconcile` instructions.
+6. Post-condition checks (when running): `caddy adapt` validates rendered
+   Caddyfile; healthcheck passes; `caddy-route list` works.
 
 ### 3.2 `caddy-route` (bash, ~120 lines)
 
@@ -338,14 +351,20 @@ caddy-route reconcile                     # combined adapt → merge → POST /l
 - `init.d/54-crowdsec/run.sh`: add the deploy user to the **`crowdsec`
   group** (`local_api_credentials.yaml` is root:crowdsec 0640 → group
   membership grants `cscli` without sudo, used by user-tier 60-caddy);
-  derive the acquis.yaml Caddy log path from the deploy user's home
-  (same pattern as 53-fail2ban below).
-- `README.md`: capability table row, layout tree, idempotency bullet,
-  one-paragraph "central Caddy" section pointing at the new doc.
+  manage the Caddy acquisition source as a rewritten drop-in
+  (`/etc/crowdsec/acquis.d/caddy-central.yaml`, stripping any previously
+  appended acquis.yaml block) with a daemon restart when it changes —
+  append-only accumulation and no-restart blindness were found in review.
 - `init.d/53-fail2ban/run.sh`: make `CADDY_LOG` configurable via bootstrap
   `.env` (`CADDY_LOG_PATH`, default derived from the deploy user's home:
   `/home/<deploy>/infra/caddy/logs/access.log`); keep the legacy
   `/home/stack/netbird-docker/...` value working until netbird migrates.
+  **Both steps resolve via the shared `init.d/lib/caddy-log.sh`** (env
+  override → live file by mtime when both exist → central default) so
+  fail2ban and crowdsec can never tail different logs, and 53 reloads
+  fail2ban when jail.local changes on a running daemon.
+- `README.md`: capability table row, layout tree, idempotency bullet,
+  one-paragraph "central Caddy" section pointing at the new doc.
 - New `docs/central-caddy.md` in bootstrap: snippet contract, register flows,
   backend networking, TLS modes, day-2 ops (upgrade pins, renewals, logs).
 
@@ -485,6 +504,37 @@ Teardown: container removed; `~/infra/caddy` left installed (routes.d empty,
 `.env` filled). On THIS host the stack stays down until Phase 2 frees 80/443
 (netbird migration — `_plans/caddy-conversions.md`).
 
+### Review-fix round (2026-08-01, post `/review` — 12 findings fixed and re-verified)
+
+| Fix | Verification |
+|---|---|
+| Bouncer-key sed delimiter `s/…/…/` → `s|…|…|` (base64 `/` broke ~2/3 of keys; abort + duplicate-name cascade silently dropped CrowdSec) + stale-bouncer self-heal (delete+re-add) | ✅ sed unit-tested with `/`,`+`,`=` in key |
+| `acmedns-register` printed full `/register` response incl. `password` | ✅ now `jq 'del(.password, .username)'` |
+| Printed CNAME target `${subdomain}.${fulldomain}` duplicated the subdomain | ✅ prints `${fulldomain}` (matches A.5's `<subdomain>.auth.acme-dns.io`) |
+| Site-level `crowdsec` directive unadaptable in validate/reconcile ("not an ordered HTTP handler" — verified) → synthetic `{ order crowdsec first }` wrapper (emits no JSON) | ✅ live: crowdsec snippet now passes validate; `/load` rejects on key-less host with the correct app error + clean rollback |
+| Reconcile gated on same-run `changed` → post-wipe abort + re-run = false PASS with apps unserved | ✅ reconcile unconditional; idempotent re-run hash-skips |
+| 53/54 both-logs-exist preferred central even when stale → shared `init.d/lib/caddy-log.sh`; fresher mtime wins when both exist | ✅ 7-case resolver matrix passes |
+| 54 ignored and clobbered `CADDY_LOG_PATH` env override | ✅ resolver honors it; 54 resolves into `RESOLVED_CADDY_LOG` |
+| 53 rewrote jail.local without reload; 54 appended acquis without restart and never removed stale sources | ✅ 53: `fail2ban-client reload` on changed jail.local when already running. 54: managed `acquis.d/caddy-central.yaml` drop-in (rewritten, never appended), legacy acquis.yaml block stripped (awk unit-tested), daemon restart on change |
+| `docs/central-caddy.md` + conversions runbook used `docker compose -f` (suppresses override discovery) | ✅ all changed to live-dir/`--project-directory` invocation |
+| `caddy: false` doesn't undeploy; no teardown docs | ✅ teardown section + README "provisioning, not runtime" note |
+| `CADDY_VERSION` pinned in compose AND Dockerfile (compose arg won) | ✅ compose arg dropped; Dockerfile is the single pin (also fixed A.1/A.2) |
+| `acmedns-register usage()` unreachable | ✅ wired: `[[ $# -eq 0 ]] || usage` |
+
+### No-auto-start (2026-08-01, user decision — supersedes the refusal-guard draft)
+
+The step originally ran `up -d` unconditionally, then gained a preflight
+port guard that refused when 80/443 were held. User decision: **don't
+automatically bring it up at all.** Final semantics: the step provisions,
+builds, and does autosave hygiene, but never starts a stopped container;
+when the container is already running it applies updates in place
+(recreate on change) and replays routes.d. The port check survives as a
+warning in the not-started branch. Verified live on this workstation
+(netbird holds 80/443): step with container down → provisions, warns,
+does not start (incumbent untouched); manual `up -d` on remap override →
+healthy; re-run while running → no-op no-change path with hash-skip;
+manual stop → step re-run → still does not start, prints instructions.
+
 ## 10. Implementation order (Phase 1)
 
 1. `user/init.d/60-caddy/stack/` (Dockerfile, compose.yaml, Caddyfile.tmpl,
@@ -508,8 +558,8 @@ Teardown: container removed; `~/infra/caddy` left installed (routes.d empty,
 ### A.1 `stack/Dockerfile` (verbatim copy of `netbird-docker/caddy/Dockerfile`)
 
 This **is** the xcaddy build from `~/netbird-docker` — same multi-stage
-pattern, same pin matrix. Compose builds it with `CADDY_VERSION` as a build
-arg (see A.2).
+pattern, same pin matrix. The pins live only here (ARG + the `xcaddy build`
+line) — compose passes no build args (see A.2).
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -579,8 +629,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        CADDY_VERSION: "2.11.4"
+      # Version pins live ONLY in the Dockerfile (ARG CADDY_VERSION + the
+      # xcaddy build line) — do not re-pin here; single source of truth.
     image: caddy-custom:latest
     pull_policy: build
     container_name: caddy          # one per host by design; stable docker exec target
@@ -737,6 +787,13 @@ Implementation guardrails (these are the traps — do not improvise around them)
 - **Validate must reject global blocks explicitly**: a bare `{` as the first
   non-comment token. `caddy adapt` ACCEPTS global blocks, so adapt alone
   does not enforce the snippet contract (§2.2).
+- **Synthetic directive order for adapts**: site-level third-party handler
+  directives (e.g. `crowdsec`) have no default order — adapting a
+  global-block-free snippet containing one errors with "directive
+  'crowdsec' is not an ordered HTTP handler" (verified live). `validate`
+  and `reconcile` therefore prepend a synthetic `{ order crowdsec first }`
+  to their adapt temp files. `order` emits no JSON, so merged configs and
+  the no-op hash are unaffected.
 - **Register rollback**: validate (solo adapt + global-block grep) happens
   BEFORE the copy, but a snippet that adapts alone can still fail combined
   (e.g. a site address already claimed by another snippet). If reconcile
@@ -828,11 +885,16 @@ runs as the deploy user):
   seeded once from `.env.example` (step 2) and never overwritten.
 - **Bouncer key**: only when `cap_enabled public` and `.env` has an empty
   `CROWDSEC_BOUNCER_KEY`: `key="$(cscli bouncers add caddy-edge -o raw)"`,
-  then `sed -i "s/^CROWDSEC_BOUNCER_KEY=.*/CROWDSEC_BOUNCER_KEY=$key/"` on
-  `.env` (stays 0600). `cscli` works without sudo via the `crowdsec` group
-  (root-tier 54-crowdsec). `cscli` missing or group not yet active → warn,
-  leave empty (fail-open, same as the template gate; re-running the step
-  fills it later).
+  then `sed -i "s|^CROWDSEC_BOUNCER_KEY=.*|CROWDSEC_BOUNCER_KEY=$key|"` on
+  `.env` (stays 0600). The delimiter must NOT be `/` — cscli keys are
+  base64 (`A-Za-z0-9+/=`), so a `/`-delimited s/// breaks on most keys;
+  with `set -e` that aborts mid-step and every re-run then fails on the
+  bouncer's unique-name constraint → silently provisions without CrowdSec
+  (found in review). If the add fails on a duplicate name, delete the
+  stale bouncer and regenerate (self-healing). `cscli` works without sudo
+  via the `crowdsec` group (root-tier 54-crowdsec). `cscli` missing or
+  group not yet active → warn, leave empty (fail-open, same as the
+  template gate; re-running the step fills it later).
 - **Render**: splice the CrowdSec block into the template text, then
   `envsubst '${ACME_EMAIL} ${CROWDSEC_API_URL}'` (explicit list, single
   pass — see A.3 for why).

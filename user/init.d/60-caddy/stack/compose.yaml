@@ -7,8 +7,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        CADDY_VERSION: "2.11.4"
+      # Version pins live ONLY in the Dockerfile (ARG CADDY_VERSION + the
+      # xcaddy build line) — do not re-pin here; single source of truth.
     image: caddy-custom:latest
     pull_policy: build
     container_name: caddy

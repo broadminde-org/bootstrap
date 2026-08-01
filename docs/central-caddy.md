@@ -2,7 +2,9 @@
 
 The host's central Caddy reverse proxy is installed by `bootstrap/user/init.d/60-caddy`
 to `~/infra/caddy/` (deploy-user owned — the step runs as the deploy user in the
-user tier). App stacks register Caddyfile snippets and get TLS/routing automatically.
+user tier). The step provisions, renders, and builds but **never starts the
+container** — you bring it up explicitly (see Container lifecycle). App stacks
+register Caddyfile snippets and get TLS/routing automatically.
 
 ## Snippet contract
 
@@ -81,13 +83,61 @@ It registers with `auth.acme-dns.io`, writes `acmedns.json`, and prints the
 docker restart caddy
 ```
 
+## Port conflicts
+
+The step **never starts a stopped container**, so running it on a host whose
+80/443 are already held (e.g. a legacy per-stack caddy) is safe: it
+provisions and builds, prints a warning naming the listeners, and stops
+short of starting. The conflict then matters only when YOU start it —
+`docker compose up -d` will fail loudly until the old service is stopped or
+the ports are remapped via `~/infra/caddy/compose.override.yaml` (replacing
+the base ports needs the `!override` tag; plain extra publishes/mounts merge
+additively without one):
+
+```yaml
+services:
+  caddy:
+    ports: !override
+      - "127.0.0.1:8085:80"
+      - "127.0.0.1:8443:443"
+```
+
 ## Container lifecycle
 
-- **Start**: `docker compose -f ~/infra/caddy/compose.yaml up -d`
+- **Start**: `cd ~/infra/caddy && docker compose up -d` — always an explicit
+  operator action; the provisioning step never starts a stopped container.
+  When the container is already running, re-running the step applies updates
+  in place (rebuild + recreate on change) and replays routes.d.
+- **Stop**: `cd ~/infra/caddy && docker compose stop` — stays down across
+  step re-runs and reboots until started again.
 - **Restart**: safe — `--resume` restores registered apps from `autosave.json`
-- **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, replays routes.d)
+- **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, replays routes.d
+  when running; otherwise start it yourself and run `caddy-route reconcile`)
 - **Logs**: `docker logs caddy --tail 50` or read `~/infra/caddy/logs/access.log`
   (JSON, rotated 100MB×5)
+
+Always invoke compose **from the live dir** (or with
+`docker compose --project-directory ~/infra/caddy`) — an explicit
+`-f ~/infra/caddy/compose.yaml` suppresses `compose.override.yaml` discovery
+and silently drops the host's per-host overrides.
+
+## Teardown / opting out
+
+Setting `caddy: false` in `bootstrap.conf.yml` only stops the provisioning
+step from running — it does **not** undeploy anything. An installed central
+Caddy keeps running (and holding ports 80/443) until torn down by hand:
+
+```bash
+cd ~/infra/caddy && docker compose down
+```
+
+The named volumes persist afterwards. Remove them only if you are retiring
+the stack for good — `caddy_caddy_data` holds issued ACME certificates and
+accounts, and `caddy_caddy_config` holds the autosave registry:
+
+```bash
+docker volume rm caddy_caddy_config caddy_caddy_data   # destructive: certs lost
+```
 
 ## Day-2 operations
 

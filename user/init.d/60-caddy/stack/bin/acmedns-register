@@ -22,6 +22,8 @@ EOF
   exit 1
 }
 
+[[ $# -eq 0 ]] || usage
+
 # ---------------------------------------------------------------------------
 # Step 1: Register with the acme-dns server (idempotent — skip if we
 # already have a credential file). The step ships an empty-object `{}`
@@ -44,11 +46,10 @@ resp="$(curl -fsS -X POST "$ACME_DNS_URL/register" \
   --data '{"register": {}}')"
 
 echo ""
-echo "Registration response:"
-echo "$resp" | jq .
+echo "Registration response (credentials redacted — stored only in $CRED_FILE):"
+echo "$resp" | jq 'del(.password, .username)'
 
 fulldomain="$(echo "$resp" | jq -r '.fulldomain')"
-subdomain="$(echo "$resp" | jq -r '.subdomain')"
 
 # ---------------------------------------------------------------------------
 # Step 2: Inject server_url (required by caddy-dns/acmedns v0.5+) and save.
@@ -70,10 +71,10 @@ echo "===================================================================="
 echo ""
 echo "For each name that needs DNS-01, add this CNAME record:"
 echo ""
-echo "  _acme-challenge.<your-name>  CNAME  ${subdomain}.${fulldomain}"
+echo "  _acme-challenge.<your-name>  CNAME  ${fulldomain}"
 echo ""
 echo "For example, to secure *.host.broadminde.org:"
-echo "  _acme-challenge.host.broadminde.org  CNAME  ${subdomain}.${fulldomain}"
+echo "  _acme-challenge.host.broadminde.org  CNAME  ${fulldomain}"
 echo ""
 echo "Verify delegation with:"
 echo "  dig +short CNAME _acme-challenge.<your-name>"

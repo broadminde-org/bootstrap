@@ -82,6 +82,15 @@ in both modes because each mode's *global block* owns the app configuration:
   `order crowdsec first`, gated on `CROWDSEC_BOUNCER_KEY` in `~/infra/caddy/.env`.
 - *Standalone*: the stack's own global block keeps its existing crowdsec app.
 
+The `order` matters at **adapt time**, not just runtime: `crowdsec` is a
+third-party handler directive with no default order, and `caddy-route`'s
+validate/reconcile adapt snippets without the global block — so it injects a
+synthetic `{ order crowdsec first }` into its adapt temp files (emits no
+JSON; the pushed config is unaffected). Without that wrapper, adapting any
+snippet containing the directive errors with "directive 'crowdsec' is not an
+ordered HTTP handler" (verified live). Standalone mode needs nothing extra —
+its global block already carries the order.
+
 A host running central caddy with an empty bouncer key runs that app
 **unprotected** — check the gate before migrating a protected site.
 
@@ -404,12 +413,15 @@ notes, plan references) carries over — trim shown here for brevity only.
 
 ### 4.4 Host-side cutover sequence (broadminde1)
 
-Port clash: the old caddy holds 80/443, so the central container cannot be up
-first. Sequence for minimal downtime:
+Port clash: the old caddy holds 80/443, so the central container cannot bind
+them until cutover. That's fine — 60-caddy **never starts a stopped
+container**: prep installs and builds everything while the old edge keeps
+serving; the operator starts central explicitly at cutover. Sequence for
+minimal downtime:
 
 1. **Prep (no downtime)**:
-   - `./user/init.sh 60-caddy` — but *stop the container* afterwards
-     (`docker compose -f ~/infra/caddy/compose.yaml stop`) since ports clash.
+   - `./user/init.sh 60-caddy` — provisions, builds, prints a port-conflict
+     warning, does NOT start anything.
    - Move acme-dns creds: `cp caddy_data/acmedns.json ~/infra/caddy/acmedns.json`,
      `chmod 600`.
    - Copy deploy assets to `~/infra/edge/netbird/`.
@@ -420,8 +432,13 @@ first. Sequence for minimal downtime:
        alpine cp -a /from/. /to/
      ```
      (volume names per each compose project; verify with `docker volume ls`.)
-   - Central `compose.override.yaml`: publish the API listener with its
-     current loopback semantics:
+   - Optional smoke test: temporarily remap ports via
+     `~/infra/caddy/compose.override.yaml` (`ports: !override` to loopback
+     8085/8443 + `127.0.0.1:8082:8082`), `docker compose up -d`, register,
+     probe on 8443, then `docker compose down` and reduce the override to
+     just the 8082 publish below (rollback = delete the stack dir).
+   - Central `compose.override.yaml` (final form): publish the API listener
+     with its current loopback semantics — additive, so base 80/443 merge in:
      ```yaml
      services:
        caddy:
@@ -430,9 +447,12 @@ first. Sequence for minimal downtime:
      ```
 2. **Cutover (seconds)**:
    - `docker compose stop caddy` (old stack).
-   - `docker compose -f ~/infra/caddy/compose.yaml up -d` (central starts,
-     certs already present, `--resume` irrelevant on first boot — routes.d
-     replays after registration).
+   - `cd ~/infra/caddy && docker compose up -d` (central takes 80/443 —
+     explicit operator start; certs already present, `--resume` irrelevant
+     on first boot — routes.d replays after registration). Compose must run
+     **from the live dir** (or with `--project-directory`): an explicit `-f`
+     suppresses `compose.override.yaml` discovery and would drop the 8082
+     publish above.
    - `caddy-route register netbird caddy/netbird.caddy`.
 3. **Verify**:
    - `init.d/80-verify` probes **unchanged** — cert path root is the same

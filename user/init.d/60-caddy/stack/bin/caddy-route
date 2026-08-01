@@ -29,6 +29,20 @@ check_app_name() {
   [[ "$1" =~ ^[a-zA-Z0-9._-]+$ ]] || die "invalid app name '$1' (allowed: letters, digits, dot, underscore, dash)"
 }
 
+# wrap_with_order <out> <file…> — concatenate <file…> behind a synthetic
+# global block supplying directive order: site-level third-party handler
+# directives (e.g. crowdsec) have no default order and fail adapt without
+# one ("directive 'crowdsec' is not an ordered HTTP handler"). The real
+# order lives in the central Caddyfile's global block; `order` emits no
+# JSON, so adapt output is identical to an unwrapped adapt.
+wrap_with_order() {
+  local out="$1"; shift
+  {
+    printf '{\n\torder crowdsec first\n}\n\n'
+    cat "$@"
+  } > "$out"
+}
+
 # ---------------------------------------------------------------------------
 # validate — adapted solo + must NOT have a global block
 # ---------------------------------------------------------------------------
@@ -48,7 +62,11 @@ validate() {
     die "snippet '$app' contains a global block — site blocks only (§2.2)"
   fi
 
-  docker cp "$snippet" caddy:/tmp/check.caddy
+  # Adapt with the synthetic-order wrapper (see wrap_with_order): `order`
+  # emits no JSON, so validation semantics are unchanged.
+  wrap_with_order "$tmp/check.caddy" "$snippet"
+
+  docker cp "$tmp/check.caddy" caddy:/tmp/check.caddy
   if ! docker exec caddy caddy adapt --config /tmp/check.caddy --adapter caddyfile >/dev/null 2>&1; then
     echo "Validation failed for '$snippet':"
     docker exec caddy caddy adapt --config /tmp/check.caddy --adapter caddyfile 2>&1 || true
@@ -75,7 +93,8 @@ reconcile() {
     # glob (reads stdin and hangs) or adapt an empty file (errors).
     cp "$tmp/global.json" "$tmp/merged.json"
   else
-    cat "${files[@]}" > "$tmp/combined.caddy"
+    # Same synthetic-order wrapper as validate (wrap_with_order).
+    wrap_with_order "$tmp/combined.caddy" "${files[@]}"
     docker cp "$tmp/combined.caddy" caddy:/tmp/combined.caddy
     docker exec caddy caddy adapt --config /tmp/combined.caddy --adapter caddyfile > "$tmp/apps.json"
     jq -s '.[0] * .[1]' "$tmp/global.json" "$tmp/apps.json" > "$tmp/merged.json"

@@ -21,41 +21,29 @@
 # Dependencies:
 #   Phase 1  — ufw must be active (banaction = ufw).
 #   Phase 2  — Caddy JSON log must exist for the caddy-auth and
-#              netbird-installer jails. Path resolution order:
-#              $CADDY_LOG_PATH (env override), then whichever of the
-#              central (~/infra/caddy) or legacy (netbird-docker) log
-#              actually exists — central preferred — then the central
-#              path as the default for new hosts. fail2ban tolerates a
-#              missing log path at startup — it emits a warning but does
-#              NOT hard-fail.
+#              netbird-installer jails. Path resolution (shared with
+#              54-crowdsec via lib/caddy-log.sh): $CADDY_LOG_PATH env
+#              override, then whichever of the central (~/infra/caddy) or
+#              legacy (netbird-docker) log is the live one — when both
+#              exist, the fresher mtime wins — then the central path as
+#              the default for new hosts. fail2ban tolerates a missing
+#              log path at startup — it emits a warning but does NOT
+#              hard-fail. A changed jail.local triggers a reload when
+#              fail2ban is already running.
 #
 # Run as root (sudo ./init.sh 53-fail2ban).
 
 JAIL_LOCAL=/etc/fail2ban/jail.local
 FILTER_DIR=/etc/fail2ban/filter.d
 
-# Caddy JSON log path. The legacy netbird path keeps working until the
-# netbird migration removes it — an exists-based preference means re-running
-# this step never blinds the jails on a host whose edge is still the legacy
-# caddy. CADDY_LOG_PATH (environment) overrides everything for non-standard
-# layouts.
-LEGACY_CADDY_LOG=/home/stack/netbird-docker/logs/caddy/access.log
-CENTRAL_CADDY_LOG=""
-if [[ -n "${SUDO_USER:-}" ]]; then
-  CENTRAL_CADDY_LOG="$(getent passwd "$SUDO_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
-fi
-
-if [[ -n "${CADDY_LOG_PATH:-}" ]]; then
-  CADDY_LOG="$CADDY_LOG_PATH"
-elif [[ -n "$CENTRAL_CADDY_LOG" && -f "$CENTRAL_CADDY_LOG" ]]; then
-  CADDY_LOG="$CENTRAL_CADDY_LOG"
-elif [[ -f "$LEGACY_CADDY_LOG" ]]; then
-  CADDY_LOG="$LEGACY_CADDY_LOG"
-elif [[ -n "$CENTRAL_CADDY_LOG" ]]; then
-  CADDY_LOG="$CENTRAL_CADDY_LOG"
-else
-  CADDY_LOG="$LEGACY_CADDY_LOG"
-fi
+# Caddy JSON log path — resolved by the shared lib/caddy-log.sh (same
+# resolution as 54-crowdsec): CADDY_LOG_PATH env override, then whichever of
+# the central (~/infra/caddy) or legacy (netbird-docker) log is the live one
+# (mtime when both exist — the live edge is the file being written), then
+# the central path as the default for new hosts.
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/caddy-log.sh"
+resolve_caddy_log CADDY_LOG
 
 echo "=== 53-fail2ban: installing fail2ban ==="
 
@@ -71,6 +59,16 @@ apt-get install -y fail2ban
 
 echo ""
 echo "=== 53-fail2ban: writing ${JAIL_LOCAL} ==="
+
+# Capture pre-write state so a changed jail.local triggers a reload of an
+# already-running fail2ban (enable --now alone is a no-op on a running
+# daemon — without a reload the jails keep tailing the old logpath).
+f2b_was_active=0
+systemctl is-active --quiet fail2ban && f2b_was_active=1
+# jail.local does not exist on fresh hosts — a failing sha256sum here would
+# abort the step (set -e + pipefail), so guard on the file's presence.
+pre_jail_hash=""
+[[ -f "$JAIL_LOCAL" ]] && pre_jail_hash="$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)"
 
 cat > "$JAIL_LOCAL" <<JAIL_EOF
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
@@ -171,6 +169,15 @@ echo "Written ${FILTER_DIR}/netbird-installer.conf"
 echo ""
 echo "=== 53-fail2ban: enabling and starting service ==="
 systemctl enable --now fail2ban
+
+# Reload when jail.local changed on an already-running daemon (e.g. the
+# Caddy log path flipped legacy→central during the migration) — otherwise
+# the jails keep tailing the stale path silently until an unrelated restart.
+if [[ "$f2b_was_active" -eq 1 ]] \
+  && [[ "$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)" != "$pre_jail_hash" ]]; then
+  echo "jail.local changed — reloading fail2ban"
+  fail2ban-client reload
+fi
 
 # ---------------------------------------------------------------------------
 # Step 6: Post-condition assertions.

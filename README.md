@@ -122,6 +122,11 @@ Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
 versions default to `"latest"`.
 
+Capabilities gate **provisioning, not runtime state**: disabling one stops its
+steps from running but never undeploys anything already installed (e.g.
+`caddy: false` leaves a running central Caddy holding 80/443 — see
+[docs/central-caddy.md](docs/central-caddy.md) for teardown).
+
 ### Version pins
 
 The `versions:` section sets the toolchain version for each user-tier tool.
@@ -270,7 +275,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `40-profile` — the PATH block is wrapped in stable BEGIN/END markers; if both markers are present, the content between them is compared to the canonical snippet and the file is left alone when they match.
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
-- `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; `docker compose up -d` is a no-op when unchanged; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open.
+- `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. **Never starts a stopped container** — bringing up the edge is an explicit operator action; updates apply in place only when it is already running.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `22-kilo` — `kilo --version` is checked; reinstall only on mismatch.

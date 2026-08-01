@@ -20,15 +20,18 @@
 #   3. Installs the crowdsecurity/sshd and crowdsecurity/caddy
 #      collections (parsers + scenarios for those services).
 #
-#   4. Appends the Caddy JSON log path to /etc/crowdsec/acquis.yaml so
-#      CrowdSec tails the access log once Phase 2 is applied. The
-#      append is idempotent (skipped if the path is already present).
-#      The path is whichever of the central (~/infra/caddy) or legacy
-#      (netbird-docker) log actually exists — central preferred — so
-#      re-running never points acquisition at a dead path while the
-#      legacy caddy is still the edge. CrowdSec tolerates a missing log
-#      file — it emits a warning but does NOT hard-fail — so this step
-#      is safe to run before Phase 2.
+#   4. Manages the Caddy JSON log source as a drop-in at
+#      /etc/crowdsec/acquis.d/caddy-central.yaml so CrowdSec tails the
+#      access log once Phase 2 is applied. The path resolves via the
+#      shared lib/caddy-log.sh (same as 53-fail2ban): $CADDY_LOG_PATH
+#      env override, then whichever of the central (~/infra/caddy) or
+#      legacy (netbird-docker) log is live — fresher mtime when both
+#      exist — then central as the new-host default. The drop-in is
+#      rewritten (never appended) when the resolution changes, blocks
+#      previously appended to acquis.yaml are stripped, and the daemon
+#      is restarted when the config changed on a running daemon.
+#      CrowdSec tolerates a missing log file — it emits a warning but
+#      does NOT hard-fail — so this step is safe to run before Phase 2.
 #
 #   4b. Adds the deploy user to the crowdsec group so `cscli` works
 #      without sudo (user-tier 60-caddy generates its bouncer key this
@@ -50,26 +53,18 @@
 # Run as root (sudo ./init.sh 54-crowdsec).
 
 ACQUIS_YAML=/etc/crowdsec/acquis.yaml
+ACQUIS_D=/etc/crowdsec/acquis.d
+CADDY_ACQUIS_DROPIN=caddy-central.yaml
 
-# Caddy JSON log path — same exists-based resolution as 53-fail2ban:
-# the legacy netbird path keeps working until the migration removes it;
-# the central path (deploy home ~/infra/caddy) is preferred once present
-# and is the default on new hosts.
-LEGACY_CADDY_LOG=/home/stack/netbird-docker/logs/caddy/access.log
-CENTRAL_CADDY_LOG=""
-if [[ -n "${SUDO_USER:-}" ]]; then
-  CENTRAL_CADDY_LOG="$(getent passwd "$SUDO_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
-fi
-
-if [[ -n "$CENTRAL_CADDY_LOG" && -f "$CENTRAL_CADDY_LOG" ]]; then
-  CADDY_LOG_PATH="$CENTRAL_CADDY_LOG"
-elif [[ -f "$LEGACY_CADDY_LOG" ]]; then
-  CADDY_LOG_PATH="$LEGACY_CADDY_LOG"
-elif [[ -n "$CENTRAL_CADDY_LOG" ]]; then
-  CADDY_LOG_PATH="$CENTRAL_CADDY_LOG"
-else
-  CADDY_LOG_PATH="$LEGACY_CADDY_LOG"
-fi
+# Caddy JSON log path — resolved by the shared lib/caddy-log.sh (same
+# resolution as 53-fail2ban so both IPS layers always tail the same file):
+# CADDY_LOG_PATH env override, then whichever of the central (~/infra/caddy)
+# or legacy (netbird-docker) log is the live one (mtime when both exist),
+# then the central path as the default for new hosts. Resolved into a
+# step-local variable — the operator's CADDY_LOG_PATH is never clobbered.
+# shellcheck disable=SC1091
+. "$(dirname "$0")/../lib/caddy-log.sh"
+resolve_caddy_log RESOLVED_CADDY_LOG
 
 echo "=== 54-crowdsec: adding CrowdSec apt repository ==="
 
@@ -107,29 +102,62 @@ cscli collections install crowdsecurity/sshd
 cscli collections install crowdsecurity/caddy
 
 # ---------------------------------------------------------------------------
-# Step 4: Append Caddy log source to acquis.yaml (idempotent).
+# Step 4: Manage the Caddy log source as an acquis.d drop-in.
 #
-# NOTE: This log path only exists after Phase 2 (Caddy logging) is complete and
-# the caddy container has been restarted. If 54-crowdsec runs before Phase 2,
-# CrowdSec will emit a warning on every reload but will NOT hard-fail — this is
-# expected and harmless until Phase 2 is applied.
+# Earlier revisions appended a static block to acquis.yaml, which could never
+# remove a stale path and never restarted the daemon. The drop-in is rewritten
+# each run, so a changed resolution replaces the source; any block previously
+# appended to acquis.yaml is stripped. crowdsec is restarted at the end of
+# the step when this config changed on an already-running daemon (CrowdSec
+# does not watch acquis files — a source change without a restart is inert).
+#
+# NOTE: This log path only exists after Phase 2 (Caddy logging) is complete
+# and the caddy container has been restarted. If 54-crowdsec runs before
+# Phase 2, CrowdSec will emit a warning on every reload but will NOT
+# hard-fail — this is expected and harmless until Phase 2 is applied.
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "=== 54-crowdsec: appending Caddy log source to ${ACQUIS_YAML} ==="
+echo "=== 54-crowdsec: managing Caddy log source (${ACQUIS_D}/${CADDY_ACQUIS_DROPIN}) ==="
 
-if ! grep -qF "$CADDY_LOG_PATH" "$ACQUIS_YAML" 2>/dev/null; then
-  cat >> "$ACQUIS_YAML" <<ACQUIS_EOF
+acquis_changed=0
+cs_was_active=0
+systemctl is-active --quiet crowdsec && cs_was_active=1
 
----
+# 4a. Strip any Caddy block previously appended to acquis.yaml. The appended
+# block had a fixed shape: `---` / `filenames:` / `  - <path>` / `labels:` /
+# `  type: caddy`. Only exact-shape caddy docs are removed.
+if grep -q 'type: caddy' "$ACQUIS_YAML" 2>/dev/null; then
+  awk '
+    /^---[[:space:]]*$/              { buf=$0; state=1; next }
+    state==1 && /^filenames:[[:space:]]*$/ { buf=buf "\n" $0; state=2; next }
+    state==2 && /^[[:space:]]+-[[:space:]]/ { buf=buf "\n" $0; state=3; next }
+    state==3 && /^labels:[[:space:]]*$/    { buf=buf "\n" $0; state=4; next }
+    state==4 && /^[[:space:]]+type:[[:space:]]+caddy[[:space:]]*$/ { state=0; buf=""; next }
+    state>0 { printf "%s\n", buf; buf=""; state=0 }
+    { print }
+    END { if (buf != "") printf "%s\n", buf }
+  ' "$ACQUIS_YAML" > "$ACQUIS_YAML.bootstrap-tmp"
+  cat "$ACQUIS_YAML.bootstrap-tmp" > "$ACQUIS_YAML"
+  rm -f "$ACQUIS_YAML.bootstrap-tmp"
+  echo "Removed previously appended Caddy source from ${ACQUIS_YAML} (now managed in acquis.d)"
+  acquis_changed=1
+fi
+
+# 4b. Write/replace the managed drop-in when the resolved path differs.
+mkdir -p "$ACQUIS_D"
+if [[ ! -f "$ACQUIS_D/$CADDY_ACQUIS_DROPIN" ]] || ! grep -qF "  - $RESOLVED_CADDY_LOG" "$ACQUIS_D/$CADDY_ACQUIS_DROPIN" 2>/dev/null; then
+  cat > "$ACQUIS_D/$CADDY_ACQUIS_DROPIN" <<ACQUIS_EOF
+# Managed by bootstrap/init.d/54-crowdsec. Do not edit by hand — rewritten each run.
 filenames:
-  - $CADDY_LOG_PATH
+  - $RESOLVED_CADDY_LOG
 labels:
   type: caddy
 ACQUIS_EOF
-  echo "Appended Caddy log source to ${ACQUIS_YAML}"
+  echo "Wrote ${ACQUIS_D}/${CADDY_ACQUIS_DROPIN} (path: $RESOLVED_CADDY_LOG)"
+  acquis_changed=1
 else
-  echo "Caddy log source already present in ${ACQUIS_YAML} — skipping append"
+  echo "Caddy log source already current — skipping"
 fi
 
 # ---------------------------------------------------------------------------
@@ -152,6 +180,14 @@ fi
 echo ""
 echo "=== 54-crowdsec: enabling crowdsec ==="
 systemctl enable --now crowdsec
+
+# Restart when the Caddy acquisition config changed on an already-running
+# daemon — CrowdSec does not watch acquis files, so a path change (e.g.
+# legacy→central during the migration) is silently inert until a restart.
+if [[ "$acquis_changed" -eq 1 && "$cs_was_active" -eq 1 ]]; then
+  echo "Caddy acquisition config changed — restarting crowdsec"
+  systemctl restart crowdsec
+fi
 
 # ---------------------------------------------------------------------------
 # Step 6: Enable and start the firewall bouncer.
