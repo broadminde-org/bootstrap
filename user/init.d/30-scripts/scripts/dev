@@ -16,6 +16,9 @@ set -euo pipefail
 # and Vite's port is parsed from its log into .dev/frontend.port.
 # Infra is opt-in: `dev up` starts only the compose services named in
 # DEV_INFRA_SERVICES (set in .env); unset means no containers are touched.
+# Non-Go backends: set DEV_BACKEND_CMD in .env (run instead of air, with a
+# pinned LISTEN_ADDR for the health probe; DEV_HEALTH_PATH defaults to
+# /healthz). FRONTEND_DIR may be overridden (default: frontend).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVD_DIR="${SCRIPT_DIR}/dev.d"
@@ -25,20 +28,24 @@ PROJECT_DIR="$PWD"
 if [[ ! -f "$PROJECT_DIR/docker-compose.yml" \
    && ! -f "$PROJECT_DIR/.air.toml" \
    && ! -f "$PROJECT_DIR/backend/.air.toml" \
+   && ! -f "$PROJECT_DIR/pyproject.toml" \
    && ! -f "$PROJECT_DIR/frontend/package.json" ]]; then
   echo "Error: not a project root: $PROJECT_DIR" >&2
-  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, frontend/package.json)" >&2
+  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml, frontend/package.json)" >&2
   exit 1
 fi
 
 DETECTED_APP="$(basename "$PROJECT_DIR")"
 DEV_DIR="$PROJECT_DIR/.dev"
-FRONTEND_DIR="$PROJECT_DIR/frontend"
 mkdir -p "$DEV_DIR"
 
 if [[ -f "$PROJECT_DIR/.env" ]]; then
   set -a; source "$PROJECT_DIR/.env"; set +a
 fi
+
+# Frontend dir: frontend/ by default; .env may override (e.g. FRONTEND_DIR=ui).
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
+[[ "$FRONTEND_DIR" != /* ]] && FRONTEND_DIR="$PROJECT_DIR/$FRONTEND_DIR"
 
 # Auto-port contract
 export LISTEN_ADDR="${LISTEN_ADDR:-:0}"
@@ -84,7 +91,7 @@ show_status() {
   if [[ -f "$BACKEND_PORT_FILE" ]]; then backend_port="$(cat "$BACKEND_PORT_FILE")"; fi
   if [[ -f "$FRONTEND_PORT_FILE" ]]; then vite_port="$(cat "$FRONTEND_PORT_FILE")"; fi
   if [[ -n "$backend_port" && "$backend_port" =~ ^[0-9]+$ ]] \
-      && curl -sf "http://localhost:${backend_port}/healthz" >/dev/null 2>&1; then
+      && curl -sf "http://localhost:${backend_port}${DEV_HEALTH_PATH:-/healthz}" >/dev/null 2>&1; then
     backend_up=true
   fi
   if [[ -n "$vite_port" && "$vite_port" =~ ^[0-9]+$ ]] \

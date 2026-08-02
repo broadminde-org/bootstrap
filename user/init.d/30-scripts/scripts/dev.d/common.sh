@@ -37,14 +37,14 @@ wait_for_port() {
   done
 }
 
-# wait_for_healthz <port> [pid] [timeout_s] [label] — /healthz probe loop;
-# fails early if the given pid dies.
+# wait_for_healthz <port> [pid] [timeout_s] [label] [path] — health probe
+# loop (default path /healthz); fails early if the given pid dies.
 wait_for_healthz() {
-  local port="$1" pid="${2:-}" timeout="${3:-30}" label="${4:-Go backend}"
+  local port="$1" pid="${2:-}" timeout="${3:-30}" label="${4:-Go backend}" path="${5:-/healthz}"
   local start
   start=$(date +%s)
   while true; do
-    if curl -sf "http://localhost:${port}/healthz" >/dev/null 2>&1; then
+    if curl -sf "http://localhost:${port}${path}" >/dev/null 2>&1; then
       ok "${label} ready on :${port} ($(( $(date +%s) - start ))s)"
       return 0
     fi
@@ -114,5 +114,5 @@ compose_cmd() {
 }
 
 has_compose()  { [[ -f "${PROJECT_DIR}/docker-compose.yml" ]]; }
-has_backend()  { [[ -f "${PROJECT_DIR}/.air.toml" || -f "${PROJECT_DIR}/backend/.air.toml" ]]; }
+has_backend()  { [[ -f "${PROJECT_DIR}/.air.toml" || -f "${PROJECT_DIR}/backend/.air.toml" || -n "${DEV_BACKEND_CMD:-}" ]]; }
 has_frontend() { [[ -f "${FRONTEND_DIR}/package.json" ]]; }
