@@ -275,6 +275,73 @@ if [[ -z "$wildcards" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Step 7.6: Write discovery file — a well-known, machine-readable JSON blob
+# that any project agent can read to discover the central Caddy instance.
+# Path: ~/infra/caddy/central.json  (well-known: alongside the caddy stack)
+# ---------------------------------------------------------------------------
+
+central_json() {
+  local was_running_d="${1:-0}"
+
+  local docker_hostname
+  docker_hostname="$(hostname)"
+
+  jq -n --arg hostname "$docker_hostname" \
+    --arg cli "$HOME/.local/bin/caddy-route" \
+    --arg routes_dir "$STACK_DIR/routes.d" \
+    --arg edge_dir "$EDGE_DIR" \
+    --arg docs "~/bootstrap/docs/central-caddy.md" \
+    --argjson running "$was_running_d" \
+    '{
+      "version": 1,
+      "hostname": $hostname,
+      "available": true,
+      "container": {
+        "name": "caddy",
+        "network": "edge",
+        "admin_socket": "/run/caddy-admin.sock",
+        "admin_method": "docker exec caddy curl --unix-socket /run/caddy-admin.sock"
+      },
+      "registration": {
+        "cli": $cli,
+        "commands": {
+          "register": "caddy-route register <app> <file.caddy>",
+          "deregister": "caddy-route deregister <app>",
+          "list": "caddy-route list",
+          "reconcile": "caddy-route reconcile"
+        },
+        "routes_dir": $routes_dir
+      },
+      "backend_reachability": {
+        "preferred": "join edge docker network, use container names in snippets",
+        "fallback": "publish on 0.0.0.0, target host.docker.internal:<port> in snippets"
+      },
+      "snippet_contract": {
+        "allowed": "site blocks only (no global blocks), reverse_proxy, file_server, matchers, handle, tls, log",
+        "forbidden": "global blocks ({ ... }), global options (email, admin, storage, crowdsec)",
+        "backend_format": "container-name:port on edge network",
+        "tls_default": "automatic HTTP/TLS-ALPN for public names",
+        "tls_dns01": "tls { dns acmedns /etc/caddy/acmedns.json } for wildcards or non-public names"
+      },
+      "static_assets": {
+        "host_path": $edge_dir,
+        "container_mount": "/srv/edge",
+        "usage": "root * /srv/edge/<path> in file_server snippets"
+      },
+      "documentation": {
+        "path": $docs,
+        "description": "Full operator guide with snippet examples, TLS modes, day-2 ops"
+      },
+      "status": {
+        "running": $running,
+        "lifecycle_note": "provisioning step never starts a stopped container — explicit docker compose up -d required"
+      }
+    }' > "$STACK_DIR/central.json"
+}
+
+central_json 0
+
+# ---------------------------------------------------------------------------
 # Step 8: Build + autosave hygiene (on change); apply only when already
 # running. This step NEVER starts a stopped container — bringing up the
 # host's edge is an explicit operator action (`docker compose up -d` in the
@@ -330,6 +397,9 @@ if [[ "$was_running" -eq 1 ]]; then
   # converged, and running it every time heals divergence — e.g. a previous
   # run that wiped autosave but aborted before its reconcile.
   "$STACK_DIR/bin/caddy-route" reconcile
+
+  # Update discovery file: container is now running.
+  central_json 1
 else
   echo ""
   echo "Caddy is provisioned but NOT started — this step never starts it automatically."

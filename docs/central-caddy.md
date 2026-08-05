@@ -275,6 +275,38 @@ cscli bouncers list          # is caddy-edge registered?
 - **Static assets**: `~/infra/edge/` on the host mounts to `/srv/edge` (ro) in
   the container — the conventional root for `file_server` snippets.
 
+## Discovery — well-known file for project agents
+
+The provisioning step (60-caddy) writes a machine-readable discovery file at
+`~/infra/caddy/central.json`. Any project init agent can read this single file
+to learn everything needed to register routes with the central Caddy:
+
+```bash
+# Discovery protocol for any project agent:
+if [[ -f ~/infra/caddy/central.json ]]; then
+  jq . ~/infra/caddy/central.json
+fi
+```
+
+The file includes:
+
+| Field | Content |
+|---|---|
+| `container.name` | `caddy` — Docker container name |
+| `container.network` | `edge` — Docker network apps must join |
+| `registration.cli` | Full path to `caddy-route` |
+| `registration.commands` | Register/deregister/list/reconcile syntax |
+| `snippet_contract` | What's allowed and forbidden in snippets |
+| `backend_reachability` | Preferred (edge network) and fallback patterns |
+| `static_assets.host_path` | `~/infra/edge/` — mount point for file_server snippets |
+| `documentation.path` | Path to this guide |
+| `status.running` | Whether the container is currently healthy |
+| `version` | Schema version (currently 1) |
+
+The file is regenerated on every provisioning run — `status.running` flips to
+`true` after the container reaches a healthy state. Its absence means central
+Caddy is not provisioned on this host (or was torn down).
+
 ## Related files
 
 - `bootstrap/user/init.d/60-caddy/run.sh` — the provisioning step (user tier)
