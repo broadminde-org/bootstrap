@@ -25,7 +25,21 @@ export DISABLE_TELEMETRY=1
 # git config entirely and clone over plain https.
 export GIT_CONFIG_GLOBAL=/dev/null
 
+# General
 npx --yes skills add https://github.com/mattpocock/skills --skill handoff -g -y
 npx --yes skills add https://github.com/mattpocock/skills --skill design-an-interface -g -y
-npx --yes skills add https://github.com/github/awesome-copilot --skill python-mcp-server-generator -g -y
-npx --yes skills add https://github.com/wshobson/agents --skill async-python-patterns -g -y
+npx --yes skills add https://github.com/anthropics/skills --skill frontend-design -g -y
+npx --yes skills add https://github.com/addyosmani/agent-skills --skill frontend-ui-engineering -g -y
+npx --yes skills add https://github.com/mattpocock/skills --skill improve-codebase-architecture -g -y
+npx --yes skills add https://github.com/mattpocock/skills --skill grill-with-docs -g -y
+npx --yes skills add https://github.com/mattpocock/skills --skill domain-modeling -g -y
+npx --yes skills add https://github.com/mattpocock/skills --skill research -g -y
+
+# Python
+# npx --yes skills add https://github.com/github/awesome-copilot --skill python-mcp-server-generator -g -y
+# npx --yes skills add https://github.com/wshobson/agents --skill async-python-patterns -g -y
+
+# Svelte
+
+
+  

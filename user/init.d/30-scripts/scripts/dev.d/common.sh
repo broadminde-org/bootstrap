@@ -114,5 +114,7 @@ compose_cmd() {
 }
 
 has_compose()  { [[ -f "${PROJECT_DIR}/docker-compose.yml" ]]; }
-has_backend()  { [[ -f "${PROJECT_DIR}/.air.toml" || -f "${PROJECT_DIR}/backend/.air.toml" || -n "${DEV_BACKEND_CMD:-}" ]]; }
+has_air()            { [[ -f "${PROJECT_DIR}/.air.toml" || -f "${PROJECT_DIR}/backend/.air.toml" ]]; }
+has_uv_project()     { [[ -f "${PROJECT_DIR}/pyproject.toml" || -f "${PROJECT_DIR}/backend/pyproject.toml" ]]; }
+has_custom_backend() { [[ -n "${DEV_BACKEND_CMD:-}" ]]; }
 has_frontend() { [[ -f "${FRONTEND_DIR}/package.json" ]]; }

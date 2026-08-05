@@ -285,6 +285,35 @@ if [[ "$was_running" -eq 1 ]]; then
     exit 1
   fi
 
+  # CrowdSec bouncer link — when a key is configured, prove decisions
+  # actually stream from the host LAPI into caddy. The bouncer plugin is
+  # fail-open (enable_hard_fails off), so a broken link is SILENT: caddy
+  # keeps serving with zero protection. This assertion is the only thing
+  # that catches it. The stream bouncer connects on its own retry loop —
+  # allow a few ticker intervals (ticker_interval 60s) before failing.
+  if [[ -n "$CROWDSEC_BOUNCER_KEY" ]]; then
+    cs_healthy=0
+    for _i in $(seq 1 12); do
+      if docker exec caddy caddy crowdsec health --address unix//run/caddy-admin.sock >/dev/null 2>&1; then
+        cs_healthy=1
+        break
+      fi
+      sleep 5
+    done
+    if [[ "$cs_healthy" -eq 1 ]]; then
+      echo "  PASS: CrowdSec bouncer link healthy (decisions streaming from host LAPI)"
+    else
+      echo "  FAIL: 'caddy crowdsec health' did not pass within 60s" >&2
+      echo "        The edge is running UNPROTECTED — the bouncer fails open." >&2
+      echo "        Diagnose:" >&2
+      echo "          docker exec caddy caddy crowdsec ping --address unix//run/caddy-admin.sock" >&2
+      echo "          cscli bouncers list                 (is caddy-edge registered?)" >&2
+      echo "          grep listen_uri /etc/crowdsec/config.yaml   (0.0.0.0:8080? — root-tier 54-crowdsec)" >&2
+      echo "          ufw status | grep 8080            (docker bridges allowed? — 54-crowdsec)" >&2
+      exit 1
+    fi
+  fi
+
   # Verify route listing works.
   if "$STACK_DIR/bin/caddy-route" list >/dev/null 2>&1; then
     echo "  PASS: caddy-route list works"

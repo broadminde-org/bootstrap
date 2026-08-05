@@ -182,6 +182,24 @@ import path/to/myapp.caddy
 
 Then `caddy reload` or restart the container.
 
+## CrowdSec
+
+The bouncer plugin gates on the `public` capability + a generated key (Step 2).
+When enabled, caddy streams decisions from the host LAPI at
+`http://host.docker.internal:8080`. The host side expects
+`listen_uri: 0.0.0.0:8080` and a ufw `172.16.0.0/12 → 8080/tcp` rule — both
+owned by root-tier `54-crowdsec`. The bouncer is **fail-open** (hard-fails off)
+so a broken link is silent: caddy serves traffic but enforces zero CrowdSec
+decisions.
+
+Diagnostics:
+```bash
+docker exec caddy caddy crowdsec health --address unix//run/caddy-admin.sock
+docker exec caddy caddy crowdsec ping  --address unix//run/caddy-admin.sock
+docker exec caddy caddy crowdsec check <ip> --address unix//run/caddy-admin.sock
+cscli bouncers list          # is caddy-edge registered?
+```
+
 ## Architecture
 
 - **One Caddy container per host**, named `caddy`, on the `edge` docker network.

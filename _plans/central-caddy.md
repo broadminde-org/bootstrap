@@ -521,6 +521,24 @@ Teardown: container removed; `~/infra/caddy` left installed (routes.d empty,
 | `CADDY_VERSION` pinned in compose AND Dockerfile (compose arg won) | ✅ compose arg dropped; Dockerfile is the single pin (also fixed A.1/A.2) |
 | `acmedns-register usage()` unreachable | ✅ wired: `[[ $# -eq 0 ]] || usage` |
 
+### Review-fix round (2026-08-04) — CrowdSec link gaps
+
+Two blocking gaps found during netbird migration readiness review
+(`~/netbird-docker/_plans/caddy-conversions.md` §4 "CrowdSec gating live"):
+
+1. **LAPI unreachable from container**: the Debian crowdsec package defaults
+   `listen_uri: 127.0.0.1:8080`, and even with that fixed, ufw's default-deny
+   blocks container→host LAPI packets on the INPUT chain. Fixed in
+   `init.d/54-crowdsec`: Step 2b binds `0.0.0.0:8080` and Step 2c stages a
+   `172.16.0.0/12 → 8080/tcp` ufw rule. Restart gate extended to include
+   `lapi_changed`.
+
+2. **No end-to-end bouncer health assertion**: the bouncer is fail-open, so a
+   broken LAPI link would be silent — caddy serves traffic with zero protection.
+   Fixed in `user/init.d/60-caddy` Step 9: polls `caddy crowdsec health
+   --address unix//run/caddy-admin.sock` (12×5s) when `CROWDSEC_BOUNCER_KEY` is
+   set, FAILs and exits 1 on timeout.
+
 ### No-auto-start (2026-08-01, user decision — supersedes the refusal-guard draft)
 
 The step originally ran `up -d` unconditionally, then gained a preflight

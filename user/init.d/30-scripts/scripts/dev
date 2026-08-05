@@ -6,19 +6,24 @@ set -euo pipefail
 #
 # Usage:
 #   dev              Show status
-#   dev up           Start infra (Docker) + Go backend (air) + Vite (pm2)
+#   dev up           Start infra (Docker) + backend (air/uv/custom) + Vite (pm2)
 #   dev down         Stop backend + Vite (infra is left running)
 #   dev log [svc]    Tail logs: backend, vite, infra, or all (default)
 #
 # Run from the project root ($PWD — no discovery). Requires at least one of:
-# docker-compose.yml, .air.toml, backend/.air.toml, frontend/package.json.
+# docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml,
+# backend/pyproject.toml, frontend/package.json.
 # Auto-port: LISTEN_ADDR defaults to :0; the backend writes .dev/backend.port
-# and Vite's port is parsed from its log into .dev/frontend.port.
+# (Go) or the port is parsed from the uvicorn log (uv), and Vite's port is
+# parsed from its log into .dev/frontend.port.
 # Infra is opt-in: `dev up` starts only the compose services named in
 # DEV_INFRA_SERVICES (set in .env); unset means no containers are touched.
-# Non-Go backends: set DEV_BACKEND_CMD in .env (run instead of air, with a
+# Backends: air (.air.toml) for Go; uv (pyproject.toml + uvicorn/fastapi,
+# app at src/main.py|app/main.py|main.py — override with DEV_UV_APP) for
+# Python; DEV_BACKEND_CMD as an escape hatch for anything else (requires a
 # pinned LISTEN_ADDR for the health probe; DEV_HEALTH_PATH defaults to
-# /healthz). FRONTEND_DIR may be overridden (default: frontend).
+# /healthz). Precedence: DEV_BACKEND_CMD > air > uv.
+# FRONTEND_DIR may be overridden (default: frontend).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVD_DIR="${SCRIPT_DIR}/dev.d"
@@ -29,9 +34,10 @@ if [[ ! -f "$PROJECT_DIR/docker-compose.yml" \
    && ! -f "$PROJECT_DIR/.air.toml" \
    && ! -f "$PROJECT_DIR/backend/.air.toml" \
    && ! -f "$PROJECT_DIR/pyproject.toml" \
+   && ! -f "$PROJECT_DIR/backend/pyproject.toml" \
    && ! -f "$PROJECT_DIR/frontend/package.json" ]]; then
   echo "Error: not a project root: $PROJECT_DIR" >&2
-  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml, frontend/package.json)" >&2
+  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml, backend/pyproject.toml, frontend/package.json)" >&2
   exit 1
 fi
 
@@ -80,13 +86,24 @@ source "$DEVD_DIR/common.sh"
 show_status() {
   local host infra_up=false backend_up=false vite_up=false
   local backend_port="" vite_port="" svc svc_json
+  local -a infra_svcs=()
   host=$(hostname)
+
+  # Dev's compose scope is exactly DEV_INFRA_SERVICES (.env). Deploy app
+  # containers (e.g. mcp4all) are not part of the dev environment — showing
+  # them as "stopped" here would be noise, so they are not listed at all.
+  read -ra infra_svcs <<< "${DEV_INFRA_SERVICES:-}"
 
   echo "${DETECTED_APP} dev environment"
   echo "${DETECTED_APP} dev environment" | sed 's/./-/g'
 
-  if has_compose && compose_cmd ps --format json 2>/dev/null | grep -q '"healthy"\|"running"'; then
-    infra_up=true
+  if has_compose && [[ ${#infra_svcs[@]} -gt 0 ]]; then
+    for svc in "${infra_svcs[@]}"; do
+      svc_json=$(compose_cmd ps "$svc" --format json 2>/dev/null || true)
+      if echo "$svc_json" | grep -q '"healthy"\|"running"'; then
+        infra_up=true
+      fi
+    done
   fi
   if [[ -f "$BACKEND_PORT_FILE" ]]; then backend_port="$(cat "$BACKEND_PORT_FILE")"; fi
   if [[ -f "$FRONTEND_PORT_FILE" ]]; then vite_port="$(cat "$FRONTEND_PORT_FILE")"; fi
@@ -108,9 +125,8 @@ show_status() {
   fi
   echo ""
 
-  if has_compose; then
-    while IFS= read -r svc; do
-      [[ -z "$svc" ]] && continue
+  if has_compose && [[ ${#infra_svcs[@]} -gt 0 ]]; then
+    for svc in "${infra_svcs[@]}"; do
       svc_json=$(compose_cmd ps "$svc" --format json 2>/dev/null || true)
       if echo "$svc_json" | grep -q '"healthy"'; then
         printf '  %-10s ✓ running (healthy)\n' "$svc"
@@ -119,7 +135,7 @@ show_status() {
       else
         printf '  %-10s ✗ stopped\n' "$svc"
       fi
-    done < <(compose_cmd config --services 2>/dev/null || true)
+    done
   fi
 
   report_svc() {
@@ -140,13 +156,13 @@ show_status() {
 # --- Up ---
 dev_up() {
   local step
-  for step in 10-infra 40-backend 50-vite; do
+  for step in 10-infra 40-air 42-uv 45-backend 50-vite; do
     if ! bash "$DEVD_DIR/${step}.sh" up; then
       fail "Step ${step} failed — stopping"
       return 1
     fi
     # Steps ran in subshells — re-read resolved ports so later steps see them.
-    if [[ "$step" == "40-backend" && -f "$BACKEND_PORT_FILE" ]]; then
+    if [[ -f "$BACKEND_PORT_FILE" ]]; then
       BACKEND_PORT="$(cat "$BACKEND_PORT_FILE")"; export BACKEND_PORT
     fi
     if [[ "$step" == "50-vite" && -f "$FRONTEND_PORT_FILE" ]]; then
@@ -167,7 +183,7 @@ dev_down() {
   if [[ -f "$FRONTEND_PORT_FILE" ]]; then vite_port="$(cat "$FRONTEND_PORT_FILE")"; fi
 
   local step
-  for step in 50-vite 40-backend 10-infra; do
+  for step in 50-vite 45-backend 42-uv 40-air 10-infra; do
     bash "$DEVD_DIR/${step}.sh" down || true
   done
 

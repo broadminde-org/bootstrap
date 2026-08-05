@@ -17,6 +17,14 @@
 #
 #   2. Installs crowdsec and crowdsec-firewall-bouncer-iptables.
 #
+#   2b. Binds the LAPI to 0.0.0.0:8080 so docker containers (central
+#      caddy) can reach it via host.docker.internal — the Debian default
+#      127.0.0.1:8080 refuses non-loopback connections. Exposure is scoped
+#      by the ufw rule in Step 2c.
+#
+#   2c. Allows 172.16.0.0/12 → 8080/tcp in ufw so container→host LAPI
+#      packets traverse the INPUT chain (ufw default-deny applies).
+#
 #   3. Installs the crowdsecurity/sshd and crowdsecurity/caddy
 #      collections (parsers + scenarios for those services).
 #
@@ -90,6 +98,56 @@ curl -fsSL https://install.crowdsec.net | bash
 echo ""
 echo "=== 54-crowdsec: installing packages ==="
 apt-get install -y crowdsec crowdsec-firewall-bouncer-iptables
+
+# ---------------------------------------------------------------------------
+# Step 2b: Make the LAPI reachable from docker containers.
+#
+# The central Caddy container's bouncer streams decisions from the host LAPI
+# at http://host.docker.internal:8080 (user/init.d/60-caddy). host-gateway
+# resolves to a bridge gateway address (e.g. 172.x.0.1), NOT loopback — and
+# the Debian default `listen_uri: 127.0.0.1:8080` refuses those connections.
+# Bind 0.0.0.0 and let ufw (step 2c) scope exposure to the docker bridges.
+# The host's firewall bouncer keeps using loopback — unaffected.
+# ---------------------------------------------------------------------------
+
+CONFIG_YAML=/etc/crowdsec/config.yaml
+lapi_changed=0
+
+if grep -qE '^[[:space:]]*listen_uri:[[:space:]]*0\.0\.0\.0:8080' "$CONFIG_YAML"; then
+  echo "LAPI listen_uri already 0.0.0.0:8080 — skipping"
+elif grep -qE '^[[:space:]]*listen_uri:[[:space:]]*127\.0\.0\.1:8080' "$CONFIG_YAML"; then
+  sed -i.crowdsec-bak -E \
+    's|^([[:space:]]*)listen_uri:[[:space:]]*127\.0\.0\.1:8080|\1listen_uri: 0.0.0.0:8080  # managed by bootstrap/init.d/54-crowdsec — docker-bridge reachable, exposure scoped by ufw|' \
+    "$CONFIG_YAML"
+  echo "listen_uri: 127.0.0.1:8080 → 0.0.0.0:8080 (backup: ${CONFIG_YAML}.crowdsec-bak)"
+  lapi_changed=1
+else
+  echo "WARNING: listen_uri is neither 127.0.0.1:8080 nor 0.0.0.0:8080 — leaving untouched:" >&2
+  grep -E '^[[:space:]]*listen_uri:' "$CONFIG_YAML" >&2
+fi
+
+# ---------------------------------------------------------------------------
+# Step 2c: Allow docker bridge traffic to the LAPI (ufw).
+#
+# Container → host LAPI packets traverse the INPUT chain, where ufw's
+# default-deny applies. Allow only the RFC1918 docker bridge range; external
+# exposure stays denied by policy. `ufw allow` stages the rule whether or not
+# ufw is active yet (52-ufw enables it manually in Phase 1c), so ordering
+# against ufw activation does not matter. IPv6: the `edge` network is
+# v4-only today — add a matching fd00::/8 rule if that ever changes.
+# ---------------------------------------------------------------------------
+
+if command -v ufw >/dev/null 2>&1; then
+  if ! ufw show added 2>/dev/null | grep -q 'CrowdSec LAPI'; then
+    ufw allow from 172.16.0.0/12 to any port 8080 proto tcp comment 'CrowdSec LAPI from docker bridges'
+    echo "ufw: allowed 172.16.0.0/12 → 8080/tcp (docker bridges)"
+  else
+    echo "ufw: LAPI rule already present — skipping"
+  fi
+  if ! ufw status 2>/dev/null | grep -q 'Status: active'; then
+    echo "WARNING: ufw is installed but NOT active — LAPI binds 0.0.0.0:8080 with no firewall filter (enable ufw manually per Phase 1c)" >&2
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Step 3: Install sshd and caddy collections.
@@ -166,7 +224,14 @@ fi
 # /etc/crowdsec/local_api_credentials.yaml is root:crowdsec 0640 on Debian —
 # group membership lets the deploy user run `cscli` (e.g. `cscli bouncers
 # add` from user/init.d/60-caddy) without sudo. usermod -aG is idempotent.
+# The crowdsec group may not exist after package install (Debian packaging
+# quirk) — create it idempotently before adding the user.
 # ---------------------------------------------------------------------------
+
+if ! getent group crowdsec >/dev/null 2>&1; then
+  groupadd --system crowdsec
+  echo "Created crowdsec system group"
+fi
 
 if [[ -n "${SUDO_USER:-}" ]]; then
   usermod -aG crowdsec "$SUDO_USER"
@@ -184,8 +249,8 @@ systemctl enable --now crowdsec
 # Restart when the Caddy acquisition config changed on an already-running
 # daemon — CrowdSec does not watch acquis files, so a path change (e.g.
 # legacy→central during the migration) is silently inert until a restart.
-if [[ "$acquis_changed" -eq 1 && "$cs_was_active" -eq 1 ]]; then
-  echo "Caddy acquisition config changed — restarting crowdsec"
+if [[ "$((acquis_changed + lapi_changed))" -gt 0 && "$cs_was_active" -eq 1 ]]; then
+  echo "CrowdSec config changed — restarting crowdsec"
   systemctl restart crowdsec
 fi
 
@@ -212,6 +277,18 @@ echo "  PASS: crowdsec is active"
 
 systemctl is-active crowdsec-firewall-bouncer || { echo "ERROR: crowdsec-firewall-bouncer not active" >&2; exit 1; }
 echo "  PASS: crowdsec-firewall-bouncer is active"
+
+# LAPI listens on all interfaces (docker-bridge reachable).
+# `ss` formats wildcard binds differently across versions: `0.0.0.0:8080`,
+# `[::]:8080`, or `*:8080`. All three accept docker-bridge traffic.
+if ss -tlnH 'sport = :8080' | grep -qE '(0\.0\.0\.0:8080|\[::\]:8080|\*:8080)'; then
+  echo "  PASS: LAPI listening on wildcard :8080 (docker-bridge reachable)"
+else
+  echo "  FAIL: LAPI not listening on a wildcard :8080 — central caddy cannot reach it" >&2
+  echo "  Current 8080 listeners:" >&2
+  ss -tlnH 'sport = :8080' >&2
+  exit 1
+fi
 
 echo ""
 echo "54-crowdsec complete."

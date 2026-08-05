@@ -1,43 +1,18 @@
 #!/usr/bin/env bash
-# 40-backend.sh — Start/stop Go backend with air
+# 40-air.sh — Start/stop Go backend with air
 set -euo pipefail
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 case "${1:-up}" in
   up)
-    if ! has_backend; then
-      log_skip "No backend found (no .air.toml, no DEV_BACKEND_CMD)"
+    if ! has_air; then
+      log_skip "No .air.toml found"
       exit 0
     fi
 
     kill_pid "${DEV_DIR}/backend.pid" "old backend"
     rotate_log "${DEV_DIR}/backend.log"
-
-    if [[ -n "${DEV_BACKEND_CMD:-}" ]]; then
-      # Custom backend command from .env (e.g. Python/uv). No auto-port:
-      # the port lives inside the command, so LISTEN_ADDR must be pinned
-      # for the health check to know where to probe.
-      if [[ -z "${LISTEN_ADDR:-}" || "${LISTEN_ADDR}" == *:0 ]]; then
-        fail "DEV_BACKEND_CMD requires a pinned LISTEN_ADDR (e.g. :9000) in .env"
-        exit 1
-      fi
-      export BACKEND_PORT="${LISTEN_ADDR##*:}"
-      # Pinned port: write the port file ourselves — a custom backend doesn't
-      # know the auto-port contract, and status/down read it from the file.
-      echo "$BACKEND_PORT" > "$BACKEND_PORT_FILE"
-
-      log "Starting backend (DEV_BACKEND_CMD)..."
-      (
-        cd "$PROJECT_DIR"
-        setsid bash -c "$DEV_BACKEND_CMD" >> "${DEV_DIR}/backend.log" 2>&1 </dev/null &
-        echo $! > "${DEV_DIR}/backend.pid"
-      )
-      backend_pid=$(cat "${DEV_DIR}/backend.pid" 2>/dev/null || echo "")
-
-      wait_for_healthz "$BACKEND_PORT" "$backend_pid" 60 "Backend" "${DEV_HEALTH_PATH:-/healthz}"
-      exit 0
-    fi
 
     # Root .air.toml wins; otherwise use backend/ (backend/.air.toml).
     backend_dir="${PROJECT_DIR}"
