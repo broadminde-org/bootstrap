@@ -1,0 +1,15 @@
+# Managed by user/init.d/60-caddy — do not edit by hand.
+#
+# Wildcard cert placeholder for *.${ZONE_FQDN} via DNS-01/acme-dns.
+# Apps register more-specific site blocks via caddy-route; most-specific
+# match wins.
+#
+# Prerequisite: _acme-challenge.<zone> CNAME → the acme-dns account
+# fulldomain. One account serves many delegations.
+
+*.${ZONE_FQDN} {
+	tls {
+		dns acmedns /etc/caddy/acmedns.json
+	}
+	respond "wildcard zone: ${ZONE_FQDN}" 200
+}

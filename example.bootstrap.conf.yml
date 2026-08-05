@@ -59,3 +59,21 @@ versions:
   kilo: "latest"
   go: "latest"
   node: "latest"
+
+# ── Caddy wildcard zones ──────────────────────────────────────────────────────────
+#
+#   base_domain  Zone apex (e.g. "example.com"). A label L serves *.L.<base_domain>.
+#                The special label "host" serves *.<hostname>.<base_domain>.
+#
+#   wildcards    Space-separated DNS labels to render as wildcard zone
+#                snippets. Each label must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$.
+#                Wildcard rendering activates only after acmedns.json holds a
+#                real acme-dns account (registered via bin/acmedns-register).
+#                Set wildcards: "" (empty) to render no zone snippets.
+#
+#   Example:  base_domain: example.com
+#             wildcards: "dev host"
+
+caddy:
+  base_domain: example.com
+  wildcards: ""

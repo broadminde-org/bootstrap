@@ -195,6 +195,86 @@ if [[ ! -f "$STACK_DIR/Caddyfile" ]] || [[ "$(cat "$STACK_DIR/Caddyfile")" != "$
 fi
 
 # ---------------------------------------------------------------------------
+# Step 7.5: Render wildcard cert snippets from config.
+# ---------------------------------------------------------------------------
+
+wildcards="$(get_caddy_conf wildcards "")"
+
+if [[ -z "$wildcards" ]]; then
+  echo "NOTE: caddy.wildcards is empty or unset — no wildcard zones configured."
+  echo "       Set wildcards labels in bootstrap.conf.yml to generate wildcard certs,"
+  echo "       or set wildcards: \"\" to suppress this message."
+else
+  base_domain="$(get_caddy_conf base_domain "")"
+
+  if [[ -z "$base_domain" ]]; then
+    echo "NOTE: caddy.base_domain is empty or unset — skipping wildcard zone rendering."
+    echo "       Set base_domain in bootstrap.conf.yml to define the zone apex."
+  elif [[ ! -f "$STACK_DIR/acmedns.json" ]] || ! jq -e '. | keys | length > 0' "$STACK_DIR/acmedns.json" >/dev/null 2>&1; then
+    echo "NOTE: acmedns.json is missing or empty — skipping wildcard zone rendering."
+    echo "       Run bin/acmedns-register to create a real acme-dns account, then re-run this step."
+  else
+    active_labels=()
+    invalid_labels=0
+    # read -ra (not `for x in $wildcards`): an unquoted expansion would
+    # pathname-expand glob chars in the config value against the CWD.
+    read -ra wildcard_labels <<< "$wildcards"
+    for label in "${wildcard_labels[@]}"; do
+      if [[ ! "$label" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+        echo "WARNING: ignoring invalid wildcard label '$label' — must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?\$" >&2
+        invalid_labels=1
+        continue
+      fi
+      if [[ "$label" == "host" ]]; then
+        zone_fqdn="$(hostname).$base_domain"
+      else
+        zone_fqdn="$label.$base_domain"
+      fi
+      active_labels+=("$label")
+      dest="$STACK_DIR/routes.d/${label}-wildcard.caddy"
+      rendered="$(ZONE_FQDN="$zone_fqdn" envsubst '$ZONE_FQDN' < "$SRC_DIR/wildcard.caddy.tmpl")"
+      if [[ ! -f "$dest" ]] || [[ "$(cat "$dest")" != "$rendered" ]]; then
+        echo "$rendered" > "$dest"
+        chmod 0644 "$dest"
+        echo "Rendered wildcard zone: *.$zone_fqdn"
+        routes_changed=1
+      fi
+    done
+
+    # Stale cleanup only runs when every configured label validated — a
+    # config with rejected labels is suspect, and deleting zones based on
+    # it could turn a typo into an outage. Fail safe: touch nothing.
+    if [[ "$invalid_labels" -eq 1 ]]; then
+      echo "NOTE: skipping stale wildcard cleanup until the invalid labels above are fixed."
+    else
+      for dest in "$STACK_DIR/routes.d/"*-wildcard.caddy; do
+        [[ -f "$dest" ]] || continue
+        fname="${dest##*/}"
+        label="${fname%-wildcard.caddy}"
+        found=0
+        for a in "${active_labels[@]}"; do
+          [[ "$a" == "$label" ]] && { found=1; break; }
+        done
+        if [[ "$found" -eq 0 ]]; then
+          rm "$dest"
+          echo "Removed stale wildcard zone: $fname"
+          routes_changed=1
+        fi
+      done
+    fi
+  fi
+fi
+
+if [[ -z "$wildcards" ]]; then
+  for dest in "$STACK_DIR/routes.d/"*-wildcard.caddy; do
+    [[ -f "$dest" ]] || continue
+    rm "$dest"
+    echo "Removed stale wildcard zone: ${dest##*/}"
+    routes_changed=1
+  done
+fi
+
+# ---------------------------------------------------------------------------
 # Step 8: Build + autosave hygiene (on change); apply only when already
 # running. This step NEVER starts a stopped container — bringing up the
 # host's edge is an explicit operator action (`docker compose up -d` in the
@@ -262,7 +342,7 @@ else
   echo ""
   echo "To bring it up:"
   echo "  cd $STACK_DIR && docker compose up -d"
-  if [[ "$changed" -eq 1 ]]; then
+  if [[ "${changed:-0}" -eq 1 || "${routes_changed:-0}" -eq 1 ]]; then
     echo "Config changed since it last ran — after starting, replay routes once:"
     echo "  caddy-route reconcile"
   fi

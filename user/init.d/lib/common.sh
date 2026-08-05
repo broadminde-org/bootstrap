@@ -19,7 +19,8 @@ fi
 
 # Source the unified config reader AFTER the non-root check so root callers
 # fail fast without inheriting its exports.
-# conf.sh auto-locates bootstrap.conf.yml relative to its own path.
+# conf.sh honors $BOOTSTRAP_CONFIG_FILE (exported by user/init.sh) and
+# otherwise auto-locates bootstrap.conf.yml relative to its own path.
 # shellcheck source=../../../init.d/lib/conf.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../../../init.d/lib/conf.sh"
 

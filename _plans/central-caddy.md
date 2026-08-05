@@ -403,6 +403,12 @@ the live configs on 2026-08-01.
 
 ## 5. Phase 3 — dev-host wildcard pattern (design sketch, build when needed)
 
+> **2026-08-05**: Implemented as config-driven wildcard site blocks per
+> `_plans/wildcard-zones.md`. The single-server sketch below is superseded —
+> the actual implementation uses per-zone site blocks with a unified
+> `wildcard.caddy.tmpl`, creds-gated rendering, and stale cleanup. See
+> `docs/central-caddy.md#wildcard-zones` for operator documentation.
+
 Per-app names on internal hosts need one `_acme-challenge` CNAME per app name
 (manual DNS ops). Alternative for fleets of dev stacks on one host: a single
 host-owned wildcard server `*.<host>.broadminde.org` (one acme-dns delegation)

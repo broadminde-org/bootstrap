@@ -119,7 +119,7 @@ flowchart LR
 | `56-ssh-client` | dir | Writes SSH client defaults (`Host *` block) to `$SUDO_USER/.ssh/config` (ServerAliveInterval, ControlMaster, ControlPersist, UpdateHostKeys, HashKnownHosts) with `Include ~/.ssh/hosts.d/*`; adds stale ControlMaster cleanup snippet to `$SUDO_USER/.bashrc` | Marker-guarded in both files; four case handling for .ssh/config (new, patched, user-managed Host*, append); skips when markers present |
 | `58-mdns` | dir | Patches nsswitch.conf with `mdns4_minimal`; writes `/etc/hosts` 127.0.1.1 line with FQDN (domain from `/etc/resolv.conf`); generates `/etc/avahi/avahi-daemon.conf` with detected physical interfaces and `use-ipv6=yes`; restarts avahi-daemon | nsswitch.conf sed is idempotent; hosts line skipped if already correct; avahi-daemon.conf compared bytewise before write; avahi-daemon restarted each run |
 
-**Root-tier step count: 13** (01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56)
+**Root-tier step count: 16** (01, 05, 06, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 57, 58)
 
 ## User-Tier Step Ownership Table
 
@@ -132,8 +132,9 @@ flowchart LR
 | `25-go` | dir | Installs Go binary to `~/.local/go/` (pinned via `EE_GO_VERSION`); writes Go shell environment block to `~/.profile` (GOROOT, GOPATH, GOPROXY, GOSUMDB, GOPRIVATE, PATH); installs dev tools (golangci-lint, gosec, govulncheck, air) to `~/go/bin/`; persists go env to `~/.config/go/env`; prunes orphan go toolchain binaries | Version check on `go version`; marker-guarded shell env block with stale cleanup; dev tools re-installed at @latest on every run (go install is fast when already at latest) |
 | `30-scripts` | dir | Copies `scripts/` to `$HOME/scripts/`; installs script runners to `$HOME/.local/bin/` (including `kilo-session-report` wrapper) | Files overwritten each run |
 | `35-node` | dir | Installs nvm; installs Node.js (pinned via `EE_NODE_VERSION`); adds nvm sourcing to `~/.bashrc`; installs global npm packages from `packages.txt` (including `@playwright/test` with browser deps) | Version check on `node --version`; grep check on bashrc nvm block; per-package check via `npm list -g` |
+| `60-caddy` | dir | Provisions central Caddy at `~/infra/caddy/`: syncs stack files, renders Caddyfile+wildcards, builds Docker image. Never starts a stopped container — apply is in-place (rebuild+recreate) only when already running | Caddyfile rendered compare-before-write; wildcard zones from `caddy:` config (base_domain + wildcards labels), creds-gated; `.env` seeded 0600; reconcile hash-skip prevents no-op pushes |
 
-**User-tier step count: 7** (10, 15, 20, 22, 25, 30, 35)
+**User-tier step count: 8** (10, 15, 20, 22, 25, 30, 35, 60)
 
 ## User-Tier Tools (20-python + 22-kilo)
 
@@ -181,7 +182,7 @@ Bootstrap is a **prerequisite** — app repos (`netbird-docker`, `ansible`, etc.
 | `$HOME/.local/bin` on PATH (from `40-profile`) | All app repos + user-tier wrappers | Wrappers installed by user-tier are callable by name |
 | SSH client defaults (from `56-ssh-client`) | All app repos | ServerAliveInterval/ControlMaster/ControlPersist for reliable connections; `Include ~/.ssh/hosts.d/*` for per-repo SSH aliases; stale ControlMaster cleanup in bashrc |
 | Baseline packages: jq, openssl, gettext-base, curl, git, build-essential (from `05-packages`) | All app repos | `jq` for JSON parsing, `openssl` for secrets, `gettext-base` for `envsubst` template rendering, `curl`/`git` for downloads, `build-essential` for native Node.js modules |
-| ufw + fail2ban + crowdsec (from `52-ufw`, `53-fail2ban`, `54-crowdsec`) | `netbird-docker` | fail2ban jails reference `/home/stack/netbird-docker/logs/caddy/access.log`; crowdsec acquis.d/caddy-central.yaml drop-in references the same path |
+| ufw + fail2ban + crowdsec (from `52-ufw`, `53-fail2ban`, `54-crowdsec`) | `netbird-docker` | fail2ban + crowdsec log paths resolve via `init.d/lib/caddy-log.sh`: `$CADDY_LOG_PATH` override → live log by mtime → central `~/infra/caddy/logs/access.log` default → legacy as last fallback |
 | SSH hardening (from `51-ssh-hardening`) | All app repos | `AllowUsers stack` restricts SSH access |
 | direnv hook (from `15-direnv`) | All app repos with `.envrc` | Per-directory environment loading; profile-level `direnvrc` scaffold for shared functions |
 | uv + Python 3.13 (from `20-python`) | `llmdocs`, `kilo-session-report`, app Python tooling | `uv run` is the preferred Python execution method |

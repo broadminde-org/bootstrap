@@ -3,6 +3,7 @@
 {
 	admin unix//run/caddy-admin.sock
 	email ${ACME_EMAIL}
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
 	log {
 		output file /data/logs/access.log {
 			roll_size 100mb

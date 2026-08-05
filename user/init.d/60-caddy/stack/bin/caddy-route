@@ -95,9 +95,39 @@ reconcile() {
   else
     # Same synthetic-order wrapper as validate (wrap_with_order).
     wrap_with_order "$tmp/combined.caddy" "${files[@]}"
-    docker cp "$tmp/combined.caddy" caddy:/tmp/combined.caddy
-    docker exec caddy caddy adapt --config /tmp/combined.caddy --adapter caddyfile > "$tmp/apps.json"
-    jq -s '.[0] * .[1]' "$tmp/global.json" "$tmp/apps.json" > "$tmp/merged.json"
+    # Canonicalize + adapt in one streamed container pass: `caddy fmt -`
+    # reads stdin and writes the formatted Caddyfile (snippets arrive from
+    # different renderers — tabs vs spaces — and adapt warns on
+    # non-fmt-canonical input; fmt is whitespace-only, JSON unchanged).
+    # Streaming via `cat >` instead of docker cp because files placed by
+    # docker cp land in the overlay upperdir out-of-band and cannot be
+    # overwritten in place from inside the container (EACCES) — the rm
+    # first clears any stale cp'd file for the same reason.
+    docker exec -i caddy sh -c 'rm -f /tmp/combined.caddy && cat > /tmp/combined.caddy && caddy fmt --overwrite /tmp/combined.caddy >/dev/null && caddy adapt --config /tmp/combined.caddy --adapter caddyfile' \
+      < "$tmp/combined.caddy" > "$tmp/apps.json"
+    # Deep-merge apps on top of global.  Route snippets may carry per-site
+    # TLS blocks defining DNS-01 challenge providers.  Per-site automation
+    # policies are PRESERVED with their subjects, so DNS-01 applies only to
+    # names that declare it; every other name falls through to the global
+    # default policy (HTTP-01/TLS-ALPN).  Per-site issuers adapted from
+    # snippets lack email/ca — inject the global acme issuer's identity so
+    # all policies share the production CA and account email.  Subject
+    # policies are ordered first, the subject-less default last, so policy
+    # selection is unambiguous regardless of matcher semantics.
+    jq -s '
+      .[0] as $g | .[1] as $a |
+      ($g.apps.tls.automation.policies // []) as $gp |
+      ($a.apps.tls.automation.policies // []) as $ap |
+      $g * $a |
+      if (($gp | length) + ($ap | length)) > 0 then
+        (($gp[0].issuers // [])
+          | map(select(.module == "acme")) | .[0] // {}
+          | {email, ca} | with_entries(select(.value != null))) as $id |
+        .apps.tls.automation.policies = (
+          [$ap[] | .issuers |= map(if .module == "acme" then . + $id else . end)] + $gp
+        )
+      else . end
+    ' "$tmp/global.json" "$tmp/apps.json" > "$tmp/merged.json"
   fi
 
   local new_hash
@@ -148,6 +178,7 @@ cmd_register() {
 
   [[ -n "$app" && -n "$snippet" ]] || usage
   check_app_name "$app"
+  [[ "$app" != *-wildcard ]] || die "app name '$app' is reserved — wildcard zones are managed via caddy.wildcards in bootstrap.conf.yml"
   [[ -d "$STACK_DIR/routes.d" ]] || die "routes.d/ not found — run init.d/60-caddy first"
 
   validate "$snippet" "$app"
@@ -174,6 +205,7 @@ cmd_deregister() {
 
   [[ -n "$app" ]] || usage
   check_app_name "$app"
+  [[ "$app" != *-wildcard ]] || die "app name '$app' is reserved — wildcard zones are managed via caddy.wildcards in bootstrap.conf.yml"
 
   if [[ -f "$file" ]]; then
     rm "$file"

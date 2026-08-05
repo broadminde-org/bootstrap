@@ -52,6 +52,10 @@ runs `caddy run --resume` so registered apps survive restarts/reboots.
 
 Full documentation: [docs/central-caddy.md](docs/central-caddy.md)
 
+Wildcard zones are configured via the `caddy:` section of `bootstrap.conf.yml`
+(`base_domain` + `wildcards` labels). They render only after acme-dns
+registration; see [Wildcard zones](docs/central-caddy.md#wildcard-zones).
+
 ---
 
 ## Quick start
@@ -97,8 +101,9 @@ Both runners accept the same selectors.
 
 ## Configuration (`bootstrap.conf.yml`)
 
-`bootstrap.conf.yml` is a single file with two sections: `capabilities:` (which
-provisioning steps run) and `versions:` (which toolchain versions to install).
+`bootstrap.conf.yml` is a single file with three sections: `capabilities:` (which
+provisioning steps run), `versions:` (which toolchain versions to install),
+and `caddy:` (wildcard zone `base_domain` and `wildcards` labels).
 
 ### Capability flags
 
@@ -121,6 +126,13 @@ Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 
 If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
 versions default to `"latest"`.
+
+A hostname-specific override (`<hostname>.conf.yml` in the repo root) takes
+precedence over `bootstrap.conf.yml` when present. Both tiers resolve it the
+same way: each runner selects the file and exports it as
+`BOOTSTRAP_CONFIG_FILE`, and step subshells that re-source `conf.sh` honor
+that export — so root-tier gating and user-tier steps (e.g. 60-caddy's
+`public` check) never evaluate different capability sets.
 
 Capabilities gate **provisioning, not runtime state**: disabling one stops its
 steps from running but never undeploys anything already installed (e.g.

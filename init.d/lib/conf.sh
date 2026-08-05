@@ -21,10 +21,15 @@
 #   cap_enabled <name>               returns 0 if capability is enabled
 #   step_requires_caps <step_dir>    returns 0 if all .requires caps pass
 #   get_pinned_version <tool> [def]  returns pinned version string or default
+#   get_caddy_conf <key> [def]       returns caddy section value or default
 #
-# When no config_file is provided, load_conf infers the path from this
-# script's own location: conf.sh lives at bootstrap/init.d/lib/conf.sh,
-# so the default config is bootstrap/bootstrap.conf.yml.
+# When no config_file is provided, load_conf resolves the default in order:
+#   1. $BOOTSTRAP_CONFIG_FILE (environment) — exported by both init.sh runners
+#      with the file THEY selected, so step subshells that re-source conf.sh
+#      and call load_conf with no arguments (e.g. user-tier lib/common.sh)
+#      resolve the same file, including a hostname-specific override.
+#   2. bootstrap/bootstrap.conf.yml inferred from this script's own location
+#      (conf.sh lives at bootstrap/init.d/lib/conf.sh).
 #
 # get_pinned_version auto-calls load_conf (from the default location) if the
 # config has not been loaded yet — this covers step subshells that source
@@ -40,12 +45,13 @@ _BOOTSTRAP_CONF_SH_LOADED=1
 
 declare -A _CAP_ENABLED
 declare -A _TOOL_VERSION
+declare -A _CADDY_CONF
 _CONF_LOADED=0
 
 # Infer default config path from this file's own location.
 # conf.sh: bootstrap/init.d/lib/conf.sh → ../../ → bootstrap/bootstrap.conf.yml
 _CONF_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_DEFAULT_CONF="$(cd "$_CONF_SH_DIR/../.." && pwd)/bootstrap.conf.yml"
+_DEFAULT_CONF="${BOOTSTRAP_CONFIG_FILE:-$(cd "$_CONF_SH_DIR/../.." && pwd)/bootstrap.conf.yml}"
 
 # _parse_section <file> <section>
 #
@@ -78,13 +84,14 @@ _parse_section() {
 # When the config file is missing, _CONF_LOADED remains 0: cap_enabled returns
 # false for all capabilities (steps with .requires are skipped) and
 # get_pinned_version returns its default (usually "latest").
+# shellcheck disable=SC2120  # callers live in other files (init.sh runners)
 load_conf() {
   [[ "$_CONF_LOADED" == "1" ]] && return 0
 
   local config_file="${1:-$_DEFAULT_CONF}"
 
   if [[ -z "$config_file" || ! -f "$config_file" ]]; then
-    echo "Warning: bootstrap.conf.yml not found — all capabilities disabled, versions default to 'latest'." >&2
+    echo "Warning: config file not found ($config_file) — all capabilities disabled, versions default to 'latest'." >&2
     return 0
   fi
 
@@ -99,6 +106,10 @@ load_conf() {
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _TOOL_VERSION["$key"]="$val"
   done < <(_parse_section "$config_file" "versions")
+
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _CADDY_CONF["$key"]="$val"
+  done < <(_parse_section "$config_file" "caddy")
 }
 
 # cap_enabled <name>
@@ -160,6 +171,21 @@ get_pinned_version() {
 
   if [[ -v _TOOL_VERSION[$tool] && -n "${_TOOL_VERSION[$tool]}" ]]; then
     echo "${_TOOL_VERSION[$tool]}"
+  else
+    echo "$default"
+  fi
+}
+
+get_caddy_conf() {
+  local key="$1"
+  local default="${2:-}"
+
+  if [[ "$_CONF_LOADED" == "0" ]]; then
+    load_conf
+  fi
+
+  if [[ -v _CADDY_CONF[$key] && -n "${_CADDY_CONF[$key]}" ]]; then
+    echo "${_CADDY_CONF[$key]}"
   else
     echo "$default"
   fi
