@@ -253,6 +253,7 @@ bootstrap/
 │   │   └── 60-caddy/                 # central Caddy reverse proxy (one per host)
 │   │       ├── .requires             # docker, caddy
 │   │       ├── run.sh                # installs to ~/infra/caddy (runs as deploy user)
+│   │       ├── kilo/skills/          # central-caddy agent skill → ~/.kilo/skills/
 │   │       └── stack/                # Dockerfile, compose.yaml, Caddyfile.tmpl, .env.example,
 │   │           └── bin/              #   caddy-route, acmedns-register
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)

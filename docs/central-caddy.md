@@ -265,6 +265,11 @@ cscli bouncers list          # is caddy-edge registered?
 ## Architecture
 
 - **One Caddy container per host**, named `caddy`, on the `edge` docker network.
+- **`edge` subnet is pinned** (`172.24.0.0/16`, gateway `172.24.0.1` — set at
+  creation in 60-caddy step 4): snippets may reference the gateway IP.
+  Requests originating on the host itself hairpin through docker-proxy and
+  arrive with the gateway as source IP, so host-trusting gates (e.g.
+  ci-dashboard's mesh gate) whitelist `172.24.0.1/32`.
 - **Admin API: unix socket only** (`/run/caddy-admin.sock` inside the container),
   reached via `docker exec caddy curl --unix-socket …`. No TCP admin surface.
   Authorization = docker group membership (deploy user).

@@ -8,6 +8,12 @@ set -euo pipefail
 # into init.d/23-kilo-settings/_kilo/ — so the bootstrap repo stays
 # current with the evolving context set.
 #
+# Exception: skills that are mastered by a feature step (because they
+# document that feature and share its capability gating) are routed to
+# their owning step instead of the 23-kilo-settings skeleton:
+#
+#   ~/.kilo/skills/central-caddy/  ->  init.d/60-caddy/kilo/skills/central-caddy/
+#
 # The two destination directories match Kilo's global installation
 # targets per the Marketplace docs:
 #   https://kilo.ai/docs/customize/marketplace#files-changed-by-installation
@@ -107,6 +113,24 @@ for dir in skills; do
     echo "  skipped $dir/ (not found in source)"
   fi
 done
+
+# Route feature-step skills out of the 23 skeleton to their owning step.
+# The live ~/.kilo/skills/ namespace is flat, so the whole-dir copy above
+# pulls these in — move each to the step that masters it.
+route_skill() {
+  local skill="$1" step="$2"
+  local src="$DST_KILO/skills/$skill"
+  local dst="$SCRIPT_DIR/init.d/$step/kilo/skills/$skill"
+
+  if [[ -d "$src" ]]; then
+    mkdir -p "$(dirname "$dst")"
+    rm -rf "$dst"
+    mv "$src" "$dst"
+    echo "  routed skills/$skill -> $step/kilo/skills/"
+  fi
+}
+
+route_skill central-caddy 60-caddy
 
 # -------------------------------------------------------------------
 # Done
