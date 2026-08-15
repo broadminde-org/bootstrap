@@ -47,7 +47,7 @@ FROM caddy:${CADDY_VERSION}
 # CVE-2026-7009, and CVE-2026-33630 (c-ares).
 # golang.org/x/crypto GO-2026-5932 is in Caddy's go.mod; no upstream fix
 # yet — accept until Caddy ships a patch release.
-RUN apk upgrade --no-cache
+RUN apk upgrade
 
 # Replace the stock caddy binary with the one built in stage 1.
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

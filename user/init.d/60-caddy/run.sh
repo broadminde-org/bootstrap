@@ -12,6 +12,11 @@
 # already running, an update is applied in place (recreate on change) and
 # routes.d replayed. Idempotent: safe to re-run.
 #
+# Also deploys the central-caddy agent skill (kilo/skills/ →
+# ~/.kilo/skills/). The skill lives with this step — not in
+# 23-kilo-settings — because it documents THIS host's central stack, so it
+# is gated by the same .requires (docker + caddy) as the stack itself.
+#
 # Privileges needed: docker group membership (root tier, 50-docker) for
 # docker/compose, and — only when the `public` capability is on — crowdsec
 # group membership (root tier, 54-crowdsec) for `cscli bouncers add`.
@@ -23,6 +28,17 @@ EDGE_DIR="$HOME/infra/edge"
 SRC_DIR="$(dirname "$0")/stack"
 
 echo "=== 60-caddy: provisioning central Caddy ==="
+
+# ---------------------------------------------------------------------------
+# Step 0: Deploy the central-caddy agent skill (~/.kilo/skills/).
+#
+# Deliberately BEFORE the docker preflight: the skill is plain files with
+# no dependency on the daemon, so a host with docker temporarily down still
+# gets the context. sync_dir_preserve never deletes — user-installed skills
+# survive re-runs.
+# ---------------------------------------------------------------------------
+
+sync_dir_preserve "$(dirname "$0")/kilo/skills" "$HOME/.kilo/skills"
 
 # ---------------------------------------------------------------------------
 # Preflight — docker daemon access, compose, jq, curl, envsubst.
@@ -79,6 +95,10 @@ if cap_enabled public; then
         # `|` delimiter: cscli keys are base64 (charset A-Za-z0-9+/=) —
         # a `/`-delimited s/// would break on most keys.
         sed -i "s|^CROWDSEC_BOUNCER_KEY=.*|CROWDSEC_BOUNCER_KEY=$bkey|" "$STACK_DIR/.env"
+        # The bouncer key reaches the container via environment (compose.yaml:23)
+        # — a container-env change only applies on recreate, so mark the compose
+        # layer changed even though no stack file moved (R3).
+        compose_changed=1
         echo "Bouncer key written to $STACK_DIR/.env"
       else
         echo "WARNING: cscli failed — is $USER in the crowdsec group (54-crowdsec)? Running without CrowdSec" >&2
@@ -101,34 +121,55 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 4: Create edge network if absent.
+#
+# Subnet + gateway are PINNED: routes.d snippets may reference the gateway
+# IP — e.g. the ci-dashboard mesh gate allows 172.24.0.1/32 so requests
+# originating on this host (which hairpin through docker-proxy and arrive
+# with the gateway as source IP) pass the gate. An auto-assigned subnet
+# would silently break such snippets if the network were ever recreated.
 # ---------------------------------------------------------------------------
 
 if ! docker network inspect edge >/dev/null 2>&1; then
-  docker network create edge >/dev/null
-  echo "Created docker network: edge"
+  docker network create edge --subnet 172.24.0.0/16 --gateway 172.24.0.1 >/dev/null
+  echo "Created docker network: edge (172.24.0.0/16, gateway 172.24.0.1 — pinned)"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 5: Sync stack files (compare-before-write).
 # ---------------------------------------------------------------------------
 
-changed=0
+image_changed=0
+compose_changed=0
+config_changed=0
 
+# sync_file src dst [mode] [flag]
+#   flag: name of the change-flag to set on write (image_changed/compose_changed/
+#   config_changed). Empty flag means "sync only, do not mark changed" — used for
+#   build-context-only files (.dockerignore) whose content never affects the
+#   running service and must not trigger a rebuild.
 sync_file() {
-  local src="$1" dst="$2" mode="${3:-0644}"
-  if [[ ! -f "$dst" ]] || ! cmp -s "$src" "$dst"; then
+  local src="$1" dst="$2" mode="${3:-0644}" flag="${4:-}"
+  if [[ ! -f "$dst" ]]; then
     install -m "$mode" "$src" "$dst"
-    changed=1
+    [[ -n "$flag" ]] && declare -g "$flag=1"
+    echo "new:  ${dst#"$STACK_DIR"/}"
+  elif ! cmp -s "$src" "$dst"; then
+    install -m "$mode" "$src" "$dst"
+    [[ -n "$flag" ]] && declare -g "$flag=1"
+    echo "diff: ${dst#"$STACK_DIR"/}"
+  else
+    echo "ok:   ${dst#"$STACK_DIR"/}"
   fi
 }
 
 mkdir -p "$STACK_DIR/bin" "$STACK_DIR/routes.d" "$STACK_DIR/logs"
 
-sync_file "$SRC_DIR/Dockerfile"           "$STACK_DIR/Dockerfile"
-sync_file "$SRC_DIR/compose.yaml"         "$STACK_DIR/compose.yaml"
-sync_file "$SRC_DIR/Caddyfile.tmpl"       "$STACK_DIR/Caddyfile.tmpl"
-sync_file "$SRC_DIR/bin/caddy-route"      "$STACK_DIR/bin/caddy-route"      0755
-sync_file "$SRC_DIR/bin/acmedns-register" "$STACK_DIR/bin/acmedns-register" 0755
+sync_file "$SRC_DIR/Dockerfile"           "$STACK_DIR/Dockerfile"            0644 image_changed
+sync_file "$SRC_DIR/compose.yaml"         "$STACK_DIR/compose.yaml"          0644 compose_changed
+sync_file "$SRC_DIR/Caddyfile.tmpl"       "$STACK_DIR/Caddyfile.tmpl"        0644 config_changed
+sync_file "$SRC_DIR/bin/caddy-route"      "$STACK_DIR/bin/caddy-route"       0755 config_changed
+sync_file "$SRC_DIR/bin/acmedns-register" "$STACK_DIR/bin/acmedns-register"  0755 config_changed
+sync_file "$SRC_DIR/.dockerignore"        "$STACK_DIR/.dockerignore"
 
 # acmedns.json: seed as empty object if absent (compose volume mount needs a file).
 if [[ ! -f "$STACK_DIR/acmedns.json" ]]; then
@@ -190,8 +231,10 @@ rendered="$(echo "$template_text" | ACME_EMAIL="$ACME_EMAIL" CROWDSEC_API_URL="$
 if [[ ! -f "$STACK_DIR/Caddyfile" ]] || [[ "$(cat "$STACK_DIR/Caddyfile")" != "$rendered" ]]; then
   echo "$rendered" > "$STACK_DIR/Caddyfile"
   chmod 0644 "$STACK_DIR/Caddyfile"
-  changed=1
-  echo "Caddyfile rendered"
+  config_changed=1
+  echo "Caddyfile rendered (new or changed)"
+else
+  echo "ok:   Caddyfile (render unchanged)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -237,7 +280,7 @@ else
         echo "$rendered" > "$dest"
         chmod 0644 "$dest"
         echo "Rendered wildcard zone: *.$zone_fqdn"
-        routes_changed=1
+        config_changed=1
       fi
     done
 
@@ -258,7 +301,7 @@ else
         if [[ "$found" -eq 0 ]]; then
           rm "$dest"
           echo "Removed stale wildcard zone: $fname"
-          routes_changed=1
+          config_changed=1
         fi
       done
     fi
@@ -270,7 +313,7 @@ if [[ -z "$wildcards" ]]; then
     [[ -f "$dest" ]] || continue
     rm "$dest"
     echo "Removed stale wildcard zone: ${dest##*/}"
-    routes_changed=1
+    config_changed=1
   done
 fi
 
@@ -339,46 +382,22 @@ central_json() {
     }' > "$STACK_DIR/central.json"
 }
 
-central_json 0
-
 # ---------------------------------------------------------------------------
-# Step 8: Build + autosave hygiene (on change); apply only when already
-# running. This step NEVER starts a stopped container — bringing up the
-# host's edge is an explicit operator action (`docker compose up -d` in the
-# live dir). When the container IS running, the operator already opted in:
-# an update is applied in place (recreate on change) and routes.d replayed.
+# Step 8: Rebuild policy (on change); apply only when already running. This
+# step NEVER starts a stopped container — bringing up the host's edge is an
+# explicit operator action (`docker compose up -d` in the live dir). When the
+# container IS running, the operator already opted in: an update is applied
+# in place and routes.d replayed.
+#
+# Image changes rebuild; compose (service) changes recreate; config-only
+# changes hot-reload through the admin API — never a build or recreate, so
+# edge connections survive. See §8 rebuild policy.
 # ---------------------------------------------------------------------------
 
-if [[ "$changed" -eq 1 ]]; then
-  echo "Configuration changed — rebuilding …"
-
-  compose build
-
-  # Wipe autosave + push hash so the next start replays the global config
-  # from --config (never a stale --resume) and reconcile pushes exactly once.
-  # `compose run` here is a transient, port-less utility container, not the
-  # service — the service itself is not started.
-  compose run --rm --no-deps --entrypoint rm caddy -f /config/autosave.json 2>/dev/null || true
-  rm -f "$STACK_DIR/.last-pushed.sha256"
-else
-  echo "No changes — caddy stack is up to date."
-fi
-
-# Sample running state only AFTER the build, which can take minutes: an
-# operator may have stopped (or started) caddy mid-run, and this step must
-# NEVER start a stopped container. was_running also gates the post-condition
-# checks below.
-was_running=0
-docker ps -q --filter 'name=^caddy$' 2>/dev/null | grep -q . && was_running=1
-
-if [[ "$was_running" -eq 1 ]]; then
-  # Already running (operator opted in): apply in place. up -d recreates on
-  # config change, no-op when already current.
-  compose up -d
-
+wait_healthy() {
   # Wait healthy (returns immediately when already healthy).
   echo "Waiting for caddy to become healthy …"
-  status=""
+  local status=""
   for _i in $(seq 1 60); do
     status="$(docker inspect -f '{{.State.Health.Status}}' caddy 2>/dev/null)" || status=""
     if [[ "$status" == "healthy" ]]; then
@@ -392,14 +411,56 @@ if [[ "$was_running" -eq 1 ]]; then
     exit 1
   fi
   echo "Caddy is healthy"
+}
 
-  # Replay routes.d. Unconditional: the hash-skip makes it a no-op when
-  # converged, and running it every time heals divergence — e.g. a previous
-  # run that wiped autosave but aborted before its reconcile.
-  "$STACK_DIR/bin/caddy-route" reconcile
+if [[ "$image_changed" -eq 1 ]]; then
+  echo "Dockerfile changed — rebuilding image …"
+  compose build
 
-  # Update discovery file: container is now running.
-  central_json 1
+  # Wipe autosave + push hash so the next start replays the global config
+  # from --config (never a stale --resume) and reconcile pushes exactly once.
+  # `compose run` here is a transient, port-less utility container, not the
+  # service — the service itself is not started.
+  compose run --rm --no-deps --entrypoint rm caddy -f /config/autosave.json 2>/dev/null || true
+  rm -f "$STACK_DIR/.last-pushed.sha256"
+fi
+
+# Sample running state only AFTER any build, which can take minutes: an
+# operator may have stopped (or started) caddy mid-run, and this step must
+# NEVER start a stopped container. was_running also gates every apply path
+# and the post-condition checks below.
+was_running=0
+docker ps -q --filter 'name=^caddy$' 2>/dev/null | grep -q . && was_running=1
+
+if [[ "$was_running" -eq 1 ]]; then
+  if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 ]]; then
+    # Image or service config changed: recreate the container in place. up -d
+    # recreates on change, carries the new image/env, no-op otherwise.
+    if [[ "$image_changed" -eq 1 ]]; then
+      compose up -d
+    else
+      # Compose-only change: `pull_policy: build` otherwise forces a rebuild
+      # on `up -d` when the service definition changed. We only want a
+      # recreate here — the image itself is unchanged (R2/R7: no rebuild for
+      # a config-only service tweak).
+      compose up -d --no-build
+    fi
+    wait_healthy
+  elif [[ "$config_changed" -eq 1 ]]; then
+    # Config-only change: hot-reload through the admin API. No build, no
+    # recreate, no health wait — existing connections stay alive. The
+    # reconcile hash-skip makes a converged push a no-op.
+    echo "Configuration changed — hot-reloading via admin API …"
+  else
+    echo "No changes — caddy stack is up to date."
+  fi
+
+  # Replay routes.d. Conditional on any change: the hash-skip makes it a no-op
+  # when converged, and running it on real change heals divergence — e.g. a
+  # previous run that wiped autosave but aborted before its reconcile.
+  if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]]; then
+    "$STACK_DIR/bin/caddy-route" reconcile
+  fi
 else
   echo ""
   echo "Caddy is provisioned but NOT started — this step never starts it automatically."
@@ -412,17 +473,18 @@ else
   echo ""
   echo "To bring it up:"
   echo "  cd $STACK_DIR && docker compose up -d"
-  if [[ "${changed:-0}" -eq 1 || "${routes_changed:-0}" -eq 1 ]]; then
+  if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]]; then
     echo "Config changed since it last ran — after starting, replay routes once:"
     echo "  caddy-route reconcile"
   fi
 fi
 
 # ---------------------------------------------------------------------------
-# Step 9: Post-condition checks (only meaningful against a running container).
+# Step 9: Post-condition checks (only meaningful against a running container
+# that we just mutated — a no-change run does zero work and skips these).
 # ---------------------------------------------------------------------------
 
-if [[ "$was_running" -eq 1 ]]; then
+if [[ "$was_running" -eq 1 && ( "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ) ]]; then
   echo ""
   echo "=== Post-condition assertions ==="
 
@@ -470,6 +532,18 @@ if [[ "$was_running" -eq 1 ]]; then
   else
     echo "  WARNING: caddy-route list failed"
   fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 9.5: Write the discovery file exactly once, with the final running
+# state. Skipped when nothing changed AND the recorded state already matches
+# (avoids rewriting central.json every no-op run — R6).
+# ---------------------------------------------------------------------------
+
+if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]] \
+   || [[ ! -f "$STACK_DIR/central.json" ]] \
+   || [[ "$(jq -r '.status.running' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]]; then
+  central_json "$was_running"
 fi
 
 echo ""
