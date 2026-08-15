@@ -11,7 +11,8 @@
 # at a predictable path. Copies each executable in script-runners/ into
 # $HOME/.local/bin/ so scripts can be invoked by name.
 #
-# Idempotent: overwrites on every run.
+# Idempotent: scripts are synced without deletion — user-added scripts survive
+# re-runs. Runners are overwritten individually by name.
 #
 # Run as the deploy user (./user/init.sh 30-scripts).
 
@@ -39,9 +40,7 @@ if [ ! -d "$SCRIPTS_SRC" ]; then
   exit 1
 fi
 
-rm -rf "$SCRIPTS_DST"
-cp -r "$SCRIPTS_SRC" "$SCRIPTS_DST"
-echo "Copied scripts/ to ${SCRIPTS_DST}/"
+sync_dir_preserve "$SCRIPTS_SRC" "$SCRIPTS_DST"
 
 # ---------------------------------------------------------------------------
 # 2. Install runners into $HOME/.local/bin/

@@ -129,10 +129,10 @@ install_go() {
 }
 
 # write_go_shell_env writes the canonical Go environment block to ~/.profile.
-# It is self-healing: any prior marker-bounded block is removed, then stray
-# bare exports left by older versions are stripped, then a single fresh block
-# is appended. Only .profile is targeted (bootstrap does not use .bash_profile
-# for Go env, and .bashrc is never written — bootstrap has no env.sh).
+# It is self-healing: any prior marker-bounded block is removed, then a single
+# fresh block is appended. Only .profile is targeted (bootstrap does not use
+# .bash_profile for Go env, and .bashrc is never written — bootstrap has no
+# env.sh).
 write_go_shell_env() {
   echo "--- Writing Go shell environment for $(whoami)"
 
@@ -164,20 +164,17 @@ export PATH
   sed -i '/^# --- Go environment ---$/,/^# --- End Go environment ---$/d' "$HOME/.profile"
   sed -i '\|^# --- Go environment (managed by |,\|^# --- End Go environment ---$|d' "$HOME/.profile"
 
-  # 2. Delete stray bare exports left by older script versions
-  sed -i '\|^# --- Go environment (managed by |,\|^# --- End Go environment ---$|!{/^export \(GOPRIVATE\|GOPROXY\|GOSUMDB\)=/d;}' "$HOME/.profile"
-
-  # 3. Normalize trailing newlines
+  # 2. Normalize trailing newlines
   if [ -s "$HOME/.profile" ] && command -v perl >/dev/null 2>&1; then
     perl -i -pe 'BEGIN{$/=undef} s/\n+\z/\n/' "$HOME/.profile"
   fi
 
-  # 4. Ensure the file ends with a newline
+  # 3. Ensure the file ends with a newline
   if [ -s "$HOME/.profile" ] && [ "$(tail -c1 "$HOME/.profile" 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
     printf '\n' >> "$HOME/.profile"
   fi
 
-  # 5. Append the fresh marker block
+  # 4. Append the fresh marker block
   printf '\n%s\n' "$go_block" >> "$HOME/.profile"
   echo "Wrote Go environment block to $HOME/.profile"
 }

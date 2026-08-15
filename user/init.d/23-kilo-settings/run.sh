@@ -34,16 +34,22 @@
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
 #
+# Skills that document a specific provisioned feature live with that
+# feature's step instead of here, so they share the step's capability
+# gating — e.g. the central-caddy skill deploys from 60-caddy/kilo/skills/
+# (gated on docker + caddy), not from this skeleton.
+#
 # MCP server:
 #   Source:  init.d/23-kilo-settings/_config/kilo/mcp-server/  (if present)
 #   Deploy:  ~/.config/kilo/mcp-server/
 #   Listens: http://localhost:8766/mcp
 #   Mounts:  ~/.config/kilo/standards/ (read-only)
 #
-# Idempotent: directories are replaced on every run so re-running
-# picks up any changes committed to the skeletons. Docker Compose
-# only rebuilds if sources changed (--build is passed; cached layers
-# apply).
+# Idempotent: directories are synced without deletion — user-installed agents,
+# commands, and skills survive re-runs. kilo.json/kilo.jsonc are copied once; on
+# re-runs a diff is shown instead of overwriting, to protect accumulated
+# permissions. Docker Compose only rebuilds if sources changed (--build is
+# passed; cached layers apply).
 #
 # Run as the deploy user (./user/init.sh 23-kilo-settings).
 
@@ -69,40 +75,20 @@ echo "Kilo home dir: $KILO_HOME"
 # 2. Deploy from _config/kilo/  -->  ~/.config/kilo/
 # ---------------------------------------------------------------------------
 
-deploy_dir() {
-  local name="$1"
-  local src="$SRC_CONFIG/$name"
-  local dst="$KILO_CONFIG/$name"
-
-  if [[ ! -d "$src" ]]; then
-    echo "  skipped $name/ (not found in skeleton)"
-    return
-  fi
-  rm -rf "${dst}"
-  cp -r "$src" "$dst"
-  local count
-  count="$(find "$dst" -name '*.md' | wc -l)"
-  echo "  deployed $name/  (${count} .md files)"
-}
-
 echo "=== Deploying from _config/kilo/ to ~/.config/kilo/ ==="
 
 for dir in agents commands; do
-  deploy_dir "$dir"
+  sync_dir_preserve "$SRC_CONFIG/$dir" "$KILO_CONFIG/$dir"
 done
 
 # ---------------------------------------------------------------------------
 # 3. Deploy kilo.json / kilo.jsonc
 # ---------------------------------------------------------------------------
-# Permissions are intentionally omitted from both — they accumulate naturally
-# during sessions as the user approves commands. Baking them in here would
-# carry stale, machine-specific allow-lists to every new host.
+# Kilo deep-merges kilo.json with kilo.jsonc. Permissions are intentionally
+# omitted from both — they accumulate naturally during sessions.
 #
-# NOTE: cp overwrites the target. That is safe for the curated keys these
-# skeleton files carry (mcp, instructions, $schema), but if a skeleton file
-# ever grows user-scoped keys, re-running this step will clobber the live
-# file's accumulated values.
-
+# On first run: copy the skeleton file. On re-run: if the source differs from
+# the live file show a diff and a warning so the user can merge manually.
 for cfg in kilo.json kilo.jsonc; do
   cfg_src="$SRC_CONFIG/$cfg"
   cfg_dst="$KILO_CONFIG/$cfg"
@@ -111,8 +97,21 @@ for cfg in kilo.json kilo.jsonc; do
     echo "  skipped $cfg (not found in skeleton)"
     continue
   fi
-  cp "$cfg_src" "$cfg_dst"
-  echo "  deployed $cfg"
+
+  if [[ ! -f "$cfg_dst" ]]; then
+    cp "$cfg_src" "$cfg_dst"
+    echo "  deployed $cfg (new)"
+  elif ! cmp -s "$cfg_src" "$cfg_dst"; then
+    echo ""
+    echo "  WARNING: skeleton $cfg differs from $cfg_dst"
+    echo "  Diff (skeleton -> live):"
+    diff -u "$cfg_dst" "$cfg_src" || true
+    echo ""
+    echo "  Review the diff above and merge changes into $cfg_dst manually."
+    echo "  This warning will appear on every re-run until the files match."
+  else
+    echo "  $cfg unchanged"
+  fi
 done
 
 # ---------------------------------------------------------------------------
@@ -121,19 +120,7 @@ done
 
 echo "=== Deploying from _kilo/ to ~/.kilo/ ==="
 
-for dir in skills; do
-  src="$SRC_KILO/$dir"
-  dst="$KILO_HOME/$dir"
-
-  if [[ ! -d "$src" ]]; then
-    echo "  skipped $dir/ (not found in skeleton)"
-    continue
-  fi
-  rm -rf "${dst}"
-  cp -r "$src" "$dst"
-  count="$(find "$dst" -name '*.md' | wc -l)"
-  echo "  deployed $dir/  (${count} .md files)"
-done
+sync_dir_preserve "$SRC_KILO/skills" "$KILO_HOME/skills"
 
 # ---------------------------------------------------------------------------
 # 5. Deploy MCP server (if present)

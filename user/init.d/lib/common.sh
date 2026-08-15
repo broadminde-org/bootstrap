@@ -39,3 +39,45 @@ export KILO_VERSION="${KILO_VERSION:-${_TOOL_VERSION[kilo]:-latest}}"
 export EE_GO_VERSION="${EE_GO_VERSION:-${_TOOL_VERSION[go]:-latest}}"
 export EE_NODE_VERSION="${EE_NODE_VERSION:-${_TOOL_VERSION[node]:-latest}}"
 export CGO_ENABLED="${CGO_ENABLED:-0}"
+
+# sync_dir_preserve() — copy source files into an existing directory without
+# ever deleting anything in the target. For each regular file in src:
+#   - If dest file does not exist: copy it in (new bootstrap addition).
+#   - If dest file exists and differs from source: copy it in (update).
+#   - If dest file exists and is identical: skip.
+# Files in dest that are not in src are left untouched — user-installed
+# extras survive re-runs.
+sync_dir_preserve() {
+  local src="$1"
+  local dst="$2"
+
+  mkdir -p "$dst"
+
+  if [[ ! -d "$src" ]]; then
+    echo "    sync_dir_preserve: source $src not found, skipping"
+    return 0
+  fi
+
+  local added=0 updated=0 skipped=0
+  local item rel_path
+
+  while IFS= read -r -d '' item; do
+    rel_path="${item#$src/}"
+    local dst_path="$dst/$rel_path"
+
+    if [[ -f "$item" ]]; then
+      if [[ ! -f "$dst_path" ]]; then
+        mkdir -p "$(dirname "$dst_path")"
+        cp "$item" "$dst_path"
+        ((added++)) || true
+      elif ! cmp -s "$item" "$dst_path"; then
+        cp "$item" "$dst_path"
+        ((updated++)) || true
+      else
+        ((skipped++)) || true
+      fi
+    fi
+  done < <(find "$src" -type f -print0)
+
+  echo "    sync_dir_preserve $dst: ${added} added, ${updated} updated, ${skipped} unchanged"
+}
