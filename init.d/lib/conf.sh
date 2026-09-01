@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/conf.sh — unified bootstrap configuration reader.
 #
-# Parses a single bootstrap.conf.yml that contains two sections:
+# Parses a single bootstrap.conf.yml that contains these sections:
 #
 #   capabilities:        # feature flags (true/false)
 #     docker: true
@@ -11,9 +11,12 @@
 #     python: "3.13"
 #     go: "latest"
 #
+#   skills:              # npx skills installation targets
+#     agents: "kilo"
+#
 # Replaces the former caps.sh (capabilities only, bash-regex parser) and
 # user/init.d/lib/versions.sh (versions only, standalone awk parser).
-# Both sections are now parsed by a single section-aware awk function.
+# All sections are parsed by a single section-aware awk function.
 #
 # Public interface:
 #   load_conf [config_file]          parse and cache the config; safe to call
@@ -21,6 +24,7 @@
 #   cap_enabled <name>               returns 0 if capability is enabled
 #   step_requires_caps <step_dir>    returns 0 if all .requires caps pass
 #   get_pinned_version <tool> [def]  returns pinned version string or default
+#   get_skills_conf <key> [def]      returns skills section value or default
 #   get_caddy_conf <key> [def]       returns caddy section value or default
 #
 # When no config_file is provided, load_conf resolves the default in order:
@@ -45,6 +49,7 @@ _BOOTSTRAP_CONF_SH_LOADED=1
 
 declare -A _CAP_ENABLED
 declare -A _TOOL_VERSION
+declare -A _SKILLS_CONF
 declare -A _CADDY_CONF
 _CONF_LOADED=0
 
@@ -106,6 +111,10 @@ load_conf() {
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _TOOL_VERSION["$key"]="$val"
   done < <(_parse_section "$config_file" "versions")
+
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _SKILLS_CONF["$key"]="$val"
+  done < <(_parse_section "$config_file" "skills")
 
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _CADDY_CONF["$key"]="$val"
@@ -171,6 +180,21 @@ get_pinned_version() {
 
   if [[ -v _TOOL_VERSION[$tool] && -n "${_TOOL_VERSION[$tool]}" ]]; then
     echo "${_TOOL_VERSION[$tool]}"
+  else
+    echo "$default"
+  fi
+}
+
+get_skills_conf() {
+  local key="$1"
+  local default="${2:-}"
+
+  if [[ "$_CONF_LOADED" == "0" ]]; then
+    load_conf
+  fi
+
+  if [[ -v _SKILLS_CONF[$key] && -n "${_SKILLS_CONF[$key]}" ]]; then
+    echo "${_SKILLS_CONF[$key]}"
   else
     echo "$default"
   fi

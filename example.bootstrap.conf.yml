@@ -60,6 +60,14 @@ versions:
   go: "latest"
   node: "latest"
 
+# ── Agent skills ─────────────────────────────────────────────────────────────
+# Space-separated npx skills agent targets. Supported targets are defined by
+# the skills CLI; keep this explicit to avoid installing into auto-detected
+# agents. Kilo Code and Kilo CLI use the `kilo` target.
+
+skills:
+  agents: "kilo"
+
 # ── Caddy wildcard zones ──────────────────────────────────────────────────────────
 #
 #   base_domain  Zone apex (e.g. "example.com"). A label L serves *.L.<base_domain>.

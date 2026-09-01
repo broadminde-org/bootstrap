@@ -101,9 +101,10 @@ Both runners accept the same selectors.
 
 ## Configuration (`bootstrap.conf.yml`)
 
-`bootstrap.conf.yml` is a single file with three sections: `capabilities:` (which
+`bootstrap.conf.yml` is a single file with four sections: `capabilities:` (which
 provisioning steps run), `versions:` (which toolchain versions to install),
-and `caddy:` (wildcard zone `base_domain` and `wildcards` labels).
+`skills:` (which agent targets receive npx-installed skills), and `caddy:`
+(wildcard zone `base_domain` and `wildcards` labels).
 
 ### Capability flags
 

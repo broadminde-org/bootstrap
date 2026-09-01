@@ -5,6 +5,8 @@
 # Depends on node/npx from 35-node.
 #
 # Idempotent: npx skills handles its own dedup; repeated runs are safe.
+# Keep the target list explicit. Omitting --agent makes the CLI auto-detect
+# installed agents and can populate every detected agent's skills directory.
 
 set -euo pipefail
 
@@ -25,21 +27,27 @@ export DISABLE_TELEMETRY=1
 # git config entirely and clone over plain https.
 export GIT_CONFIG_GLOBAL=/dev/null
 
+# Kilo Code / Kilo CLI use the `kilo` target. Add another supported agent to
+# skills.agents in bootstrap.conf.yml only when this host intentionally
+# provisions that agent as well (for example: "kilo opencode").
+read -r -a SKILLS_AGENTS <<< "$(get_skills_conf agents kilo)"
+if (( ${#SKILLS_AGENTS[@]} == 0 )); then
+  echo "ERROR: skills.agents must contain at least one npx skills agent target." >&2
+  exit 1
+fi
+
 # General
-npx --yes skills add https://github.com/mattpocock/skills --skill handoff -g -y
-npx --yes skills add https://github.com/mattpocock/skills --skill design-an-interface -g -y
-npx --yes skills add https://github.com/anthropics/skills --skill frontend-design -g -y
-npx --yes skills add https://github.com/addyosmani/agent-skills --skill frontend-ui-engineering -g -y
-npx --yes skills add https://github.com/mattpocock/skills --skill improve-codebase-architecture -g -y
-npx --yes skills add https://github.com/mattpocock/skills --skill grill-with-docs -g -y
-npx --yes skills add https://github.com/mattpocock/skills --skill domain-modeling -g -y
-npx --yes skills add https://github.com/mattpocock/skills --skill research -g -y
+npx --yes skills add https://github.com/mattpocock/skills --skill handoff -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/mattpocock/skills --skill codebase-design -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/anthropics/skills --skill frontend-design -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/addyosmani/agent-skills --skill frontend-ui-engineering -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/mattpocock/skills --skill improve-codebase-architecture -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/mattpocock/skills --skill grill-with-docs -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/mattpocock/skills --skill domain-modeling -g -a "${SKILLS_AGENTS[@]}" -y
+npx --yes skills add https://github.com/mattpocock/skills --skill research -g -a "${SKILLS_AGENTS[@]}" -y
 
 # Python
 # npx --yes skills add https://github.com/github/awesome-copilot --skill python-mcp-server-generator -g -y
 # npx --yes skills add https://github.com/wshobson/agents --skill async-python-patterns -g -y
 
 # Svelte
-
-
-  
