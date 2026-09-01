@@ -8,6 +8,7 @@ permission:
   read: allow
   edit:
     "*": deny
+    "*.svelte": allow
     "*.ts": allow
     "*.tsx": allow
     "*.js": allow

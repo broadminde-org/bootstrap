@@ -25,8 +25,12 @@ case "${1:-up}" in
   up)
     # Backend-slot precedence: air (Go) and DEV_BACKEND_CMD are explicit
     # config — auto-detect yields to both.
-    if has_air || has_custom_backend; then
-      log_skip "Explicit backend configured (air/DEV_BACKEND_CMD)"
+    if has_custom_backend; then
+      log_skip "DEV_BACKEND_CMD set — skipping uv auto-detect"
+      exit 0
+    fi
+    if has_air; then
+      log_skip "air configured (.air.toml) — skipping uv auto-detect"
       exit 0
     fi
     if ! has_uv_project; then

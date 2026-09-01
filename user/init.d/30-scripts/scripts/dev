@@ -24,6 +24,9 @@ set -euo pipefail
 # pinned LISTEN_ADDR for the health probe; DEV_HEALTH_PATH defaults to
 # /healthz). Precedence: DEV_BACKEND_CMD > air > uv.
 # FRONTEND_DIR may be overridden (default: frontend).
+# DEV_PRE_UP_CMD (optional) runs once at the start of `dev up`, from the
+# project root — for project-specific dev-time setup (e.g. removing a stale
+# production frontend build so the dev backend doesn't serve it).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVD_DIR="${SCRIPT_DIR}/dev.d"
@@ -156,6 +159,12 @@ show_status() {
 # --- Up ---
 dev_up() {
   local step
+  # Project-specific dev-time setup hook (e.g. rm -rf a stale prod build).
+  # Runs from the project root; a failure aborts the up.
+  if [[ -n "${DEV_PRE_UP_CMD:-}" ]]; then
+    log "Running DEV_PRE_UP_CMD..."
+    (cd "$PROJECT_DIR" && bash -c "$DEV_PRE_UP_CMD")
+  fi
   for step in 10-infra 40-air 42-uv 45-backend 50-vite; do
     if ! bash "$DEVD_DIR/${step}.sh" up; then
       fail "Step ${step} failed — stopping"
