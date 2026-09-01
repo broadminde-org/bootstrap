@@ -29,7 +29,7 @@ flowchart TD
     P --> Q["10-llmdocs"]
     P --> Q2["15-direnv"]
     P --> R["20-python"]
-    P --> R1b["22-kilo"]
+     P --> R1b["36-kilo"]
     P --> R2["25-go"]
     P --> S["30-scripts"]
     P --> S2["35-node"]
@@ -83,11 +83,11 @@ flowchart LR
         U1["10 llmdocs wrapper"]
         U2["15 direnv hook"]
         U3["20 uv + Python"]
-        U3b["22 kilo CLI"]
+        U3b["36 kilo CLI"]
         U4["25 Go toolchain"]
         U5["30 scripts + runners"]
         U6["35 Node.js via nvm"]
-        U1 --> U2 --> U3 --> U3b --> U4 --> U5 --> U6
+        U1 --> U2 --> U3 --> U4 --> U5 --> U6 --> U3b
     end
 
     subgraph Apps["App Repos"]
@@ -128,15 +128,15 @@ flowchart LR
 | `10-llmdocs` | dir | Writes `$HOME/.local/bin/llmdocs` wrapper: `exec uv run --project <llmdocs dir> python -m llmdocs "$@"` | Wrapper rewritten each run (path may change if repo relocated) |
 | `15-direnv` | dir | Adds `eval "$(direnv hook bash)"` to `~/.bashrc`; creates profile-level `~/.config/direnv/direnvrc` scaffold | grep check on bashrc; skip direnvrc if already exists |
 | `20-python` | dir | Two sub-installs: (1) `uv` via official installer at `$HOME/.local/bin/uv`, (2) Python via `uv python install` under `~/.local/share/uv/python/` | Each sub-tool independently version-checked; `uv --version`, `uv python list --only-installed`; only mismatched tools are installed |
-| `22-kilo` | dir | Installs `kilo` CLI binary at `$HOME/.local/bin/kilo` from GitHub release (arch-aware: x64/arm64, baseline/musl variants, SHA256 verified via release JSON) | Version-checked via `kilo --version`; reinstall only on mismatch |
+| `36-kilo` | dir | Installs `@kilocode/cli` from npm after `35-node`; removes legacy native binaries and stale Kilo packages from other nvm Node trees | Resolves `latest` with `npm view`; version-checked via package metadata |
 | `25-go` | dir | Installs Go binary to `~/.local/go/` (pinned via `EE_GO_VERSION`); writes Go shell environment block to `~/.profile` (GOROOT, GOPATH, GOPROXY, GOSUMDB, GOPRIVATE, PATH); installs dev tools (golangci-lint, gosec, govulncheck, air) to `~/go/bin/`; persists go env to `~/.config/go/env`; prunes orphan go toolchain binaries | Version check on `go version`; marker-guarded shell env block with stale cleanup; dev tools re-installed at @latest on every run (go install is fast when already at latest) |
 | `30-scripts` | dir | Copies `scripts/` to `$HOME/scripts/`; installs script runners to `$HOME/.local/bin/` (including `kilo-session-report` wrapper) | Files overwritten each run |
 | `35-node` | dir | Installs nvm; installs Node.js (pinned via `EE_NODE_VERSION`); adds nvm sourcing to `~/.bashrc`; installs global npm packages from `packages.txt` (including `@playwright/test` with browser deps) | Version check on `node --version`; grep check on bashrc nvm block; per-package check via `npm list -g` |
 | `60-caddy` | dir | Provisions central Caddy at `~/infra/caddy/`: syncs stack files, renders Caddyfile+wildcards, builds Docker image, writes discovery file at `~/infra/caddy/central.json`. Never starts a stopped container — apply is in-place (rebuild+recreate) only when already running | Caddyfile rendered compare-before-write; wildcard zones from `caddy:` config (base_domain + wildcards labels), creds-gated; `.env` seeded 0600; reconcile hash-skip prevents no-op pushes; `central.json` machine-readable discovery for cross-project agents |
 
-**User-tier step count: 8** (10, 15, 20, 22, 25, 30, 35, 60)
+**User-tier step count: 8** (10, 15, 20, 25, 30, 35, 36, 60)
 
-## User-Tier Tools (20-python + 22-kilo)
+## User-Tier Tools (20-python + 36-kilo)
 
 ### Version Pins
 
@@ -146,17 +146,17 @@ Version pins live in the `versions:` section of `bootstrap.conf.yml` (alongside 
 |---|---|---|---|---|
 | `uv` | `latest` | `EE_UV_VERSION` | `https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION}/uv-installer.sh` | `$HOME/.local/bin/uv` |
 | Python (CPython) | `3.13` | `EE_PYTHON_VERSION` | `uv python install` | `~/.local/share/uv/python/cpython-3.13-.../bin/` (not on PATH) |
-| `kilo` | `latest` | `KILO_VERSION` | `https://github.com/Kilo-Org/kilocode/releases/download/${KILO_VERSION}/kilo-linux-{x64\|arm64}{-baseline}{-musl}.tar.gz` | `$HOME/.local/bin/kilo` |
+| `kilo` | `latest` | `KILO_VERSION` | npm `@kilocode/cli@${KILO_VERSION}` | active nvm Node's global npm bin |
 | Go | `latest` | `EE_GO_VERSION` | `https://go.dev/dl/go${EE_GO_VERSION}.linux-{amd64\|arm64}.tar.gz` | `$HOME/.local/go/bin/go` |
 | Node.js | `latest` | `EE_NODE_VERSION` | nvm (`nvm install ${EE_NODE_VERSION}`) | `$HOME/.nvm/versions/node/v${EE_NODE_VERSION}/bin/node` |
 
-Version pins are read by `init.d/lib/conf.sh` via `get_pinned_version <tool>` and exported as env vars by `user/init.d/lib/common.sh`. Individual steps resolve `"latest"` to a concrete version via their own API calls (GitHub releases JSON, go.dev, nodejs.org). Env var overrides take precedence over the config file.
+Version pins are read by `init.d/lib/conf.sh` via `get_pinned_version <tool>` and exported as env vars by `user/init.d/lib/common.sh`. Individual steps resolve `"latest"` to a concrete version via their own package or release APIs. Env var overrides take precedence over the config file.
 
 ### Install Details
 
 - **uv**: Downloaded via official `uv-installer.sh` with `--no-modify-path` flag. No apt dependency.
 - **Python**: Installed via `uv python install`. Lives under `~/.local/share/uv/python/`. Callers use `uv run` rather than bare `python3`.
-- **kilo**: Downloaded from GitHub release JSON with SHA256 verification (digest extracted from `.assets[].digest`). Architecture detection: `x86_64` → `linux-x64`, `aarch64` → `linux-arm64`. AVX2 check on x64 (falls back to `-baseline`). musl check via `/etc/alpine-release` or `ldd --version` (adds `-musl` suffix).
+- **kilo**: Installed from npm as `@kilocode/cli` after `35-node`; `latest` is resolved by npm, and legacy native binaries plus stale nvm-local copies are removed.
 - **Go**: Downloaded tarball from `go.dev/dl`, extracted to `~/.local/go/`. Shell env written to `~/.profile` (marker-guarded, self-healing). Dev tools (golangci-lint, gosec, govulncheck, air) installed via `go install` with `GOTOOLCHAIN=${GO_TOOLCHAIN_PIN}+auto`. `go env -w` persists GOPROXY/GOSUMDB/GOPRIVATE/GOTOOLCHAIN to `~/.config/go/env` for non-interactive shells.
 - **Node.js**: nvm is downloaded directly (nvm.sh, nvm-exec, bash_completion from `raw.githubusercontent.com`). Node.js installed via `nvm install` with exact pin. nvm sourcing added to `~/.bashrc`. Global npm packages installed from `packages.txt` with per-package idempotency check. `@playwright/test` gets browser install (`npx playwright install --with-deps`).
 
@@ -186,7 +186,7 @@ Bootstrap is a **prerequisite** — app repos (`netbird-docker`, `ansible`, etc.
 | SSH hardening (from `51-ssh-hardening`) | All app repos | `AllowUsers stack` restricts SSH access |
 | direnv hook (from `15-direnv`) | All app repos with `.envrc` | Per-directory environment loading; profile-level `direnvrc` scaffold for shared functions |
 | uv + Python 3.13 (from `20-python`) | `llmdocs`, `kilo-session-report`, app Python tooling | `uv run` is the preferred Python execution method |
-| kilo CLI (from `22-kilo`) | Agent-tuner workflow, `kilo-session-report` | Native binary for Kilo sessions |
+| kilo CLI (from `36-kilo`) | Agent-tuner workflow, `kilo-session-report` | npm CLI for Kilo sessions |
 | llmdocs framework (from `10-llmdocs`) | Docs-source repos | Repo-agnostic docs-to-markdown conversion |
 | Go toolchain + dev tools (from `25-go`) | Go app repos | Go binary in `~/.local/go/`, toolchain pin in `~/.profile`, dev tools (golangci-lint, gosec, govulncheck, air) in `~/go/bin/` |
 | Node.js + global npm packages (from `35-node`) | SvelteKit frontends, Playwright tests | Node.js via nvm (`EE_NODE_VERSION` pin), `@playwright/test` with browsers pre-installed |
@@ -210,5 +210,5 @@ flowchart LR
 | Tier | Expected Steps | Found in Source | Status |
 |---|---|---|---|
 | Root (init.d/) | 01, 05, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 58 = **14 steps** | 01-apt-update-upgrade, 05-packages, 10-create-deploy-user, 20-groups, 30-passwordless-sudo, 40-profile, 50-docker, 51-ssh-hardening, 52-ufw, 53-fail2ban, 54-crowdsec, 55-lazydocker, 56-ssh-client, 58-mdns = **14 steps** | All accounted for |
-| User (user/init.d/) | 10, 15, 20, 22, 25, 30, 35 = **7 steps** | 10-llmdocs, 15-direnv, 20-python, 22-kilo, 25-go, 30-scripts, 35-node = **7 steps** | All accounted for |
+| User (user/init.d/) | 10, 15, 20, 25, 30, 35, 36 = **7 steps** | 10-llmdocs, 15-direnv, 20-python, 25-go, 30-scripts, 35-node, 36-kilo = **7 steps** | All accounted for |
 | **Total** | **21 steps** | **21 steps** | Complete |

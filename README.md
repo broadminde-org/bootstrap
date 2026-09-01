@@ -245,7 +245,7 @@ bootstrap/
 │   │   ├── 12-bashrc/                # ~/.local/bin + ~/.kilo/bin PATH block in ~/.bashrc
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
 │   │   ├── 20-python/               # installs uv + uv-managed Python
-│   │   ├── 22-kilo/                  # installs kilo CLI binary
+│   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
 │   │   ├── 23-kilo-settings/         # deploys Kilo global context from skeleton dirs
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
 │   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
@@ -292,7 +292,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. **Never starts a stopped container** — bringing up the edge is an explicit operator action; updates apply in place only when it is already running.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
-- `22-kilo` — `kilo --version` is checked; reinstall only on mismatch.
+- `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
 
 ---
 

@@ -16,9 +16,6 @@ npm-check-updates
 # Duplicate code detection for PR reviews
 jscpd
 
-# Kilo CLI for AI-assisted development
-@kilocode/cli
-
 # Process manager for Node.js services
 pm2
 
