@@ -2,14 +2,14 @@
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
 
-# 23-kilo-settings — Deploy the Kilo global context set from skeleton dirs.
+# 37-kilo-settings — Deploy the Kilo global context set from skeleton dirs.
 #
 # Deploys from two source directories that mirror the live layout:
 #
 #   Source                                   | Target
 #   -----------------------------------------|-----------------------
-#   init.d/23-kilo-settings/_config/kilo/    | ~/.config/kilo/
-#   init.d/23-kilo-settings/_kilo/           | ~/.kilo/
+#   init.d/37-kilo-settings/_config/kilo/    | ~/.config/kilo/
+#   init.d/37-kilo-settings/_kilo/           | ~/.kilo/
 #
 # This matches Kilo's Marketplace installation conventions:
 #
@@ -40,7 +40,7 @@
 # (gated on docker + caddy), not from this skeleton.
 #
 # MCP server:
-#   Source:  init.d/23-kilo-settings/_config/kilo/mcp-server/  (if present)
+#   Source:  init.d/37-kilo-settings/_config/kilo/mcp-server/  (if present)
 #   Deploy:  ~/.config/kilo/mcp-server/
 #   Listens: http://localhost:8766/mcp
 #   Mounts:  ~/.config/kilo/standards/ (read-only)
@@ -51,7 +51,7 @@
 # permissions. Docker Compose only rebuilds if sources changed (--build is
 # passed; cached layers apply).
 #
-# Run as the deploy user (./user/init.sh 23-kilo-settings).
+# Run as the deploy user (./user/init.sh 37-kilo-settings).
 
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_CONFIG="$STEP_DIR/_config/kilo"
@@ -163,7 +163,7 @@ fi
 # ---------------------------------------------------------------------------
 
 echo ""
-echo "23-kilo-settings: context set deployed."
+echo "37-kilo-settings: context set deployed."
 echo "  ~/.config/kilo/:  agents/ commands/ kilo.json (playwright MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
 echo "  MCP server:       http://localhost:8766/mcp (host-standards)"

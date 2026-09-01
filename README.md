@@ -246,7 +246,7 @@ bootstrap/
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
 │   │   ├── 20-python/               # installs uv + uv-managed Python
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
-│   │   ├── 23-kilo-settings/         # deploys Kilo global context from skeleton dirs
+│   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
 │   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
@@ -260,8 +260,6 @@ bootstrap/
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)
 │   ├── scripts/                      # user scripts (e.g., kilo-session-report.py)
 │   ├── script-runners/               # thin wrappers deployed to $HOME/.local/bin/
-│   ├── opencode/                     # opencode agent config (placeholder — no init.d step yet)
-│   ├── sync-kilo-context.sh          # copies live ~/.config/kilo context into opencode/
 │   └── vscode/                       # workspace VS Code recommendations + settings
 ├── LICENSE
 └── README.md
@@ -305,8 +303,8 @@ lazydocker) were lifted out of the application repos that had been
 handing them and merged into `init.d/` here, leaving `bootstrap` as
 the canonical home for everything that needs root.
 
-Per-user tooling (`llmdocs/`, `scripts/`, the kilo CLI,
-`opencode/`, `vscode/`) was originally placed directly under
+Per-user tooling (`llmdocs/`, `scripts/`, the kilo CLI, `vscode/`)
+was originally placed directly under
 `bootstrap/` and a `60-kilo-tooling/` step installed it from
 there. That mixed root-tier and user-tier concerns in one repo:
 host state and developer workspace state lived in the same tree.

@@ -21,7 +21,7 @@ Two toolkits are available in this environment. Pick per the decision tree.
 ## Toolkit 1 (preferred): Playwright MCP browser tools
 
 The Playwright MCP (`@playwright/mcp`) is configured globally in
-`~/.config/kilo/kilo.json` (deployed by bootstrap step `23-kilo-settings`).
+`~/.config/kilo/kilo.json` (deployed by bootstrap step `37-kilo-settings`).
 Its tools are available in-session as `playwright_browser_*` — no installs,
 no browser lifecycle to manage, no scripts to write.
 

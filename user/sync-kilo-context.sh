@@ -4,13 +4,13 @@ set -euo pipefail
 # sync-kilo-context.sh — copy the live Kilo context set into this repo.
 #
 # Copies agents/, commands/, and kilo.jsonc from ~/.config/kilo/ into
-# init.d/23-kilo-settings/_config/kilo/ — and skills/ from ~/.kilo/
-# into init.d/23-kilo-settings/_kilo/ — so the bootstrap repo stays
+# init.d/37-kilo-settings/_config/kilo/ — and skills/ from ~/.kilo/
+# into init.d/37-kilo-settings/_kilo/ — so the bootstrap repo stays
 # current with the evolving context set.
 #
 # Exception: skills that are mastered by a feature step (because they
 # document that feature and share its capability gating) are routed to
-# their owning step instead of the 23-kilo-settings skeleton:
+# their owning step instead of the 37-kilo-settings skeleton:
 #
 #   ~/.kilo/skills/central-caddy/  ->  init.d/60-caddy/kilo/skills/central-caddy/
 #
@@ -35,8 +35,8 @@ set -euo pipefail
 #   ./sync-kilo-context.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DST_CONFIG="$SCRIPT_DIR/init.d/23-kilo-settings/_config/kilo"
-DST_KILO="$SCRIPT_DIR/init.d/23-kilo-settings/_kilo"
+DST_CONFIG="$SCRIPT_DIR/init.d/37-kilo-settings/_config/kilo"
+DST_KILO="$SCRIPT_DIR/init.d/37-kilo-settings/_kilo"
 
 # -------------------------------------------------------------------
 # 1. Sync from ~/.config/kilo  -->  _config/kilo/
@@ -114,7 +114,7 @@ for dir in skills; do
   fi
 done
 
-# Route feature-step skills out of the 23 skeleton to their owning step.
+# Route feature-step skills out of the 37 skeleton to their owning step.
 # The live ~/.kilo/skills/ namespace is flat, so the whole-dir copy above
 # pulls these in — move each to the step that masters it.
 route_skill() {

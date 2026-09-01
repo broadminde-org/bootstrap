@@ -14,7 +14,7 @@
 #
 # Also deploys the central-caddy agent skill (kilo/skills/ →
 # ~/.kilo/skills/). The skill lives with this step — not in
-# 23-kilo-settings — because it documents THIS host's central stack, so it
+# 37-kilo-settings — because it documents THIS host's central stack, so it
 # is gated by the same .requires (docker + caddy) as the stack itself.
 #
 # Privileges needed: docker group membership (root tier, 50-docker) for
