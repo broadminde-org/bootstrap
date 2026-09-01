@@ -234,7 +234,7 @@ bootstrap/
 │   ├── 55-lazydocker/                # drops lazydocker into $SUDO_USER/.local/bin/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
 │   ├── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
-│   └── 58-mdns/                       # mDNS via nsswitch + avahi-daemon (template rendered)
+│   └── 58-mdns/                       # mDNS via nsswitch + private-interface Avahi config
 ├── user/                   # USER-tier — runs as the deploy user, not as root
 │   ├── init.sh                       # user-tier runner — refuses root
 │   ├── init.d/

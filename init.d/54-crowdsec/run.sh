@@ -41,9 +41,11 @@
 #      CrowdSec tolerates a missing log file — it emits a warning but
 #      does NOT hard-fail — so this step is safe to run before Phase 2.
 #
-#   4b. Adds the deploy user to the crowdsec group so `cscli` works
-#      without sudo (user-tier 60-caddy generates its bouncer key this
-#      way). local_api_credentials.yaml is root:crowdsec 0640.
+#   4b. Adds the deploy user to the crowdsec group and makes the
+#      config/credential files group-readable (diagnostics). cscli
+#      MANAGEMENT commands still require root on root-owned installs —
+#      user-tier 60-caddy uses passwordless sudo for bouncer key
+#      generation (30-passwordless-sudo grants /usr/bin/cscli).
 #
 #   5. Enables and starts both services.
 #
@@ -219,11 +221,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4b: Add the deploy user to the crowdsec group.
+# Step 4b: crowdsec group membership + readable config files.
 #
-# /etc/crowdsec/local_api_credentials.yaml is root:crowdsec 0640 on Debian —
-# group membership lets the deploy user run `cscli` (e.g. `cscli bouncers
-# add` from user/init.d/60-caddy) without sudo. usermod -aG is idempotent.
+# Group membership lets the deploy user READ crowdsec config and logs (useful
+# for diagnostics). It does NOT make `cscli` management commands work on
+# root-owned installs: cscli opens the SQLite DB at /var/lib/crowdsec/data/
+# read-write and chmods it on startup, and chmod is owner-only — when the
+# daemon runs as root (no crowdsec service user), the DB is root-owned and
+# only root can manage bouncers/machines. user-tier 60-caddy therefore runs
+# cscli through passwordless sudo (30-passwordless-sudo grants /usr/bin/cscli).
+#
 # The crowdsec group may not exist after package install (Debian packaging
 # quirk) — create it idempotently before adding the user.
 # ---------------------------------------------------------------------------
@@ -235,8 +242,21 @@ fi
 
 if [[ -n "${SUDO_USER:-}" ]]; then
   usermod -aG crowdsec "$SUDO_USER"
-  echo "Added $SUDO_USER to the crowdsec group (cscli access without sudo)"
+  echo "Added $SUDO_USER to the crowdsec group (config/log read access)"
 fi
+
+# Make config + credentials group-readable for diagnostics. chown/chmod are
+# idempotent. This is deliberately NOT sufficient for cscli management
+# commands on root-owned installs — see the header comment above.
+for f in /etc/crowdsec/config.yaml \
+         /etc/crowdsec/local_api_credentials.yaml \
+         /etc/crowdsec/online_api_credentials.yaml; do
+  if [[ -f "$f" ]]; then
+    chown root:crowdsec "$f"
+    chmod 0640 "$f"
+  fi
+done
+echo "Reconciled crowdsec config/credential files to root:crowdsec 0640"
 
 # ---------------------------------------------------------------------------
 # Step 5: Enable and start CrowdSec LAPI.
@@ -271,6 +291,11 @@ echo "=== Post-condition assertions ==="
 
 cscli version || { echo "ERROR: cscli not functional" >&2; exit 1; }
 echo "  PASS: cscli is functional"
+
+# cscli management commands require root on root-owned installs (see Step
+# 4b header) — there is no effective-user cscli assertion here by design.
+# The 60-caddy user step exercises `sudo cscli` end-to-end when it
+# generates the bouncer key.
 
 systemctl is-active crowdsec || { echo "ERROR: crowdsec service not active" >&2; exit 1; }
 echo "  PASS: crowdsec is active"

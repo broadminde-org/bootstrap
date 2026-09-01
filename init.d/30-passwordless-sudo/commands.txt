@@ -14,3 +14,10 @@
 # docker-compose.yml.
 /usr/bin/docker
 /usr/bin/docker compose
+
+# CrowdSec CLI (cscli). Bouncer/machine management for the central edge —
+# user-tier 60-caddy runs `cscli bouncers add/delete caddy-edge` this way.
+# Rootless cscli only works on installs where the daemon runs as a dedicated
+# crowdsec service user owning the DB; on root-owned installs cscli must
+# open (and chmod) /var/lib/crowdsec/data/crowdsec.db, which requires root.
+/usr/bin/cscli *

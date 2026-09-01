@@ -15,9 +15,11 @@
 #      suffix, obtained from DHCP/DNS search domain), with the short
 #      hostname as an alias. This is the standard Debian convention.
 #
-#   3. Writes /etc/avahi/avahi-daemon.conf with detected physical
-#      interfaces in allow-interfaces and use-ipv6=yes, then restarts
-#      avahi-daemon. Idempotent — skips write when config matches.
+#   3. Writes /etc/avahi/avahi-daemon.conf with detected private interfaces
+#      in allow-interfaces and use-ipv6=yes, then restarts avahi-daemon.
+#      Interfaces carrying only public addresses are excluded so mDNS is
+#      never published on a public uplink. Idempotent — skips write when
+#      config matches.
 #
 # Run as root (sudo ./init.sh 58-mdns).
 
@@ -53,7 +55,10 @@ echo "=== 58-mdns: detecting domain suffix for /etc/hosts FQDN ==="
 
 HOSTNAME="$(hostname -s)"
 
-DOMAIN="$(grep '^domain ' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | head -1)"
+DOMAIN="$(grep '^domain ' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | head -1 || true)"
+if [[ -z "$DOMAIN" ]]; then
+  DOMAIN="$(grep '^search ' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | head -1 || true)"
+fi
 
 if [[ -n "$DOMAIN" ]]; then
   FQDN="${HOSTNAME}.${DOMAIN}"
@@ -87,15 +92,24 @@ echo "=== 58-mdns: configuring avahi-daemon ==="
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="${STEP_DIR}/avahi-daemon.conf.template"
 
-detect_physical_interfaces() {
-  ip -br link show 2>/dev/null \
-    | awk '$1 != "lo" {print $1}' \
-    | grep -v '^docker\|^br-\|^veth\|^virbr\|^lxc\|^cali\|^flannel\|^cni\|^tunl\|^kube\|^wg\|^tailscale'
+detect_private_interfaces() {
+  {
+    # RFC1918 and carrier-grade NAT space indicate LAN/mesh-facing interfaces.
+    ip -o -4 addr show scope global 2>/dev/null \
+      | awk '$4 ~ /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\.)/ {print $2}'
+
+    # Unique-local IPv6 (fc00::/7) also indicates non-public scope. Ignore
+    # link-local addresses — every interface has one.
+    ip -o -6 addr show scope global 2>/dev/null \
+      | awk 'tolower($4) ~ /^(fc|fd)/ {print $2}'
+  } \
+    | grep -v '^docker\|^br-\|^veth\|^virbr\|^lxc\|^cali\|^flannel\|^cni\|^tunl\|^kube\|^wg\|^tailscale' \
+    | sort -u
 }
 
-INTERFACES="$(detect_physical_interfaces | paste -sd ',' -)"
+INTERFACES="$(detect_private_interfaces | paste -sd ',' -)"
 ALLOW_INTERFACES="${INTERFACES:+allow-interfaces=${INTERFACES}}"
-echo "Physical interfaces: ${INTERFACES:-none detected}"
+echo "Private interfaces: ${INTERFACES:-none detected — no allow-interfaces restriction}"
 
 NEW_CONF="$(ALLOW_INTERFACES="$ALLOW_INTERFACES" envsubst < "$TEMPLATE")"
 

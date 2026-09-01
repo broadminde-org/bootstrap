@@ -77,19 +77,22 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 2: CrowdSec bouncer key generation (when public cap is on and key is
-# empty). cscli access comes from the crowdsec group (54-crowdsec).
+# empty). cscli runs through passwordless sudo (root-tier 30-passwordless-sudo
+# grants /usr/bin/cscli): on root-owned installs the cscli SQLite DB at
+# /var/lib/crowdsec/data/ is root-owned and cscli chmods it on startup, which
+# only root may do — crowdsec group membership is not sufficient.
 # ---------------------------------------------------------------------------
 
 if cap_enabled public; then
   if grep -q '^CROWDSEC_BOUNCER_KEY=$' "$STACK_DIR/.env" 2>/dev/null; then
     if command -v cscli >/dev/null 2>&1; then
       echo "Generating CrowdSec bouncer key for caddy-edge …"
-      if ! bkey="$(cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
+      if ! bkey="$(sudo cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
         # A stale caddy-edge bouncer (e.g. from a previous partial run)
         # blocks re-creation by name — remove it and regenerate so the
         # step is self-healing instead of permanently running unprotected.
-        cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
-        bkey="$(cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
+        sudo cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
+        bkey="$(sudo cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
       fi
       if [[ -n "$bkey" ]]; then
         # `|` delimiter: cscli keys are base64 (charset A-Za-z0-9+/=) —
@@ -101,7 +104,7 @@ if cap_enabled public; then
         compose_changed=1
         echo "Bouncer key written to $STACK_DIR/.env"
       else
-        echo "WARNING: cscli failed — is $USER in the crowdsec group (54-crowdsec)? Running without CrowdSec" >&2
+        echo "WARNING: sudo cscli failed — is /usr/bin/cscli in the passwordless sudo list (30-passwordless-sudo)? Running without CrowdSec" >&2
       fi
     else
       echo "WARNING: public cap enabled but cscli not found (54-crowdsec not run?) — running without CrowdSec"
