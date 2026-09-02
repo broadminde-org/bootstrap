@@ -1,10 +1,12 @@
 ---
 name: webapp-testing
 description: >-
-  Toolkit for interacting with and testing local web applications.
-  Uses the Playwright MCP browser tools for interactive testing, debugging
-  UI behavior, screenshots, and browser logs; falls back to Python
-  Playwright scripts for repeatable automation.
+  Toolkit for interacting with and testing local web applications. Playwright
+  MCP, Node Playwright, and browser binaries are provisioned host-wide by
+  bootstrap; verify current host state before claiming Playwright is missing.
+  Uses the Playwright MCP browser tools for interactive testing, debugging UI
+  behavior, screenshots, and browser logs; falls back to Python Playwright
+  scripts for repeatable automation.
 license: Complete terms in LICENSE.txt
 metadata:
   category: development
@@ -17,6 +19,35 @@ metadata:
 # Web Application Testing
 
 Two toolkits are available in this environment. Pick per the decision tree.
+
+## Host Capability Baseline
+
+On bootstrap-provisioned hosts, assume Playwright browser tooling is available
+unless proven otherwise:
+
+- The Playwright MCP is configured in `~/.config/kilo/kilo.json`.
+- Bootstrap user step `35-node` installs global `@playwright/test` and browser
+  binaries under `~/.cache/ms-playwright`.
+- Bootstrap root step `06-playwright-deps` installs the system libraries when
+  the host has the `dev` capability enabled.
+
+Do not repeat historical claims that "Playwright is not installed" without
+validating current host state. Check at least one current signal:
+
+- availability of `playwright_browser_*` MCP tools in the active session;
+- `command -v playwright`;
+- browser directories under `~/.cache/ms-playwright`.
+
+Distinguish these failures explicitly:
+
+- **Capability absent:** no MCP tools, no Playwright executable, no browser
+  cache, and bootstrap state does not provision it.
+- **Browser installed but unavailable:** MCP or launch error despite installed
+  executable/cache; report the launch error.
+- **App/server blocked:** browser is installed, but the dev server or backend
+  cannot start; do not report Playwright as missing.
+- **Python Playwright absent:** expected by design; use
+  `uv run --with playwright` for Python automation.
 
 ## Toolkit 1 (preferred): Playwright MCP browser tools
 
@@ -111,9 +142,11 @@ with sync_playwright() as p:
 
 - ❌ **Don't** write a Python script for a one-off interactive check — use
   the MCP browser tools instead.
-- ❌ **Don't** assume `python` or the `playwright` package exists — use
-  `uv run --with playwright python …`. (`with_server.py` itself is
-  stdlib-only and executable: `./scripts/with_server.py` works directly.)
+- ❌ **Don't** assume the Python `playwright` package exists — use
+  `uv run --with playwright python …`. This warning does not mean that the
+  bootstrap-managed Node Playwright package or browser binaries are missing.
+  (`with_server.py` itself is stdlib-only and executable: `./scripts/with_server.py`
+  works directly.)
 - ❌ **Don't** inspect the DOM before waiting for `networkidle` on dynamic
   apps (script path) — or before taking a fresh snapshot (MCP path).
 - ✅ **Do** wait for `page.wait_for_load_state('networkidle')` before
