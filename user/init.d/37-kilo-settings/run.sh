@@ -29,7 +29,8 @@
 #                the Svelte team, always tracks current docs, no local deps,
 #                degrades gracefully when offline). Kilo deep-merges this
 #                with kilo.jsonc, so the two files stay separate concerns.
-#   kilo.jsonc — merged base config (instructions glob; no permissions)
+#   kilo.jsonc — permissions-only config (e.g. permission.bash: allow); no
+#                instructions glob
 #
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
@@ -84,8 +85,8 @@ done
 # ---------------------------------------------------------------------------
 # 3. Deploy kilo.json / kilo.jsonc
 # ---------------------------------------------------------------------------
-# Kilo deep-merges kilo.json with kilo.jsonc. Permissions are intentionally
-# omitted from both — they accumulate naturally during sessions.
+# Kilo deep-merges kilo.json with kilo.jsonc. MCP server configuration lives in
+# kilo.json; permissions such as permission.bash: allow live in kilo.jsonc.
 #
 # On first run: copy the skeleton file. On re-run: if the source differs from
 # the live file show a diff and a warning so the user can merge manually.
