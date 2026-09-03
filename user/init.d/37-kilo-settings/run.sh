@@ -29,8 +29,10 @@
 #                the Svelte team, always tracks current docs, no local deps,
 #                degrades gracefully when offline). Kilo deep-merges this
 #                with kilo.jsonc, so the two files stay separate concerns.
-#   kilo.jsonc — permissions-only config (e.g. permission.bash: allow); no
-#                instructions glob
+#   kilo.jsonc — instructions glob (rules/) plus permissions
+#
+# ~/.config/kilo/rules/ is loaded globally by the instructions glob in
+# kilo.jsonc. Keep this set small: rules are present in every agent context.
 #
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
@@ -39,12 +41,6 @@
 # feature's step instead of here, so they share the step's capability
 # gating — e.g. the central-caddy skill deploys from 60-caddy/kilo/skills/
 # (gated on docker + caddy), not from this skeleton.
-#
-# MCP server:
-#   Source:  init.d/37-kilo-settings/_config/kilo/mcp-server/  (if present)
-#   Deploy:  ~/.config/kilo/mcp-server/
-#   Listens: http://localhost:8766/mcp
-#   Mounts:  ~/.config/kilo/standards/ (read-only)
 #
 # Idempotent: directories are synced without deletion — user-installed agents,
 # commands, and skills survive re-runs. kilo.json/kilo.jsonc are copied once; on
@@ -60,7 +56,6 @@ SRC_KILO="$STEP_DIR/_kilo"
 
 KILO_CONFIG="$HOME/.config/kilo"
 KILO_HOME="$HOME/.kilo"
-MCP_DEPLOY="$KILO_CONFIG/mcp-server"
 
 # ---------------------------------------------------------------------------
 # 1. Ensure target dirs exist
@@ -78,7 +73,7 @@ echo "Kilo home dir: $KILO_HOME"
 
 echo "=== Deploying from _config/kilo/ to ~/.config/kilo/ ==="
 
-for dir in agents commands; do
+for dir in agents commands rules; do
   sync_dir_preserve "$SRC_CONFIG/$dir" "$KILO_CONFIG/$dir"
 done
 
@@ -124,50 +119,13 @@ echo "=== Deploying from _kilo/ to ~/.kilo/ ==="
 sync_dir_preserve "$SRC_KILO/skills" "$KILO_HOME/skills"
 
 # ---------------------------------------------------------------------------
-# 5. Deploy MCP server (if present)
-# ---------------------------------------------------------------------------
-
-MCP_SRC="$SRC_CONFIG/mcp-server"
-
-if [[ ! -d "$MCP_SRC" ]]; then
-  echo ""
-  echo "mcp-server/ not found at $MCP_SRC — skipping MCP deploy."
-else
-  rm -rf "$MCP_DEPLOY"
-  cp -r "$MCP_SRC" "$MCP_DEPLOY"
-
-  # Resolve tilde in the docker-compose.yml volume mount to the actual
-  # absolute home path so Docker Compose has no shell-expansion ambiguity.
-  sed -i "s|~/.config/kilo/standards|${KILO_CONFIG}/standards|g" \
-    "$MCP_DEPLOY/docker-compose.yml"
-
-  echo "  deployed mcp-server/ to $MCP_DEPLOY"
-
-  # -------------------------------------------------------------------------
-  # 5a. Start the MCP server via Docker Compose
-  # -------------------------------------------------------------------------
-
-  if ! command -v docker &>/dev/null; then
-    echo ""
-    echo "WARNING: docker not found — MCP server not started." >&2
-    echo "         Install Docker and run:" >&2
-    echo "           docker compose -f $MCP_DEPLOY/docker-compose.yml up -d --build" >&2
-  else
-    echo "Starting host-standards MCP server..."
-    docker compose -f "$MCP_DEPLOY/docker-compose.yml" up -d --build
-    echo "  host-standards MCP listening at http://localhost:8766/mcp"
-  fi
-fi
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "37-kilo-settings: context set deployed."
-echo "  ~/.config/kilo/:  agents/ commands/ kilo.json (playwright MCP) kilo.jsonc"
+echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
-echo "  MCP server:       http://localhost:8766/mcp (host-standards)"
 echo "  Playwright MCP:   npx @playwright/mcp (needs node/npx from 35-node)"
 echo ""
 echo "Restart kilo (or reload config) to pick up the new context."

@@ -127,7 +127,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sanitize",
         action="store_true",
+        default=True,
         help="Use `kilo export --sanitize` when exporting sessions.",
+    )
+    parser.add_argument(
+        "--no-sanitize",
+        action="store_false",
+        dest="sanitize",
+        help="Export sessions without sanitizing sensitive values.",
     )
     parser.add_argument(
         "--top-turns",
@@ -151,7 +158,7 @@ def parse_args() -> argparse.Namespace:
         "--min-input-tokens",
         type=int,
         default=5000,
-        help="Secondary input-token threshold for high-cost turns (default: 5000).",
+        help="Deprecated compatibility setting; high-cost turns use total tokens only.",
     )
     parser.add_argument(
         "--min-total-tokens",
@@ -195,7 +202,7 @@ def parse_args() -> argparse.Namespace:
         "--top-diffs",
         type=int,
         default=20,
-        help="Max session-level file-diff rows to include (default: 20).",
+        help="Max rows from info.summary.diffs to include (not observed edits; default: 20).",
     )
     parser.add_argument(
         "--top-truncated",
@@ -1164,6 +1171,7 @@ def _analyze_one_session_export(
 
         if role == "assistant":
             accum["assistant_messages_total"] += 1
+            accum["assistant_total_tokens"].append(total_tokens)
             session_assistant_turns += 1
             session_tokens_total += total_tokens
 
@@ -1186,10 +1194,7 @@ def _analyze_one_session_export(
             if not session_primary_model and model_id:
                 session_primary_model = model_id
 
-            is_high_cost = (
-                total_tokens >= min_total_tokens
-                or input_tokens >= min_input_tokens
-            )
+            is_high_cost = total_tokens >= min_total_tokens
             if is_high_cost:
                 session_high_cost_count += 1
                 bloat = analyze_turn_bloat(
@@ -1342,7 +1347,7 @@ def _analyze_one_session_export(
             )
 
     for diff_row in collect_session_diffs(session_info):
-        accum["session_diffs"].append(
+        accum["exported_summary_diffs"].append(
             {
                 "session_id": session_id,
                 "session_title": session_title,
@@ -1355,6 +1360,12 @@ def _analyze_one_session_export(
     session_variants.update(all_variants)
     duration_ms = compute_session_duration_ms(session_info)
 
+    assistant_models = [
+        as_text(as_dict(as_dict(item).get("info")).get("modelID"))
+        or as_text(as_dict(as_dict(as_dict(item).get("info")).get("model")).get("modelID"))
+        for item in messages
+        if as_text(as_dict(as_dict(item).get("info")).get("role")) == "assistant"
+    ]
     accum["session_summaries"].append(
         {
             "session_id": session_id,
@@ -1371,6 +1382,14 @@ def _analyze_one_session_export(
             "high_cost_turns": session_high_cost_count,
             "invalid_tool_calls": session_invalid_tool_count,
             "truncated_outputs": session_truncated_count,
+            "user_messages": sum(
+                1 for item in messages if as_text(as_dict(as_dict(item).get("info")).get("role")) == "user"
+            ),
+            "model_switches": sum(
+                previous != current
+                for previous, current in zip(assistant_models, assistant_models[1:])
+                if previous and current
+            ),
         }
     )
 
@@ -1465,7 +1484,8 @@ def analyze_sessions(
         "tool_output_bytes_acc": defaultdict(int),
         "invalid_tool_attempts": {},
         "session_summaries": [],
-        "session_diffs": [],
+        "exported_summary_diffs": [],
+        "assistant_total_tokens": [],
         "truncated_rows": [],
     }
 
@@ -1673,7 +1693,7 @@ def analyze_sessions(
     tool_output_bytes_acc = accum["tool_output_bytes_acc"]
     invalid_tool_attempts = accum["invalid_tool_attempts"]
     session_summaries = accum["session_summaries"]
-    session_diffs = accum["session_diffs"]
+    exported_summary_diffs = accum["exported_summary_diffs"]
     truncated_rows = accum["truncated_rows"]
     messages_total = accum["messages_total"]
     assistant_messages_total = accum["assistant_messages_total"]
@@ -1767,6 +1787,23 @@ def analyze_sessions(
 
     invalid_tool_total = sum(row["count"] for row in invalid_tool_summary)
 
+    token_values = sorted(accum["assistant_total_tokens"])
+    p90_index = max(0, (9 * len(token_values) + 9) // 10 - 1)
+    high_cost_threshold_tokens = max(
+        token_values[p90_index] if token_values else 0, min_total_tokens
+    )
+    all_high_cost_turns = [
+        row
+        for row in all_high_cost_turns
+        if (as_int(as_dict(row.get("tokens")).get("total")) or 0)
+        >= high_cost_threshold_tokens
+    ]
+    high_cost_by_session: defaultdict[str, int] = defaultdict(int)
+    for row in all_high_cost_turns:
+        high_cost_by_session[as_text(row.get("file"))] += 1
+    for row in session_summaries:
+        row["high_cost_turns"] = high_cost_by_session[as_text(row.get("session_id"))]
+
     return {
         "report_meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1778,6 +1815,7 @@ def analyze_sessions(
             "subagent_sessions_skipped_duplicate": subagent_sessions_skipped_duplicate,
             "min_input_tokens": min_input_tokens,
             "min_total_tokens": min_total_tokens,
+            "high_cost_threshold_tokens": high_cost_threshold_tokens,
             "min_bytes": min_bytes,
             "sanitize": sanitize,
             "workers": workers,
@@ -1791,7 +1829,7 @@ def analyze_sessions(
             "source_totals_total": len(source_total_rows),
             "invalid_tool_calls_total": invalid_tool_total,
             "truncated_outputs_total": len(truncated_rows),
-            "session_diffs_total": len(session_diffs),
+            "exported_summary_diffs_total": len(exported_summary_diffs),
         },
         "session_summary": session_summaries,
         "subagent_sessions": subagent_records,
@@ -1802,7 +1840,7 @@ def analyze_sessions(
         "critical_exceptions": critical_exceptions,
         "export_paths": export_paths,
         "invalid_tool_summary": invalid_tool_summary,
-        "session_diffs": session_diffs,
+        "exported_summary_diffs": exported_summary_diffs,
         "truncated_outputs": truncated_rows,
     }
 
@@ -1836,7 +1874,7 @@ def compact_output(report: dict[str, Any], args: argparse.Namespace) -> str:
     top_bloat = as_list(report.get("context_bloat"))[: args.top_turns]
     top_failures = as_list(report.get("tool_failures"))[: args.top_tool_failures]
     top_sessions = as_list(report.get("session_summary"))[: args.top_sessions]
-    top_diffs = as_list(report.get("session_diffs"))[: args.top_diffs]
+    top_diffs = as_list(report.get("exported_summary_diffs"))[: args.top_diffs]
     top_truncated = as_list(report.get("truncated_outputs"))[: args.top_truncated]
 
     lines.append("<report_meta>")
@@ -1910,7 +1948,7 @@ def compact_output(report: dict[str, Any], args: argparse.Namespace) -> str:
                 "source_totals_total",
                 "invalid_tool_calls_total",
                 "truncated_outputs_total",
-                "session_diffs_total",
+                "exported_summary_diffs_total",
             ],
         )
     )
@@ -1943,6 +1981,8 @@ def compact_output(report: dict[str, Any], args: argparse.Namespace) -> str:
                     "high_cost_turns",
                     "invalid_tool_calls",
                     "truncated_outputs",
+                    "user_messages",
+                    "model_switches",
                 ],
             )
         )
@@ -2096,7 +2136,7 @@ def compact_output(report: dict[str, Any], args: argparse.Namespace) -> str:
         lines.append(format_semikv(row, ["source", "count", "bytes"]))
     lines.append("</source_totals>")
 
-    lines.append("<session_diffs>")
+    lines.append("<exported_summary_diffs>")
     if not top_diffs:
         lines.append("none")
     for row in top_diffs:
@@ -2113,7 +2153,7 @@ def compact_output(report: dict[str, Any], args: argparse.Namespace) -> str:
                 ],
             )
         )
-    lines.append("</session_diffs>")
+    lines.append("</exported_summary_diffs>")
 
     lines.append("<truncated_outputs>")
     if not top_truncated:
@@ -2191,7 +2231,7 @@ def main() -> int:
             ],
             "session_summary": as_list(report.get("session_summary")),
             "tool_stats": as_list(report.get("tool_stats")),
-            "session_diffs": as_list(report.get("session_diffs"))[: args.top_diffs],
+            "exported_summary_diffs": as_list(report.get("exported_summary_diffs"))[: args.top_diffs],
             "truncated_outputs": as_list(report.get("truncated_outputs"))[
                 : args.top_truncated
             ],
