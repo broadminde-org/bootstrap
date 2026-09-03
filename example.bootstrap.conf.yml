@@ -30,6 +30,9 @@
 #           ~/infra/caddy via the user tier and provides a shared edge reverse
 #           proxy for all app stacks on the host. Snippets register via
 #           caddy-route. Requires docker. Gated on both: docker AND caddy.
+#
+#   broadminde  Read-only SSH access to broadminde-org/go-shared for private Go
+#               module downloads. Requires a manually registered deploy key.
 
 capabilities:
   docker: true
@@ -37,6 +40,7 @@ capabilities:
   kvm: false
   dev: false
   public: false
+  broadminde: false
 
 # ── Versions ─────────────────────────────────────────────────────────────────
 #

@@ -53,6 +53,8 @@
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_CONFIG="$STEP_DIR/_config/kilo"
 SRC_KILO="$STEP_DIR/_kilo"
+SRC_KILOCODEIGNORE="$STEP_DIR/.kilocodeignore"
+BOOTSTRAP_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 
 KILO_CONFIG="$HOME/.config/kilo"
 KILO_HOME="$HOME/.kilo"
@@ -111,7 +113,31 @@ for cfg in kilo.json kilo.jsonc; do
 done
 
 # ---------------------------------------------------------------------------
-# 4. Deploy from _kilo/  -->  ~/.kilo/
+# 4. Deploy Bootstrap workspace indexing exclusions
+# ---------------------------------------------------------------------------
+# .kilocodeignore is workspace-scoped rather than global Kilo configuration.
+# Preserve a locally customized file and show the diff for manual merging.
+if [[ -f "$SRC_KILOCODEIGNORE" ]]; then
+  dst="$BOOTSTRAP_ROOT/.kilocodeignore"
+  if [[ ! -f "$dst" ]]; then
+    cp "$SRC_KILOCODEIGNORE" "$dst"
+    echo "  deployed .kilocodeignore (new)"
+  elif ! cmp -s "$SRC_KILOCODEIGNORE" "$dst"; then
+    echo ""
+    echo "  WARNING: skeleton .kilocodeignore differs from $dst"
+    echo "  Diff (live -> skeleton):"
+    diff -u "$dst" "$SRC_KILOCODEIGNORE" || true
+    echo ""
+    echo "  Review the diff above and merge changes into $dst manually."
+  else
+    echo "  .kilocodeignore unchanged"
+  fi
+else
+  echo "  skipped .kilocodeignore (not found in skeleton)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Deploy from _kilo/  -->  ~/.kilo/
 # ---------------------------------------------------------------------------
 
 echo "=== Deploying from _kilo/ to ~/.kilo/ ==="
@@ -126,6 +152,7 @@ echo ""
 echo "37-kilo-settings: context set deployed."
 echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
+echo "  Bootstrap:        $BOOTSTRAP_ROOT/.kilocodeignore"
 echo "  Playwright MCP:   npx @playwright/mcp (needs node/npx from 35-node)"
 echo ""
 echo "Restart kilo (or reload config) to pick up the new context."

@@ -37,14 +37,26 @@ if (( ${#SKILLS_AGENTS[@]} == 0 )); then
 fi
 
 # General
-npx --yes skills add https://github.com/mattpocock/skills --skill handoff -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/mattpocock/skills --skill codebase-design -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/anthropics/skills --skill frontend-design -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/addyosmani/agent-skills --skill frontend-ui-engineering -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/mattpocock/skills --skill improve-codebase-architecture -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/mattpocock/skills --skill grill-with-docs -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/mattpocock/skills --skill domain-modeling -g -a "${SKILLS_AGENTS[@]}" -y
-npx --yes skills add https://github.com/mattpocock/skills --skill research -g -a "${SKILLS_AGENTS[@]}" -y
+
+npx --yes skills add https://github.com/mattpocock/skills \
+  --skill \
+    handoff \
+    codebase-design \
+    improve-codebase-architecture \
+    grill-with-docs \
+    domain-modeling \
+    research \
+  -g -a "${SKILLS_AGENTS[@]}" -y
+
+npx --yes skills add https://github.com/anthropics/skills \
+  --skill \
+    frontend-design \
+  -g -a "${SKILLS_AGENTS[@]}" -y
+
+npx --yes skills add https://github.com/addyosmani/agent-skills \
+  --skill \
+    frontend-ui-engineering \
+  -g -a "${SKILLS_AGENTS[@]}" -y
 
 # Python
 # npx --yes skills add https://github.com/github/awesome-copilot --skill python-mcp-server-generator -g -y

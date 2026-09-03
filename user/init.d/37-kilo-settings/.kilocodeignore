@@ -1,0 +1,16 @@
+# Generated documentation builds
+**/llmdocs/_build/
+**/llmdocs/ref/
+
+# Python caches and environments
+**/__pycache__/
+*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.venv/
+
+# Generated reports and local scratch
+kilo-session-reports/
+context-workshop/_runs/
+.tmp/
+temp/

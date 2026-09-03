@@ -1,0 +1,62 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "instructions": ["~/.config/kilo/rules/*.md"],
+  "permission": {
+    "bash": {
+      "*": "allow",
+
+      // Filesystem and raw-device destruction.
+      "rm *": "deny",
+      "shred *": "deny",
+      "unlink *": "deny",
+      "dd *": "deny",
+      "mkfs *": "deny",
+      "mkfs.* *": "deny",
+      "fdisk *": "deny",
+      "gdisk *": "deny",
+      "parted *": "deny",
+      "sfdisk *": "deny",
+      "wipefs *": "deny",
+      "blkdiscard *": "deny",
+
+      // Privilege escalation and account changes.
+      "sudo *": "deny",
+      "sudoedit *": "deny",
+      "su *": "deny",
+      "runuser *": "deny",
+      "doas *": "deny",
+      "useradd *": "deny",
+      "userdel *": "deny",
+      "usermod *": "deny",
+      "passwd *": "deny",
+      "chpasswd *": "deny",
+      "groupadd *": "deny",
+      "groupdel *": "deny",
+      "groupmod *": "deny",
+
+      // Host shutdown and service changes.
+      "shutdown *": "deny",
+      "reboot *": "deny",
+      "poweroff *": "deny",
+      "halt *": "deny",
+
+      // Destructive or remote-mutating Git operations.
+      "git clean *": "deny",
+      "git reset --hard *": "deny",
+      "git push --force *": "deny",
+      "git push --force-with-lease *": "deny",
+      "git push --delete *": "deny",
+      "git branch -D *": "deny",
+
+      // Broad Docker resource deletion.
+      "docker system prune *": "deny",
+      "docker container prune *": "deny",
+      "docker image prune *": "deny",
+      "docker volume prune *": "deny",
+      "docker network prune *": "deny",
+      "docker builder prune *": "deny",
+      "docker volume rm *": "deny",
+
+    }
+  }
+}

@@ -16,7 +16,7 @@ DENIED: Modify any files, run destructive scans, push to registries.
 
 ## Methodology
 1. DEPS: For each dependency file (go.mod, pyproject.toml, package.json):
-   - Check latest versions of direct deps via package-version-lookup
+   - Check latest versions of direct deps via live registry lookup (PyPI, npm, Go proxy — never from memory)
    - Flag any dependency >2 major versions behind
    - Verify lockfile matches dependency declarations
 2. SECURITY: Run vulnerability scanners:
