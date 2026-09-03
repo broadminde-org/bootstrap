@@ -17,5 +17,10 @@ bootstrap.conf.yml
 # AI agent guidelines (not project code)
 *deepseek-v4-plan*.md
 
+# Local Kilo artifacts and salvaged context
+kilo-session-reports/
+context-workshop/_runs/
+_salvage/
+
 # OS
 .DS_Store
