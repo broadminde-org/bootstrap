@@ -52,13 +52,13 @@ flowchart LR
         R6 --> R7["40 profile"] --> R8["45 Woodpecker account"] --> R9["50 Docker"]
         R9 --> R10["51 SSH hardening"] --> R11["52 ufw"] --> R12["53 fail2ban"]
         R12 --> R13["54 CrowdSec"] --> R14["55 lazydocker"] --> R15["56 SSH client"]
-        R15 --> R16["57 KVM"] --> R17["58 mDNS"]
+        R15 --> R16["57 KVM"] --> R17["58 mDNS"] --> R18["59 gh cli"]
     end
     subgraph User["User tier"]
         U1["10 llmdocs"] --> U2["12 bashrc"] --> U3["15 direnv"] --> U4["20 Python"]
         U4 --> U5["25 Go"] --> U6["30 scripts"] --> U7["35 Node"] --> U8["36 Kilo"]
         U8 --> U9["37 Kilo settings"] --> U10["38 Woodpecker CLI"] --> U11["40 npx skills"]
-        U11 --> U12["60 Caddy"] --> U13["98 npm shared"] --> U14["99 Go shared"]
+        U11 --> U12["60 Caddy"] --> U13["97 gh auth instructions"] --> U14["98 npm shared"] --> U15["99 Go shared"]
     end
     Root -->|"log in as deploy user"| User
     User --> Apps["App repos / Woodpecker jobs"]
@@ -103,9 +103,10 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `56-ssh-client` | Manages deploy-user SSH defaults, `hosts.d` inclusion, and stale ControlMaster cleanup. |
 | `57-kvm` | Installs and configures the KVM/libvirt virtualization stack. Requires `kvm`. |
 | `58-mdns` | Enables private-interface mDNS through nsswitch and Avahi while excluding public uplinks. |
+| `59-gh-cli` | Installs GitHub CLI from the official signed Debian repository; authentication remains a separate per-user operation. |
 
-**Root-tier step count: 17** (01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52,
-53, 54, 55, 56, 57, 58).
+**Root-tier step count: 18** (01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52,
+53, 54, 55, 56, 57, 58, 59).
 
 ## User-Tier Step Ownership
 
@@ -123,11 +124,12 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; never starts a stopped stack. |
+| `97-gh-auth-instructions` | Prints the per-user interactive `gh auth login` instructions; does not authenticate or modify credentials. |
 | `98-npm-shared` | Requires `dev`; configures and verifies read-only GitHub Packages npm auth for `@broadminde-org/*` when `GITHUB_PACKAGES_TOKEN` is present. |
 | `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 
-**User-tier step count: 14** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
-60, 98, 99).
+**User-tier step count: 15** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
+60, 97, 98, 99).
 
 ## Version Pins and Shared Access
 
@@ -165,6 +167,6 @@ flowchart LR
 
 | Tier | Expected steps | Found in source | Status |
 |---|---|---|---|
-| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52, 53, 54, 55, 56, 57, 58 = **17** | Same 17 directory steps, plus `lib/` (library, not a step) | All accounted for |
-| User (`user/init.d/`) | 10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40, 60, 98, 99 = **14** | Same 14 directory steps, plus `lib/` (library, not a step) | All accounted for |
-| **Total executable steps** | **31** | **31** | Complete |
+| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 = **18** | Same 18 directory steps, plus `lib/` (library, not a step) | All accounted for |
+| User (`user/init.d/`) | 10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40, 60, 97, 98, 99 = **15** | Same 15 directory steps, plus `lib/` (library, not a step) | All accounted for |
+| **Total executable steps** | **33** | **33** | Complete |

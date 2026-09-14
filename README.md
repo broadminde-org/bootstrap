@@ -124,9 +124,9 @@ capabilities is disabled.
 | `public` | 54-crowdsec | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
-20-groups, 30-sudo, 40-profile, 51-ssh-hardening, 52-ufw, 53-fail2ban,
-56-ssh-client, 58-mdns. The user tier always runs; per-step gating applies
-(e.g. 60-caddy requires `docker` + `caddy`).
+20-groups, 30-sudo, 40-profile, 45-woodpecker-local, 51-ssh-hardening, 52-ufw,
+53-fail2ban, 56-ssh-client, 58-mdns, 59-gh-cli. The user tier always runs;
+per-step gating applies (e.g. 60-caddy requires `docker` + `caddy`).
 
 If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
 versions default to `"latest"`.
@@ -223,6 +223,7 @@ bootstrap/
 │   ├── 01-apt-update-upgrade/        # apt-get update + upgrade -y
 │   ├── 05-packages/                  # git, curl, wget, vim, htop, unzip, ca-certificates, sudo,
 │   │   └── packages.txt              #   gnupg, gettext-base, jq, openssl, direnv, build-essential
+│   ├── 06-playwright-deps/           # browser shared libs (Chromium/Firefox/WebKit; dev-gated)
 │   ├── 10-create-deploy-user/        # useradd + chpasswd + sudo group (idempotent)
 │   ├── 20-groups/                    # SUDO_USER → groups from groups.txt
 │   │   └── groups.txt                # adm, docker, sudo, systemd-journal, kvm, libvirt
@@ -230,6 +231,7 @@ bootstrap/
 │   │   └── commands.txt              # /usr/bin/systemctl *, /usr/bin/docker, /usr/bin/docker compose
 │   ├── 40-profile/                   # writes bootstrap-managed PATH block to $SUDO_USER/.profile
 │   │   └── profile.snippet           # idempotent ~/.local/bin + ~/.kilo/bin PATH block
+│   ├── 45-woodpecker-local/          # unprivileged woodpecker account + plugin-git for local backend
 │   ├── 50-docker/                    # installs Docker CE + Compose plugin, writes daemon.json
 │   ├── 51-ssh-hardening/             # PermitRootLogin no, X11Forwarding no, AllowUsers
 │   ├── 52-ufw/                       # ufw install + rule staging (does NOT enable)
@@ -238,7 +240,8 @@ bootstrap/
 │   ├── 55-lazydocker/                # drops lazydocker into $SUDO_USER/.local/bin/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
 │   ├── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
-│   └── 58-mdns/                       # mDNS via nsswitch + private-interface Avahi config
+│   ├── 58-mdns/                      # mDNS via nsswitch + private-interface Avahi config
+│   └── 59-gh-cli/                    # GitHub CLI from the official signed APT repository
 ├── user/                   # USER-tier — runs as the deploy user, not as root
 │   ├── init.sh                       # user-tier runner — refuses root
 │   ├── init.d/
@@ -247,21 +250,23 @@ bootstrap/
 │   │   ├── 10-llmdocs/               # installs `llmdocs` wrapper at $HOME/.local/bin/
 │   │   ├── 12-bashrc/                # ~/.local/bin + ~/.kilo/bin PATH block in ~/.bashrc
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
-│   │   ├── 20-python/               # installs uv + uv-managed Python
-│   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
-│   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
+│   │   ├── 20-python/                # installs uv + uv-managed Python
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
 │   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
+│   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
+│   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
+│   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
-│   │   ├── 98-npm-shared/             # configures GitHub Packages npm auth
-│   │   │   ├── .requires              # dev
-│   │   │   └── kilo/skills/            # frontend-shared-access agent skill
-│   │   └── 99-go-shared/              # configures Go shared-module access
+│   │   ├── 97-gh-auth-instructions/  # prints the interactive gh login instructions
+│   │   ├── 98-npm-shared/            # configures GitHub Packages npm auth
+│   │   │   ├── .requires             # dev
+│   │   │   └── kilo/skills/          # frontend-shared-access agent skill
+│   │   └── 99-go-shared/             # configures Go shared-module access
 │   │       ├── .requires             # dev
 │   │       ├── run.sh                # SSH deploy keys and Go module routing
-│   │       └── kilo/skills/           # go-shared-access agent skill → ~/.kilo/skills/
+│   │       └── kilo/skills/          # go-shared-access agent skill → ~/.kilo/skills/
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)
 │   ├── scripts/                      # user scripts (e.g., kilo-session-report.py)
 │   ├── script-runners/               # thin wrappers deployed to $HOME/.local/bin/
@@ -292,6 +297,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `40-profile` — the PATH block is wrapped in stable BEGIN/END markers; if both markers are present, the content between them is compared to the canonical snippet and the file is left alone when they match.
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
+- `59-gh-cli` — the official APT keyring and repository are compared before write; package installation is idempotent. Authentication remains a separate per-user operation.
 - `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. **Never starts a stopped container** — bringing up the edge is an explicit operator action; updates apply in place only when it is already running.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
