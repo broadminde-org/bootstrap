@@ -251,7 +251,9 @@ bootstrap/
 │   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
-│   │   └── 60-caddy/                 # central Caddy reverse proxy (one per host)
+│   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
+│   │   ├── 98-npm-shared.sh           # configures GitHub Packages npm auth
+│   │   └── 99-go-shared/              # configures Go shared-module access
 │   │       ├── .requires             # docker, caddy
 │   │       ├── run.sh                # installs to ~/infra/caddy (runs as deploy user)
 │   │       ├── kilo/skills/          # central-caddy agent skill → ~/.kilo/skills/

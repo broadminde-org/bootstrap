@@ -11,8 +11,23 @@ __pycache__/
 .pytest_cache/
 .venv/
 
+# Dependencies, builds, and test output
+**/node_modules/
+**/dist/
+**/build/
+**/.svelte-kit/
+**/coverage/
+**/test-results/
+**/playwright-report/
+**/.playwright/
+**/*-results/
+.ci/db.env
+*.log
+.tmp/
+
 # Config
 bootstrap.conf.yml
+.env
 
 # AI agent guidelines (not project code)
 *deepseek-v4-plan*.md
