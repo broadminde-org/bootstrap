@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# ci-test — standardized single-project CI and LLM-session test runner.
+# shellcheck disable=SC1091
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ci.d/common.sh
+source "$SCRIPT_DIR/ci.d/common.sh"
+# shellcheck source=ci.d/10-go.sh
+source "$SCRIPT_DIR/ci.d/10-go.sh"
+# shellcheck source=ci.d/20-node.sh
+source "$SCRIPT_DIR/ci.d/20-node.sh"
+# shellcheck source=ci.d/30-python.sh
+source "$SCRIPT_DIR/ci.d/30-python.sh"
+# shellcheck source=ci.d/40-db.sh
+source "$SCRIPT_DIR/ci.d/40-db.sh"
+
+e2e=0
+fail_fast="${CI_TEST_FAIL_FAST:-0}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --e2e) e2e=1 ;;
+    --fail-fast) fail_fast=1 ;;
+    -h|--help)
+      printf 'Usage: ci-test [--e2e] [--fail-fast]\n'
+      exit 0
+      ;;
+    *) printf 'ci-test: unknown option: %s\n' "$1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+trap 'ci_test_cleanup; ci_test_teardown_db' EXIT
+
+family_failed=0
+stop_after_family=0
+if [[ -x scripts/test-db-setup ]] && ! ci_test_prepare_db; then
+  printf 'db setup failed\n' > "$CI_TEST_TMP_DIR/db.log"
+  ci_test_record_failure db "$CI_TEST_TMP_DIR/db.log"
+  family_failed=1
+  (( fail_fast )) && stop_after_family=1
+fi
+
+if (( ! stop_after_family )) && [[ -f go.mod || -f go.work ]]; then
+  if ! ci_test_run_go; then family_failed=1; fi
+  (( family_failed && fail_fast )) && stop_after_family=1
+fi
+if (( ! stop_after_family )) && [[ -f package.json ]]; then
+  if ! ci_test_run_node; then family_failed=1; fi
+  (( family_failed && fail_fast )) && stop_after_family=1
+fi
+if (( ! stop_after_family )) && [[ -f pyproject.toml ]]; then
+  if ! ci_test_run_python; then family_failed=1; fi
+fi
+
+if (( e2e )) && (( ! stop_after_family )); then
+  if ! ci_test_skip e2e && ! ci_test_run e2e npm run test:e2e --if-present; then
+    family_failed=1
+  fi
+fi
+
+if (( family_failed == 0 && ${#CI_TEST_FAILED_CHECKS[@]} == 0 )); then
+  if [[ ! -f go.mod && ! -f go.work && ! -f package.json && ! -f pyproject.toml ]]; then
+    printf 'nothing to test\n'
+  fi
+fi
+
+ci_test_digest
+(( family_failed == 0 && ${#CI_TEST_FAILED_CHECKS[@]} == 0 ))
