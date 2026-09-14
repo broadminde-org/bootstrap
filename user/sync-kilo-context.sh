@@ -12,6 +12,7 @@ set -euo pipefail
 # document that feature and share its capability gating) are routed to
 # their owning step instead of the 37-kilo-settings skeleton:
 #
+#   ~/.kilo/skills/air/            ->  init.d/30-scripts/kilo/skills/air/
 #   ~/.kilo/skills/central-caddy/  ->  init.d/60-caddy/kilo/skills/central-caddy/
 #
 # The two destination directories match Kilo's global installation
@@ -130,6 +131,7 @@ route_skill() {
   fi
 }
 
+route_skill air 30-scripts
 route_skill central-caddy 60-caddy
 route_skill frontend-shared-access 98-npm-shared
 

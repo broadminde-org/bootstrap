@@ -15,11 +15,20 @@
 # re-runs. Runners are overwritten individually by name.
 #
 # Run as the deploy user (./user/init.sh 30-scripts).
+#
+# Also deploys the air agent skill (kilo/skills/ -> ~/.kilo/skills/) and ships
+# the canonical .air.toml template (templates/air.toml.template) consumed by
+# that skill.
 
 SCRIPTS_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts"
 RUNNERS_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/script-runners"
 SCRIPTS_DST="$HOME/scripts"
 RUNNERS_DST="$HOME/.local/bin"
+
+# Deploy the air agent skill (~/.kilo/skills/). Plain files; sync_dir_preserve
+# never deletes, so user-installed skills survive re-runs. Same pattern as
+# user/init.d/99-go-shared/run.sh.
+sync_dir_preserve "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kilo/skills" "$HOME/.kilo/skills"
 
 # ---------------------------------------------------------------------------
 # Prerequisites

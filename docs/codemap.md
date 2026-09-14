@@ -116,7 +116,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
 | `25-go` | Installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
-| `30-scripts` | Syncs repository scripts to `$HOME/scripts/` and installs their local wrappers. |
+| `30-scripts` | Syncs repository scripts to `$HOME/scripts/`, installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
 | `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`, preserving user customizations. |

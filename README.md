@@ -251,7 +251,7 @@ bootstrap/
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
 │   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools
-│   │   ├── 30-scripts/               # copies scripts/→$HOME/scripts/, runners→$HOME/.local/bin/
+│   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
