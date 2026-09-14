@@ -1,8 +1,10 @@
 # Central Caddy — operator's guide
 
-The host's central Caddy reverse proxy is installed by `bootstrap/user/init.d/60-caddy`
-to `~/infra/caddy/` (deploy-user owned — the step runs as the deploy user in the
-user tier). The step provisions, renders, and builds but **never starts the
+The host's central Caddy reverse proxy is provisioned by the repository's
+`user/init.d/60-caddy` step to `~/infra/caddy/` (deploy-user owned — the step runs
+as the deploy user in the user tier). On a provisioned host this source step is
+normally `~/bootstrap/user/init.d/60-caddy`. The step provisions, renders, and
+builds but **never starts the
 container** — you bring it up explicitly (see Container lifecycle). App stacks
 register Caddyfile snippets and get TLS/routing automatically.
 
@@ -24,7 +26,9 @@ myapp.host.broadminde.org {
 (`/srv/edge` inside the container is a read-only mount of `~/infra/edge` on
 the host — drop static assets there from any app stack.)
 
-- **Allowed**: site blocks, matchers, `handle`, `tls`, `log`, `reverse_proxy`, `file_server`.
+- **Allowed**: site blocks and site-level directives such as matchers, `handle`,
+  `route`, `tls`, `log`, `header`, `respond`, `redir`, `reverse_proxy`, and
+  `file_server`.
 - **Forbidden**: global blocks `({ ... })` — ACME email, storage, admin, CrowdSec, and
   logging are owned centrally. The register command rejects global blocks.
 - `{env.VAR}` placeholders resolve inside the container (secrets only — e.g.
@@ -172,7 +176,8 @@ services:
   in place (rebuild + recreate on change) and replays routes.d.
 - **Stop**: `cd ~/infra/caddy && docker compose stop` — stays down across
   step re-runs and reboots until started again.
-- **Restart**: safe — `--resume` restores registered apps from `autosave.json`
+- **Restart**: safe — Caddy resumes its autosaved configuration; `routes.d/` remains
+  the source of truth and `caddy-route reconcile` can replay it if needed.
 - **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, replays routes.d
   when running; otherwise start it yourself and run `caddy-route reconcile`)
 - **Logs**: `docker logs caddy --tail 50` or read `~/infra/caddy/logs/access.log`
@@ -314,12 +319,12 @@ Caddy is not provisioned on this host (or was torn down).
 
 ## Related files
 
-- `bootstrap/user/init.d/60-caddy/run.sh` — the provisioning step (user tier)
-- `bootstrap/user/init.d/60-caddy/stack/` — Dockerfile, compose, template, helpers
-- `bootstrap/user/init.d/60-caddy/stack/wildcard.caddy.tmpl` — config-driven wildcard zone template
-- `bootstrap/_plans/central-caddy.md` — full specification and design rationale
-- `bootstrap/_plans/caddy-conversions.md` — Phase 2: converting the existing ci,
+- `user/init.d/60-caddy/run.sh` — the provisioning step (user tier)
+- `user/init.d/60-caddy/stack/` — Dockerfile, compose, template, helpers
+- `user/init.d/60-caddy/stack/wildcard.caddy.tmpl` — config-driven wildcard zone template
+- `_plans/central-caddy.md` — full specification and design rationale
+- `_plans/caddy-conversions.md` — Phase 2: converting the existing ci,
   netbird, and artifacts Caddy instances into dual-mode snippets
-- `bootstrap/init.d/53-fail2ban/run.sh` — reads `~/infra/caddy/logs/access.log`
-- `bootstrap/init.d/54-crowdsec/run.sh` — LAPI + bouncer; grants the deploy
+- `init.d/53-fail2ban/run.sh` — reads `~/infra/caddy/logs/access.log`
+- `init.d/54-crowdsec/run.sh` — LAPI + bouncer; grants the deploy
   user `crowdsec` group membership (enables `cscli` from the user tier)

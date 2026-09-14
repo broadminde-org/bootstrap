@@ -131,6 +131,7 @@ route_skill() {
 }
 
 route_skill central-caddy 60-caddy
+route_skill frontend-shared-access 98-npm-shared
 
 # -------------------------------------------------------------------
 # Done

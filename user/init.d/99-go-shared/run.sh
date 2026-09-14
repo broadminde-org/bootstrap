@@ -8,8 +8,8 @@ set -euo pipefail
 # corresponding repositories.
 #
 # Also deploys the go-shared-access agent skill (kilo/skills/ →
-# ~/.kilo/skills/). The skill lives with this step — not in 37-kilo-settings —
-# because it documents go-shared module access, which this step provisions.
+# ~/.kilo/skills/). The frontend-shared skill is owned by 98-npm-shared;
+# this step still provisions its SSH source-repository access.
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"

@@ -46,7 +46,8 @@ Snippets are **Caddyfile fragments with site blocks only**.
 
 ## TLS
 
-Every snippet MUST declare DNS-01 TLS:
+Use Caddy's default automatic HTTPS for public names. Do not add a `tls` block
+unless the name needs DNS-01, such as a wildcard or a non-public name:
 
 ```caddyfile
 tls {
@@ -54,9 +55,10 @@ tls {
 }
 ```
 
-This is required for all names — wildcard zones require DNS-01 by Let's
-Encrypt policy, and the reconcile merge injects the global ACME identity
-(email, CA) into per-site issuers automatically. HTTP-01 is never used.
+The reconcile merge preserves per-site TLS policies and injects the global ACME
+identity (email and CA) into per-site issuers. Names without an explicit DNS-01
+policy use the global default, which is HTTP-01/TLS-ALPN. One DNS-01 provider
+(`acmedns`) is supported per host.
 
 ## Backend Reachability
 

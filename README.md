@@ -47,8 +47,11 @@ caddy-route list                           # see what's running
 ```
 
 Snippets are plain Caddyfile site blocks (no global options — ACME email,
-logging, CrowdSec, and Admin API are owned centrally). The container
-runs `caddy run --resume` so registered apps survive restarts/reboots.
+logging, CrowdSec, and Admin API are owned centrally). Start the provisioned
+stack explicitly with `cd ~/infra/caddy && docker compose up -d`; the
+provisioning step never starts a stopped container. Caddy resumes its autosaved
+configuration across restarts, while `routes.d/` remains the source of truth
+and `caddy-route reconcile` replays it when needed.
 
 Full documentation: [docs/central-caddy.md](docs/central-caddy.md)
 
@@ -117,7 +120,7 @@ capabilities is disabled.
 | `caddy` | user-tier 60-caddy | `true` |
 | `docker` | 50-docker, 55-lazydocker | `true` |
 | `kvm` | 57-kvm | `false` |
-| `dev` | 06-playwright-deps | `false` |
+| `dev` | 06-playwright-deps, user-tier 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
@@ -252,13 +255,13 @@ bootstrap/
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
-│   │   ├── 98-npm-shared.sh           # configures GitHub Packages npm auth
+│   │   ├── 98-npm-shared/             # configures GitHub Packages npm auth
+│   │   │   ├── .requires              # dev
+│   │   │   └── kilo/skills/            # frontend-shared-access agent skill
 │   │   └── 99-go-shared/              # configures Go shared-module access
-│   │       ├── .requires             # docker, caddy
-│   │       ├── run.sh                # installs to ~/infra/caddy (runs as deploy user)
-│   │       ├── kilo/skills/          # central-caddy agent skill → ~/.kilo/skills/
-│   │       └── stack/                # Dockerfile, compose.yaml, Caddyfile.tmpl, .env.example,
-│   │           └── bin/              #   caddy-route, acmedns-register
+│   │       ├── .requires             # dev
+│   │       ├── run.sh                # SSH deploy keys and Go module routing
+│   │       └── kilo/skills/           # go-shared-access agent skill → ~/.kilo/skills/
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)
 │   ├── scripts/                      # user scripts (e.g., kilo-session-report.py)
 │   ├── script-runners/               # thin wrappers deployed to $HOME/.local/bin/

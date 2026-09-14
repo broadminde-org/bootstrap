@@ -19,9 +19,13 @@
 #   kvm     KVM virtualization: qemu-kvm, libvirt, virtinst, bridge-utils.
 #           Required for hosts that run VMs.
 #
-#   dev     Playwright browser dependencies (06-playwright-deps). Enable on
-#           hosts that run browser automation tests. The user tier itself is
-#           NOT capability-gated — per-user tooling always installs.
+#   dev     Development-node tooling. Gates 06-playwright-deps (browser
+#           automation test dependencies) and user/98-npm-shared +
+#           user/99-go-shared (read-only access to Broadminde shared
+#           repositories and packages — Go modules, frontend source/package
+#           paths; requires manually registered deploy keys where SSH is
+#           used). Enable on hosts that build or test code. The user tier
+#           itself is NOT capability-gated — per-user tooling always installs.
 #
 #   public  CrowdSec IPS (LAPI + iptables bouncer + Central API). Enable on
 #           internet-facing servers; disable on internal/private hosts.
@@ -30,9 +34,6 @@
 #           ~/infra/caddy via the user tier and provides a shared edge reverse
 #           proxy for all app stacks on the host. Snippets register via
 #           caddy-route. Requires docker. Gated on both: docker AND caddy.
-#
-#   broadminde  Read-only SSH access to broadminde-org/go-shared for private Go
-#               module downloads. Requires a manually registered deploy key.
 
 capabilities:
   docker: true
@@ -40,7 +41,6 @@ capabilities:
   kvm: false
   dev: false
   public: false
-  broadminde: false
 
 # ── Versions ─────────────────────────────────────────────────────────────────
 #

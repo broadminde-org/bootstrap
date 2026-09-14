@@ -138,6 +138,6 @@ sudo ./init.sh --from 50     # resume from a point
   editing the script.
 - The user tier's `lib/common.sh` provides `sync_dir_preserve()` for
   deploying file trees into `$HOME` without deleting user extras.
-- `README.md` documents the system for humans; `codemap.md` is a deeper
+- `README.md` documents the system for humans; `docs/codemap.md` is a deeper
   architecture map. Keep both in sync when adding/removing steps or
   capabilities.

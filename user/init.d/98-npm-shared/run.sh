@@ -3,19 +3,24 @@ set -euo pipefail
 
 # 98-npm-shared - configure user-level GitHub Packages npm auth.
 
-# shellcheck source=lib/common.sh
+# shellcheck source=../lib/common.sh
 # shellcheck disable=SC1091
-. "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 readonly REPO_ROOT
 readonly NPMRC="$HOME/.npmrc"
 readonly REGISTRY_KEY='@broadminde-org:registry='
 readonly AUTH_KEY='//npm.pkg.github.com/:_authToken='
+
+# Deploy the frontend-shared agent skill before token handling. The skill is
+# useful for diagnosing either the source-repository or npm-package path, and
+# sync_dir_preserve never deletes user-installed skills.
+sync_dir_preserve "$SCRIPT_DIR/kilo/skills" "$HOME/.kilo/skills"
 
 if [[ -f "$REPO_ROOT/.env" ]]; then
   # shellcheck disable=SC1091
