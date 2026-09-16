@@ -2,6 +2,9 @@
 set -euo pipefail
 
 # 98-npm-shared - configure user-level GitHub Packages npm auth.
+#
+# Preferred token: BROADMINDE_PACKAGES_TOKEN. GITHUB_PACKAGES_TOKEN remains a
+# legacy fallback for existing bootstrap checkouts.
 
 # shellcheck source=../lib/common.sh
 # shellcheck disable=SC1091
@@ -27,12 +30,19 @@ if [[ -f "$REPO_ROOT/.env" ]]; then
   . "$REPO_ROOT/.env"
 fi
 
-if [[ -z "${GITHUB_PACKAGES_TOKEN:-}" ]]; then
-  echo "GitHub Packages npm auth skipped: GITHUB_PACKAGES_TOKEN is not configured."
-  echo "Create a classic PAT at https://github.com/settings/tokens/new"
-  echo "with only the read:packages scope, then add it to:"
+PACKAGES_TOKEN="${BROADMINDE_PACKAGES_TOKEN:-${GITHUB_PACKAGES_TOKEN:-}}"
+readonly PACKAGES_TOKEN
+
+if [[ -z "$PACKAGES_TOKEN" ]]; then
+  echo "GitHub Packages npm auth skipped: BROADMINDE_PACKAGES_TOKEN is not configured."
+  echo "Run the interactive post-bootstrap helper:"
+  echo "  ~/scripts/github-access packages"
+  echo "It will guide creation of a dedicated classic PAT with read:packages"
+  echo "(and write:packages on publish hosts), then store it in:"
   echo "  $REPO_ROOT/.env"
-  echo "as GITHUB_PACKAGES_TOKEN=ghp_... and re-run user/init.sh 98."
+  echo ""
+  echo "Legacy GITHUB_PACKAGES_TOKEN is still accepted when"
+  echo "BROADMINDE_PACKAGES_TOKEN is unset."
   exit 0
 fi
 
@@ -63,7 +73,7 @@ fi
 
 printf '%s\n' \
   '@broadminde-org:registry=https://npm.pkg.github.com' \
-  "//npm.pkg.github.com/:_authToken=$GITHUB_PACKAGES_TOKEN" \
+  "//npm.pkg.github.com/:_authToken=$PACKAGES_TOKEN" \
   >> "$tmp"
 chmod 600 "$tmp"
 

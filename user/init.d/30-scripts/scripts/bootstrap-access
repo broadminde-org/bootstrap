@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# bootstrap-access — interactive, capability-driven secrets/credential walk.
+#
+# Invoke with no arguments after both bootstrap tiers complete. The script:
+#   1. loads the active bootstrap conf (<hostname>.conf.yml else
+#      bootstrap.conf.yml) and works out which capabilities are enabled;
+#   2. authenticates gh when any enabled capability needs it (dev today);
+#   3. walks each enabled capability's interactive credentials in order:
+#        dev    → read-only deploy keys, GitHub Packages classic PAT, and —
+#                 when the operator says this host pushes source — the
+#                 source RW PAT (delegated to ~/scripts/github-access)
+#        caddy  → ACME email for ~/infra/caddy/.env, plus acme-dns account
+#                 registration when the conf declares wildcard zones
+#      docker, kvm, public have no interactive credentials (CrowdSec bouncer
+#      keys are generated non-interactively by user/init.d/60-caddy).
+#
+# Every stage re-checks current state before prompting, so the script is safe
+# to re-run: already-configured credentials are verified, not re-collected.
+#
+# Run as the deploy user, never with sudo.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+log()  { echo -e "\033[1;34m==>\033[0m $*"; }
+ok()   { echo -e "\033[1;32m  ✓\033[0m $*"; }
+warn() { echo -e "\033[1;33m  ⚠\033[0m $*"; }
+fail() { echo -e "\033[1;31m  ✗\033[0m $*" >&2; }
+
+usage() {
+  cat <<'EOF'
+Usage: bootstrap-access
+
+Interactive credential setup for every capability enabled in this host's
+bootstrap conf. No arguments; safe to re-run — each stage verifies the
+current state before prompting.
+
+Stages, in order:
+  gh login        when any enabled stage needs gh (dev today)
+  dev             deploy keys, GitHub Packages PAT, optional source RW PAT
+                  (via ~/scripts/github-access)
+  caddy           ACME email for ~/infra/caddy/.env; acme-dns registration
+                  when the conf declares wildcard zones
+
+Environment:
+  BOOTSTRAP_ROOT   Bootstrap checkout (default: derived from the source
+                   checkout, else ~/bootstrap)
+EOF
+}
+
+require_deploy_user() {
+  if [[ $EUID -eq 0 ]]; then
+    fail "bootstrap-access must run as the deploy user, not root."
+    echo "  Run it without sudo from an interactive SSH session." >&2
+    exit 1
+  fi
+}
+
+resolve_bootstrap_root() {
+  if [[ -n "${BOOTSTRAP_ROOT:-}" ]]; then
+    printf '%s\n' "$BOOTSTRAP_ROOT"
+    return 0
+  fi
+
+  # Source layout: <repo>/user/init.d/30-scripts/scripts/bootstrap-access.
+  local source_checkout
+  if source_checkout="$(cd "$SCRIPT_DIR/../../../.." 2>/dev/null && pwd)"; then
+    if [[ -x "$source_checkout/user/init.sh" ]]; then
+      printf '%s\n' "$source_checkout"
+      return 0
+    fi
+  fi
+
+  # Deployed layout: ~/scripts/bootstrap-access with the checkout at ~/bootstrap.
+  printf '%s\n' "$HOME/bootstrap"
+}
+
+BOOTSTRAP_ROOT="$(resolve_bootstrap_root)"
+CONF_SH="$BOOTSTRAP_ROOT/init.d/lib/conf.sh"
+USER_INIT="$BOOTSTRAP_ROOT/user/init.sh"
+GITHUB_ACCESS="$SCRIPT_DIR/github-access"
+CADDY_ENV="$HOME/infra/caddy/.env"
+ACMEDNS_JSON="$HOME/infra/caddy/acmedns.json"
+ACMEDNS_REGISTER="$HOME/infra/caddy/bin/acmedns-register"
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+  usage
+  exit 0
+fi
+if [[ $# -gt 0 ]]; then
+  fail "bootstrap-access takes no arguments (try --help)."
+  exit 2
+fi
+
+require_deploy_user
+
+# ---------------------------------------------------------------------------
+# Load the capability set from the active bootstrap conf.
+# ---------------------------------------------------------------------------
+
+CONFIG_FILE=""
+if [[ -f "$BOOTSTRAP_ROOT/$(hostname).conf.yml" ]]; then
+  CONFIG_FILE="$BOOTSTRAP_ROOT/$(hostname).conf.yml"
+elif [[ -f "$BOOTSTRAP_ROOT/bootstrap.conf.yml" ]]; then
+  CONFIG_FILE="$BOOTSTRAP_ROOT/bootstrap.conf.yml"
+fi
+
+if [[ -z "$CONFIG_FILE" ]]; then
+  fail "No bootstrap config found in $BOOTSTRAP_ROOT."
+  echo "  Create bootstrap.conf.yml from example.bootstrap.conf.yml first." >&2
+  exit 1
+fi
+
+if [[ ! -f "$CONF_SH" ]]; then
+  fail "Bootstrap conf library not found: $CONF_SH"
+  exit 1
+fi
+
+export BOOTSTRAP_CONFIG_FILE="$CONFIG_FILE"
+# shellcheck disable=SC1090
+. "$CONF_SH"
+load_conf "$CONFIG_FILE"
+
+log "Bootstrap config: $CONFIG_FILE"
+
+# ---------------------------------------------------------------------------
+# Stage: gh login — required by the dev stage (deploy-key registration,
+# token scope validation).
+# ---------------------------------------------------------------------------
+
+gh_authenticated() {
+  gh auth status --hostname github.com >/dev/null 2>&1
+}
+
+stage_gh_auth() {
+  if ! command -v gh >/dev/null 2>&1; then
+    fail "gh is not installed; re-run the root-tier 59-gh-cli step first."
+    return 1
+  fi
+
+  if gh_authenticated; then
+    ok "gh is already authenticated for github.com"
+    gh api user --jq '"  authenticated as " + .login' 2>/dev/null || true
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    fail "gh is not authenticated and this script is not attached to a terminal."
+    echo "  Run: gh auth login --hostname github.com --git-protocol ssh --web" >&2
+    return 1
+  fi
+
+  log "Authenticating gh for github.com"
+  gh auth login --hostname github.com --git-protocol ssh --web
+  gh api user --jq '"  authenticated as " + .login'
+}
+
+# ---------------------------------------------------------------------------
+# Stage: dev — Broadminde shared-source and package credentials.
+# Delegates to github-access, which validates token scopes via the API,
+# registers read-only deploy keys, and stores PATs in bootstrap/.env (0600).
+# ---------------------------------------------------------------------------
+
+stage_dev() {
+  if [[ ! -x "$GITHUB_ACCESS" ]]; then
+    GITHUB_ACCESS="$BOOTSTRAP_ROOT/user/init.d/30-scripts/scripts/github-access"
+  fi
+  if [[ ! -x "$GITHUB_ACCESS" ]]; then
+    fail "github-access helper not found (looked in ~/scripts and the bootstrap checkout)."
+    echo "  Re-run: $USER_INIT 30-scripts" >&2
+    return 1
+  fi
+
+  echo ""
+  "$GITHUB_ACCESS" deploy-keys
+
+  echo ""
+  "$GITHUB_ACCESS" packages
+
+  echo ""
+  local reply=""
+  read -rp "Configure source RW credentials on this host (pushes, issues, PRs — CI/update hosts only)? [y/N] " reply
+  if [[ "$reply" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+    "$GITHUB_ACCESS" source-rw
+  else
+    ok "Source RW credentials skipped (rerun: github-access source-rw)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Stage: caddy — ACME account email and optional acme-dns registration.
+# The CrowdSec bouncer key is generated non-interactively by 60-caddy when
+# the public capability is enabled, so it is not part of this walk.
+# ---------------------------------------------------------------------------
+
+caddy_env_value() {
+  local key="$1"
+  [[ -f "$CADDY_ENV" ]] || return 1
+  sed -n "s/^${key}=//p" "$CADDY_ENV" | tail -n 1
+}
+
+write_caddy_env_value() {
+  local key="$1" value="$2" tmp=""
+
+  mkdir -p "$(dirname "$CADDY_ENV")"
+  touch "$CADDY_ENV"
+  chmod 600 "$CADDY_ENV"
+
+  tmp="$(mktemp "$(dirname "$CADDY_ENV")/.env.XXXXXX")"
+  trap 'rm -f "$tmp"' RETURN
+
+  grep -vE "^${key}=" "$CADDY_ENV" > "$tmp" || true
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$CADDY_ENV"
+  trap - RETURN
+}
+
+stage_caddy_acme_email() {
+  local current=""
+
+  current="$(caddy_env_value ACME_EMAIL || true)"
+  if [[ -n "$current" ]]; then
+    ok "ACME email already configured: $current"
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    warn "ACME_EMAIL is empty and no terminal is available; cert issuance will fail."
+    echo "  Edit $CADDY_ENV and set ACME_EMAIL, then re-run: $USER_INIT 60-caddy" >&2
+    return 0
+  fi
+
+  echo ""
+  echo "Caddy needs an ACME account email for certificate issuance (expiry and"
+  echo "revocation notices from Let's Encrypt)."
+  local email=""
+  read -rp "ACME email (Enter to skip): " email
+  if [[ -z "$email" ]]; then
+    warn "ACME email skipped; cert issuance will fail until ACME_EMAIL is set in $CADDY_ENV"
+    return 0
+  fi
+
+  write_caddy_env_value ACME_EMAIL "$email"
+  ok "ACME email stored in $CADDY_ENV"
+}
+
+stage_caddy_acmedns() {
+  local wildcards=""
+
+  wildcards="$(get_caddy_conf wildcards "")"
+  if [[ -z "$wildcards" ]]; then
+    ok "No caddy wildcards configured; acme-dns registration not needed"
+    return 0
+  fi
+
+  if [[ -f "$ACMEDNS_JSON" ]] && jq -e 'has("fulldomain")' "$ACMEDNS_JSON" >/dev/null 2>&1; then
+    ok "acme-dns account already registered ($ACMEDNS_JSON)"
+    return 0
+  fi
+
+  if [[ ! -x "$ACMEDNS_REGISTER" ]]; then
+    warn "acme-dns registrar not found at $ACMEDNS_REGISTER; run $USER_INIT 60-caddy first."
+    return 0
+  fi
+
+  echo ""
+  log "Registering an acme-dns account for DNS-01 wildcard certificates"
+  "$ACMEDNS_REGISTER"
+
+  echo ""
+  echo "Add the printed _acme-challenge CNAME record(s) to DNS:"
+  local label base_domain
+  base_domain="$(get_caddy_conf base_domain)"
+  for label in $wildcards; do
+    if [[ "$label" == "host" ]]; then
+      echo "  _acme-challenge.$(hostname).${base_domain}  (covers *.$(hostname).${base_domain})"
+    else
+      echo "  _acme-challenge.${label}.${base_domain}  (covers *.${label}.${base_domain})"
+    fi
+  done
+
+  if [[ -t 0 ]]; then
+    local reply=""
+    read -rp "Press Enter once the DNS records are in place (or Ctrl-C to finish later) " reply
+  fi
+}
+
+stage_caddy() {
+  if [[ ! -d "$HOME/infra/caddy" ]]; then
+    warn "Central Caddy stack not found at $HOME/infra/caddy."
+    echo "  Run $USER_INIT 60-caddy first, then re-run bootstrap-access." >&2
+    return 0
+  fi
+
+  stage_caddy_acme_email
+  stage_caddy_acmedns
+
+  if [[ -x "$USER_INIT" ]]; then
+    echo ""
+    log "Re-running 60-caddy to apply the configuration"
+    "$USER_INIT" 60-caddy
+  else
+    warn "User runner not found; re-run $USER_INIT 60-caddy manually."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Walk the enabled capabilities.
+# ---------------------------------------------------------------------------
+
+ran_stage=0
+
+if cap_enabled dev; then
+  log "Stage: gh login (required by dev)"
+  stage_gh_auth
+
+  echo ""
+  log "Stage: dev — Broadminde source and package access"
+  stage_dev
+  ran_stage=1
+fi
+
+if cap_enabled docker && cap_enabled caddy; then
+  echo ""
+  log "Stage: caddy — ACME email and DNS-01 credentials"
+  stage_caddy
+  ran_stage=1
+fi
+
+if [[ "$ran_stage" -eq 0 ]]; then
+  echo ""
+  echo "No enabled capability needs interactive credentials."
+  echo "docker, kvm, and public hosts are fully provisioned by the init steps."
+  exit 0
+fi
+
+echo ""
+ok "bootstrap-access walk complete"
+echo "  Review the full credential state with: github-access status"

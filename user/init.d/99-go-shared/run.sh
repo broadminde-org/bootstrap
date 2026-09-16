@@ -3,9 +3,10 @@ set -euo pipefail
 
 # 99-go-shared - read-only access to Broadminde private shared repositories.
 #
-# This step runs as the deploy user. Each repository gets its own private key;
-# both public keys must be registered manually as read-only deploy keys on their
-# corresponding repositories.
+# This step runs as the deploy user. Each repository gets its own private key.
+# When gh is authenticated with permission to administer the repositories, the
+# step registers the public keys as read-only deploy keys through the GitHub
+# API. Otherwise it falls back to printing the manual registration instructions.
 #
 # Also deploys the go-shared-access agent skill (kilo/skills/ →
 # ~/.kilo/skills/). The frontend-shared skill is owned by 98-npm-shared;
@@ -51,6 +52,51 @@ if [[ ! -s "$tmp_known_hosts" ]]; then
   echo "ERROR: GitHub API returned no SSH host keys" >&2
   exit 1
 fi
+
+register_deploy_key_with_gh() {
+  local repo="$1"
+  local key_name="$2"
+  local key_path="$3"
+  local public_key title keys_json existing_title existing_read_only
+
+  command -v gh >/dev/null 2>&1 || return 1
+  gh auth status --hostname github.com >/dev/null 2>&1 || return 1
+
+  public_key="$(<"${key_path}.pub")"
+  title="$key_name@$(hostname)"
+
+  if ! keys_json="$(gh api "repos/$repo/keys" --paginate)"; then
+    echo "gh could not list deploy keys for $repo; manual registration may be required." >&2
+    return 1
+  fi
+
+  existing_title="$(jq -rs --arg key "$public_key" \
+    'flatten | map(select(.key == $key)) | .[0].title // empty' <<<"$keys_json")"
+  existing_read_only="$(jq -rs --arg key "$public_key" \
+    'flatten | map(select(.key == $key)) | .[0].read_only // empty' <<<"$keys_json")"
+
+  if [[ -n "$existing_title" ]]; then
+    if [[ "$existing_read_only" == "true" ]]; then
+      echo "Deploy key for $repo is already registered read-only (title: $existing_title)."
+    else
+      echo "ERROR: deploy key for $repo is already registered but is not read-only (title: $existing_title)." >&2
+      echo "Change it to read-only at https://github.com/$repo/settings/keys." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  echo "Registering read-only deploy key for $repo through gh ($title)"
+  if ! gh api "repos/$repo/keys" --method POST \
+    -f title="$title" \
+    -f key="$public_key" \
+    -F read_only=true >/dev/null; then
+    echo "gh could not create the deploy key for $repo." >&2
+    echo "The authenticated GitHub account needs permission to administer repository deploy keys." >&2
+    return 1
+  fi
+}
+
 configure_repo_access() {
   local repo="$1"
   local alias="$2"
@@ -101,18 +147,33 @@ EOF
     exit 1
   }
 
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    register_deploy_key_with_gh "$repo" "$key_name" "$key_path" || true
+  fi
+
   echo "Verifying read-only access to $repo"
-  if ! timeout 15 git ls-remote "git@$alias:$repo.git" HEAD >/dev/null 2>&1; then
+  local verified=1
+  local attempt
+  for attempt in 1 2 3; do
+    if timeout 15 git ls-remote "git@$alias:$repo.git" HEAD >/dev/null 2>&1; then
+      verified=0
+      break
+    fi
+    [[ "$attempt" -lt 3 ]] && sleep 2
+  done
+
+  if [[ "$verified" -ne 0 ]]; then
     echo "" >&2
     echo "ACTION REQUIRED: cannot read $repo with the dedicated deploy key." >&2
     echo "" >&2
-    echo "Register this public key as a read-only deploy key at:" >&2
+    echo "If gh could not register the key automatically, add it as a read-only" >&2
+    echo "deploy key at:" >&2
     echo "  https://github.com/$repo/settings/keys" >&2
     echo "" >&2
     echo "Public key (${key_path}.pub):" >&2
     cat "${key_path}.pub" >&2
     echo "" >&2
-    echo "Then re-run this step to complete verification." >&2
+    echo "Then re-run this step or run: ~/scripts/github-access deploy-keys" >&2
     exit 1
   fi
 }

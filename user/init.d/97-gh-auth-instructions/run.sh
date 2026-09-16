@@ -5,23 +5,34 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 
 cat <<'EOF'
-GitHub CLI authentication is an interactive, per-user operation.
+Interactive, per-user credential setup is driven by the capabilities enabled
+in this host's bootstrap.conf.yml.
 
-Run this as the deploy user from an interactive terminal:
+After both bootstrap tiers complete, run this as the deploy user:
 
-  gh auth login --hostname github.com --git-protocol ssh --web
+  ~/scripts/bootstrap-access
 
-This selects GitHub.com with SSH for Git operations. gh will prompt to
-upload your SSH public key, then open the browser to complete login.
-Do not run the command with sudo: the credentials must be stored for the
-user who will run gh.
+It takes no arguments. Reading the active conf, it walks each enabled
+capability that needs credentials:
 
-If gh is not installed yet, run the root-tier step first:
+  - gh login (required by the dev capability);
+  - dev: read-only go-shared and frontend-shared deploy keys via the GitHub
+    API, the GitHub Packages token (validated, stored in bootstrap/.env, and
+    written to ~/.npmrc by user/init.d/98-npm-shared), and — when you confirm
+    this host pushes source — the separate source RW token (repo, workflow);
+  - caddy: the ACME account email for ~/infra/caddy/.env, plus acme-dns
+    registration when the conf declares wildcard zones.
 
-  sudo ../init.sh 59-gh-cli    # from user/  (repo root: sudo ./init.sh 59-gh-cli)
+Capabilities without interactive credentials (docker, kvm, public) are
+reported and skipped. Re-running is safe: every stage verifies current state
+before prompting.
 
-After login, verify the identity with:
+Do not run the helper with sudo: gh credentials, SSH keys, npm auth, and
+bootstrap .env tokens are stored for the user who runs it.
 
-  gh auth status
-  gh api user --jq '.login + " (" + .name + ")"'
+The GitHub stages delegate to ~/scripts/github-access, which is also the
+entry point for redoing one piece:
+
+  ~/scripts/github-access setup [--ci]   # gh + deploy keys + packages [+ source-rw]
+  ~/scripts/github-access status         # full credential status
 EOF
