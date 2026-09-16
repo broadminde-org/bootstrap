@@ -117,16 +117,16 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
 | `25-go` | Installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
-| `30-scripts` | Syncs repository scripts to `$HOME/scripts/`, installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
+| `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
 | `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`, preserving user customizations. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; never starts a stopped stack. |
-| `97-gh-auth-instructions` | Prints the per-user interactive `gh auth login` instructions; does not authenticate or modify credentials. |
-| `98-npm-shared` | Requires `dev`; configures and verifies read-only GitHub Packages npm auth for `@broadminde-org/*` when `GITHUB_PACKAGES_TOKEN` is present. |
-| `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
+| `97-gh-auth-instructions` | Points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
+| `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when `BROADMINDE_PACKAGES_TOKEN` (or legacy `GITHUB_PACKAGES_TOKEN`) is present. |
+| `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, registers them through `gh api` when authenticated and authorized, manages known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 
 **User-tier step count: 15** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
 60, 97, 98, 99).
@@ -139,10 +139,24 @@ the user common library. Supported tools are `uv`, `python`, `kilo`, `go`, and
 individual step documents them. Environment variables override configuration.
 
 The `dev` capability deliberately gates only development-node extras, not the
-core user tier. `98-npm-shared` consumes `GITHUB_PACKAGES_TOKEN` from the repo
-root `.env`. `99-go-shared` generates separate keys for
-`broadminde-org/go-shared` and `broadminde-org/frontend-shared`, requires manual
-read-only deploy-key registration, and then verifies access with `git ls-remote`.
+core user tier. `98-npm-shared` consumes `BROADMINDE_PACKAGES_TOKEN` from the
+repo root `.env`, with legacy `GITHUB_PACKAGES_TOKEN` as a fallback; the
+interactive `github-access packages [--write]` helper validates and stores the
+classic PAT. GitHub Packages' npm registry requires a classic PAT, and `gh`
+cannot mint a separate PAT. `github-access source-rw` manages the optional
+`BROADMINDE_SOURCE_RW_TOKEN` (`repo`, `workflow`) for CI/update hosts that push
+source changes and create issues or PRs. `99-go-shared` generates separate keys
+for `broadminde-org/go-shared` and `broadminde-org/frontend-shared`, uses
+`gh api` to create matching read-only deploy keys when the authenticated
+operator has permission, and then verifies access with `git ls-remote`.
+
+Interactive post-bootstrap credential setup is orchestrated by
+`~/scripts/bootstrap-access` (no arguments). It loads the active conf, walks
+each enabled capability that needs credentials — `gh` login, then `dev` (via
+`github-access`), then `caddy` (ACME email in `~/infra/caddy/.env`, acme-dns
+registration when `caddy.wildcards` is non-empty) — verifying current state
+before prompting so re-runs are idempotent. Capabilities with no interactive
+credentials (`docker`, `kvm`, `public`) are reported and skipped.
 
 ## Relationship to App Repositories
 

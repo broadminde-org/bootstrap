@@ -34,16 +34,19 @@ description: >-
 
 Use `npm view @broadminde-org/frontend version` with no token environment
 variable to verify the host-level configuration. Do not add
-`_authToken=${GITHUB_PACKAGES_TOKEN}` to a project `.npmrc`; project-level auth
+`_authToken=${BROADMINDE_PACKAGES_TOKEN}` to a project `.npmrc`; project-level auth
 can override the working user configuration with an empty token.
 
-The token is a classic PAT with only the `read:packages` scope, created at
-`https://github.com/settings/tokens/new` and stored as `GITHUB_PACKAGES_TOKEN`
-in `~/bootstrap/.env` (gitignored). Step 98 still deploys this skill when the
-variable is unset but skips the npm configuration — if `~/.npmrc` has no
-`_authToken` line, add the token to `~/bootstrap/.env` and re-run
-`user/init.sh 98`. A 401 from the verify command means the PAT lacks
-`read:packages` or the package is not published.
+The token is a classic PAT with `read:packages` on consume-only hosts and
+`write:packages` on publish hosts. The preferred setup path is
+`~/scripts/github-access packages [--write]`, which prints the token-creation
+URL, stores the token as `BROADMINDE_PACKAGES_TOKEN` in `~/bootstrap/.env`
+(gitignored), and runs step 98. Legacy `GITHUB_PACKAGES_TOKEN` remains a
+fallback. Step 98 still deploys this skill when the variable is unset but skips
+the npm configuration — if `~/.npmrc` has no `_authToken` line, run the helper
+or add the token to `~/bootstrap/.env` and re-run `user/init.sh 98`. A 401 from
+the verify command means the PAT lacks `read:packages` or the package is not
+published.
 
 ## Rules
 

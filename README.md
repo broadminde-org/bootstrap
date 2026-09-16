@@ -102,6 +102,86 @@ Both runners accept the same selectors.
 
 ---
 
+## Post-bootstrap credential setup
+
+The root tier installs `gh`, but authentication and host credentials remain
+per-user and interactive. After both bootstrap tiers complete, run:
+
+```bash
+~/scripts/bootstrap-access
+```
+
+It takes no arguments: it reads the active `bootstrap.conf.yml` (or
+`<hostname>.conf.yml`), works out which capabilities are enabled, and walks
+each one that needs interactive credentials:
+
+- **gh login** — whenever any enabled stage needs `gh` (today: `dev`).
+- **dev** — read-only `go-shared`/`frontend-shared` deploy keys registered via
+  the GitHub API, the GitHub Packages classic PAT (validated and stored in
+  `bootstrap/.env`, then written to `~/.npmrc` by `98-npm-shared`), and — when
+  you answer that this host pushes source — the source RW PAT (`repo`,
+  `workflow`).
+- **caddy** — the ACME account email for `~/infra/caddy/.env`, plus acme-dns
+  account registration when `caddy.wildcards` declares zone labels (prints the
+  `_acme-challenge` CNAMEs to add to DNS).
+
+`docker`, `kvm`, and `public` need no interactive credentials (the CrowdSec
+bouncer key is generated non-interactively by `60-caddy`), so on a host with
+only those enabled the script reports that and exits. Every stage verifies
+current state before prompting, so re-running is safe and idempotent.
+
+The stages are also runnable individually — see below.
+
+## GitHub private access
+
+The GitHub stages of `bootstrap-access` delegate to the `github-access`
+helper, which is also the standalone entry point when you want to redo one
+piece:
+
+```bash
+~/scripts/github-access setup
+```
+
+The normal setup authenticates `gh`, asks `99-go-shared` to create/register
+read-only `go-shared` and `frontend-shared` deploy keys through the GitHub API,
+and configures a package-registry PAT through `98-npm-shared`.
+
+Credentials are intentionally split by blast radius:
+
+| Credential | Where it lives | Minimum permissions | Purpose |
+|---|---|---|---|
+| Operator `gh` auth | gh credential store | gh defaults | Human issue/PR/API workflows |
+| Per-repo deploy keys | `~/.ssh/` | read-only | Source fetches for shared repos |
+| `BROADMINDE_PACKAGES_TOKEN` | `bootstrap/.env` | `read:packages` | npm/GHCR package pulls |
+| `BROADMINDE_PACKAGES_TOKEN` on publish hosts | `bootstrap/.env` | `read:packages`, `write:packages` | npm/GHCR package pushes |
+| `BROADMINDE_SOURCE_RW_TOKEN` | `bootstrap/.env` | `repo`, `workflow` | CI/source updates, pushes, issues, and PRs |
+
+GitHub Packages' npm registry requires a classic PAT. `gh` cannot mint a
+separate PAT, and its broader OAuth token is not copied into `~/.npmrc`. If the
+organization enforces SSO, authorize each new PAT for `broadminde-org` after
+creating it.
+
+For a RW update/test host such as a CI control host, run:
+
+```bash
+~/scripts/github-access setup --ci
+```
+
+That requests a package token with `write:packages` and a separate source RW
+token with `repo` and `workflow`.
+
+Useful follow-ups:
+
+```bash
+~/scripts/github-access status
+~/scripts/github-access deploy-keys
+~/scripts/github-access packages          # read:packages
+~/scripts/github-access packages --write  # read:packages + write:packages
+~/scripts/github-access source-rw         # repo + workflow
+```
+
+---
+
 ## Configuration (`bootstrap.conf.yml`)
 
 `bootstrap.conf.yml` is a single file with four sections: `capabilities:` (which
@@ -259,16 +339,16 @@ bootstrap/
 │   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
-│   │   ├── 97-gh-auth-instructions/  # prints the interactive gh login instructions
+│   │   ├── 97-gh-auth-instructions/  # points operators to the interactive ~/scripts/github-access helper
 │   │   ├── 98-npm-shared/            # configures GitHub Packages npm auth
 │   │   │   ├── .requires             # dev
 │   │   │   └── kilo/skills/          # frontend-shared-access agent skill
 │   │   └── 99-go-shared/             # configures Go shared-module access
 │   │       ├── .requires             # dev
-│   │       ├── run.sh                # SSH deploy keys and Go module routing
+│   │       ├── run.sh                # SSH deploy keys (gh-assisted) and Go module routing
 │   │       └── kilo/skills/          # go-shared-access agent skill → ~/.kilo/skills/
 │   ├── llmdocs/                      # stdlib-only Python docs framework (moved here)
-│   ├── scripts/                      # user scripts (e.g., kilo-session-report.py)
+│   ├── scripts/                      # user scripts (bootstrap-access, github-access, kilo-session-report.py)
 │   ├── script-runners/               # thin wrappers deployed to $HOME/.local/bin/
 │   └── vscode/                       # workspace VS Code recommendations + settings
 ├── LICENSE

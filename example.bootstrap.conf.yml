@@ -23,9 +23,10 @@
 #           automation test dependencies) and user/98-npm-shared +
 #           user/99-go-shared (read-only access to Broadminde shared
 #           repositories and packages — Go modules, frontend source/package
-#           paths; requires manually registered deploy keys where SSH is
-#           used). Enable on hosts that build or test code. The user tier
-#           itself is NOT capability-gated — per-user tooling always installs.
+#           paths; deploy keys can be registered through gh by the interactive
+#           github-access helper when the operator has permission). Enable on
+#           hosts that build or test code. The user tier itself is NOT
+#           capability-gated — per-user tooling always installs.
 #
 #   public  CrowdSec IPS (LAPI + iptables bouncer + Central API). Enable on
 #           internet-facing servers; disable on internal/private hosts.

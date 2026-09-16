@@ -42,7 +42,10 @@ dedicated key, `IdentitiesOnly yes`, a dedicated `UserKnownHostsFile`
 ControlPath matters: if the alias shared the plain `github.com` ControlPath,
 a personal-key ControlMaster could be reused by the alias, silently
 authenticating as the user and masking a missing deploy-key registration.
-Provisioned by `bootstrap user/init.d/99-go-shared`.
+Provisioned by `bootstrap user/init.d/99-go-shared`; when `gh` is authenticated
+with repository permission, the step registers the read-only deploy key through
+the GitHub API. The operator-facing entry point is `~/scripts/github-access
+deploy-keys`.
 
 ## Verification
 
