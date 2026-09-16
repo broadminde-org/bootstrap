@@ -19,6 +19,7 @@ For the target app or module, produce or update the standard codemap suite. Skip
 ## Standard Docs Suite
 
 ### 1. `codemap-backend.md`
+- **Codemap-standard fast path:** if the app has `backend/handler.go` with a `RegisterRoutes` method, derive the route table from its `api.VERB("/path", h.Field.Method)` lines, the handler inventory from the `Handler` struct fields, and the auth boundary positionally from `server.go:SetupRoutes` (above `RequireAuth` = public). Cross-check the route count: `grep -c 'api\.\(GET\|POST\|PUT\|DELETE\|PATCH\)' backend/handler.go` vs table rows. If no `handler.go` exists, fall back to full source walking and note the app is pre-standard.
 - Layering diagram (`flowchart LR`) showing Router → Middleware → Handlers → Services/Stores → DB
 - Per-file table mapping each source file to its purpose
 - Handler/service/data mapping table
