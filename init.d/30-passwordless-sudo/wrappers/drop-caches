@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# drop-caches — root-owned wrapper whitelisted in the deploy user's
+# passwordless sudoers (bootstrap init.d/30-passwordless-sudo).
+#
+# Called by maintain.d/80-page-cache.sh. Exists as a wrapper because
+# `sh -c 'echo 1 > ...'` can never be safely whitelisted in sudoers —
+# a fixed-name, root-owned script with no arguments can.
+set -euo pipefail
+
+sync
+echo 1 > /proc/sys/vm/drop_caches

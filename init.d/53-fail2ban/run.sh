@@ -170,6 +170,12 @@ echo ""
 echo "=== 53-fail2ban: enabling and starting service ==="
 systemctl enable --now fail2ban
 
+# banaction = ufw — an inactive firewall means bans are silently no-ops.
+if command -v ufw >/dev/null 2>&1 && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
+  echo "WARNING: ufw is installed but NOT active — banaction=ufw will not block anything." >&2
+  echo "         52-ufw stages and enables ufw; run it (sudo ./init.sh 52-ufw)." >&2
+fi
+
 # Reload when jail.local changed on an already-running daemon (e.g. the
 # Caddy log path flipped legacy→central during the migration) — otherwise
 # the jails keep tailing the stale path silently until an unrelated restart.

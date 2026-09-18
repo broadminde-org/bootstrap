@@ -1,23 +1,44 @@
-# Commands granted passwordless sudo to every deploy user
-# ($SUDO_USER). Format: one command path per line; wildcards (`*`) are
-# supported by sudoers and match any arguments.
+# Commands granted passwordless sudo to the deploy user
+# (init.d/lib/user.sh: BOOTSTRAP_USER, else SUDO_USER). Format: one
+# command path per line, with exact arguments or sudoers wildcards
+# (`*`).
 #
 # The intent is to let the deploy user run the **infrastructure
-# primitives** without re-typing a password, while still requiring
-# authentication for anything else. Apps can layer their own
-# `/etc/sudoers.d/99-<user>-<app>` files on top.
+# primitives** the deployed tooling needs without re-typing a password,
+# while still requiring authentication for anything else. Apps can layer
+# their own `/etc/sudoers.d/99-<user>-<app>` files on top.
 
-# Manage system services (docker, ssh, …).
-/usr/bin/systemctl *
+# Service management, verb-scoped. `systemctl edit --full` and
+# `systemctl link` are silent root escalation and deliberately excluded.
+# No deployed script needs these; they exist for operator convenience.
+/usr/bin/systemctl start *
+/usr/bin/systemctl stop *
+/usr/bin/systemctl restart *
+/usr/bin/systemctl reload *
+/usr/bin/systemctl status *
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl enable *
+/usr/bin/systemctl disable *
 
-# Container runtime + compose. Used by every app that ships a
-# docker-compose.yml.
-/usr/bin/docker
-/usr/bin/docker compose
+# CrowdSec bouncer management for the central edge. user-tier 60-caddy
+# runs exactly these via `sudo -n`. Rootless cscli only works on installs
+# where the daemon runs as a dedicated crowdsec service user owning the
+# DB; on root-owned installs cscli must open (and chmod)
+# /var/lib/crowdsec/data/crowdsec.db, which requires root.
+/usr/bin/cscli bouncers add caddy-edge -o raw
+/usr/bin/cscli bouncers delete caddy-edge
 
-# CrowdSec CLI (cscli). Bouncer/machine management for the central edge —
-# user-tier 60-caddy runs `cscli bouncers add/delete caddy-edge` this way.
-# Rootless cscli only works on installs where the daemon runs as a dedicated
-# crowdsec service user owning the DB; on root-owned installs cscli must
-# open (and chmod) /var/lib/crowdsec/data/crowdsec.db, which requires root.
-/usr/bin/cscli *
+# Host maintenance — the @sudo tier of the deploy user's `maintain`
+# runner (scripts/maintain.d/). drop-caches and prune-text-logs are
+# root-owned no-argument wrappers installed by this step (see
+# wrappers/); a fixed-name script keeps the grant narrow.
+/usr/bin/apt-get autoremove -y
+/usr/bin/apt-get autoclean -y
+/usr/bin/apt-get clean -y
+/usr/bin/journalctl --vacuum-time=*
+/usr/local/sbin/drop-caches
+/usr/local/sbin/prune-text-logs
+
+# Deliberately NOT here: docker. The deploy user is in the docker group
+# (50-docker), which already grants the daemon's full root-equivalent
+# API; a sudoers entry would add nothing.

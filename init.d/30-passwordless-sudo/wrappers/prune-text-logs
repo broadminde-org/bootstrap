@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# prune-text-logs — root-owned wrapper whitelisted in the deploy user's
+# passwordless sudoers (bootstrap init.d/30-passwordless-sudo).
+#
+# Called by maintain.d/91-text-log-truncation.sh. Deletes compressed
+# rotated logs and truncates the .1 copies of the fixed set of text
+# logs below. Paths are hardcoded here — a wrapper with no arguments
+# keeps the sudoers grant narrow (vs. whitelisting `rm`/`truncate`).
+set -euo pipefail
+
+find /var/log -maxdepth 1 -type f \
+  \( -name 'syslog.*.gz' -o -name 'kern.log.*.gz' -o -name 'ufw.log.*.gz' \) \
+  -delete
+
+for f in /var/log/syslog.1 /var/log/kern.log.1 /var/log/ufw.log.1; do
+  [[ -f "$f" ]] && truncate -s 0 "$f"
+done

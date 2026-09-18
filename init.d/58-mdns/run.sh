@@ -25,7 +25,7 @@
 
 NSSWITCH_CONF=/etc/nsswitch.conf
 HOSTS_FILE=/etc/hosts
-AVAHi_CONF=/etc/avahi/avahi-daemon.conf
+AVAHI_CONF=/etc/avahi/avahi-daemon.conf
 
 echo "=== 58-mdns: adding mDNS to nsswitch hosts line ==="
 
@@ -60,26 +60,36 @@ if [[ -z "$DOMAIN" ]]; then
   DOMAIN="$(grep '^search ' /etc/resolv.conf 2>/dev/null | awk '{print $2}' | head -1 || true)"
 fi
 
+# The domain comes from DHCP — untrusted input. Sanitize before it goes
+# anywhere near /etc/hosts.
+if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^[a-z0-9.-]+$ ]]; then
+  echo "WARNING: DHCP-derived domain '${DOMAIN}' contains unexpected" >&2
+  echo "         characters — ignoring it." >&2
+  DOMAIN=""
+fi
+
 if [[ -n "$DOMAIN" ]]; then
   FQDN="${HOSTNAME}.${DOMAIN}"
-  DESIRED_LINE="127.0.1.1\t${FQDN} ${HOSTNAME}"
+  DESIRED_LINE="127.0.1.1	${FQDN} ${HOSTNAME}"
   echo "Detected domain: ${DOMAIN} → FQDN: ${FQDN}"
 else
-  DESIRED_LINE="127.0.1.1\t${HOSTNAME}"
+  DESIRED_LINE="127.0.1.1	${HOSTNAME}"
   echo "No domain detected — using short hostname only."
 fi
 
 CURRENT_LINE="$(grep '^127\.0\.1\.1[[:space:]]' "$HOSTS_FILE" 2>/dev/null || true)"
 
 if [[ -z "$CURRENT_LINE" ]]; then
-  printf '%b\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
-  echo "Added 127.0.1.1 entry: ${DESIRED_LINE}"
+  cp -a "$HOSTS_FILE" "${HOSTS_FILE}.bootstrap.bak"
+  printf '%s\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
+  echo "Added 127.0.1.1 entry: ${DESIRED_LINE} (backup: ${HOSTS_FILE}.bootstrap.bak)"
 elif echo "$CURRENT_LINE" | grep -qF "${FQDN:-${HOSTNAME}}"; then
   echo "/etc/hosts 127.0.1.1 entry is already correct — skipping."
 else
+  cp -a "$HOSTS_FILE" "${HOSTS_FILE}.bootstrap.bak"
   sed -i '/^127\.0\.1\.1[[:space:]]/d' "$HOSTS_FILE"
-  printf '%b\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
-  echo "Updated 127.0.1.1 entry: ${DESIRED_LINE}"
+  printf '%s\n' "$DESIRED_LINE" >> "$HOSTS_FILE"
+  echo "Updated 127.0.1.1 entry: ${DESIRED_LINE} (backup: ${HOSTS_FILE}.bootstrap.bak)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -108,23 +118,38 @@ detect_private_interfaces() {
 }
 
 INTERFACES="$(detect_private_interfaces | paste -sd ',' -)"
-ALLOW_INTERFACES="${INTERFACES:+allow-interfaces=${INTERFACES}}"
-echo "Private interfaces: ${INTERFACES:-none detected — no allow-interfaces restriction}"
+if [[ -n "$INTERFACES" ]]; then
+  ALLOW_INTERFACES="allow-interfaces=${INTERFACES}"
+  echo "Private interfaces: ${INTERFACES}"
+else
+  # No RFC1918/ULA interface found (plain public VPS): restricting to
+  # loopback keeps the guarantee that mDNS is never published on a
+  # public uplink — an empty ALLOW_INTERFACES would render NO
+  # restriction and advertise on every interface.
+  ALLOW_INTERFACES="allow-interfaces=lo"
+  echo "No private interfaces detected — restricting mDNS to loopback (lo)."
+fi
 
 NEW_CONF="$(ALLOW_INTERFACES="$ALLOW_INTERFACES" envsubst < "$TEMPLATE")"
 
 install -m 0755 -d /etc/avahi
 
-if [[ -f "$AVAHi_CONF" ]] && [[ "$(cat "$AVAHi_CONF")" == "$NEW_CONF" ]]; then
+avahi_changed=0
+if [[ -f "$AVAHI_CONF" ]] && [[ "$(cat "$AVAHI_CONF")" == "$NEW_CONF" ]]; then
   echo "avahi-daemon.conf already up to date — skipping."
 else
-  printf '%s\n' "$NEW_CONF" > "$AVAHi_CONF"
+  printf '%s\n' "$NEW_CONF" > "$AVAHI_CONF"
+  avahi_changed=1
   echo "Wrote avahi-daemon.conf"
 fi
 
 systemctl enable --now avahi-daemon 2>/dev/null || true
-systemctl restart avahi-daemon
-echo "avahi-daemon restarted"
+if (( avahi_changed )); then
+  systemctl restart avahi-daemon
+  echo "avahi-daemon restarted"
+else
+  echo "config unchanged — skipping avahi-daemon restart"
+fi
 
 echo ""
 echo "58-mdns complete."

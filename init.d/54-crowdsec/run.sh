@@ -50,15 +50,14 @@
 #   5. Enables and starts both services.
 #
 # Supply-chain note:
-#   The official CrowdSec install script (step 1) is piped directly to bash
-#   as root. This is the same pattern used by 50-docker for the Docker
-#   GPG key step. Review the script at
-#   https://install.crowdsec.net
-#   before running on a new host. The script configures the apt repo using
-#   the correct "any/ any" suite (avoiding the Debian trixie 404 issue with
-#   the legacy packagecloud bootstrap) and imports the GPG signing key —
-#   no package binaries are fetched until step 2. It is idempotent: it
-#   overwrites an existing sources.list entry if one is already present.
+#   The apt repository is registered by THIS step directly (keyring +
+#   sources.list, the same pattern as 59-gh-cli) — vendored from the
+#   Debian branch of the official https://install.crowdsec.net script.
+#   No remote script is piped to a root shell: apt verifies every
+#   package against the packagecloud GPG key installed here. The "any/
+#   any" suite avoids the Debian trixie 404 the legacy packagecloud
+#   bootstrap produced. A deb-src entry is deliberately omitted (binary
+#   installs only; fewer indexes to fetch).
 #
 # Run as root (sudo ./init.sh 54-crowdsec).
 
@@ -79,19 +78,52 @@ resolve_caddy_log RESOLVED_CADDY_LOG
 echo "=== 54-crowdsec: adding CrowdSec apt repository ==="
 
 # ---------------------------------------------------------------------------
-# Step 1: Register CrowdSec apt repo.
-#
-# Supply-chain note: this pipes the official CrowdSec install script directly
-# to bash as root. The script writes the apt repo using the "any/ any" suite,
-# which resolves the HTTP 404 that the legacy packagecloud bootstrap produced
-# on Debian trixie. Review the script at https://install.crowdsec.net before
-# running on a new host. The script is idempotent — it overwrites any existing
-# sources.list entry — so re-running is safe even if a previous (broken) run
-# already wrote /etc/apt/sources.list.d/crowdsec_crowdsec.list.
-# Consistent with how 50-docker handles the Docker GPG key step.
+# Step 1: Register the CrowdSec apt repo — vendored from the Debian
+# branch of the official install script (keyring + signed-by sources
+# entry). Idempotent via compare-before-write. No `curl | bash`.
 # ---------------------------------------------------------------------------
 
-curl -fsSL https://install.crowdsec.net | bash
+DISTRO="$({ . /etc/os-release; printf '%s' "${ID:-}"; })"
+case "$DISTRO" in
+  debian|ubuntu) ;;
+  *)
+    echo "ERROR: 54-crowdsec supports Debian and Ubuntu only (detected: ${DISTRO:-unknown})." >&2
+    exit 1
+    ;;
+esac
+
+KEYRING_DIR=/etc/apt/keyrings
+KEYRING="$KEYRING_DIR/crowdsec_crowdsec-archive-keyring.gpg"
+SOURCE_LIST=/etc/apt/sources.list.d/crowdsec_crowdsec.list
+KEY_URL="https://packagecloud.io/crowdsec/crowdsec/gpgkey"
+
+apt-get install -y ca-certificates curl gpg
+install -d -m 0755 "$KEYRING_DIR" /etc/apt/sources.list.d
+
+tmp_key="$(mktemp)"
+trap 'rm -f "$tmp_key" "$tmp_key.raw"' EXIT
+curl -fsSL --retry 3 --proto '=https' "$KEY_URL" -o "$tmp_key.raw"
+gpg --batch --dearmor < "$tmp_key.raw" > "$tmp_key"
+
+if [[ ! -f "$KEYRING" ]] || ! cmp -s "$tmp_key" "$KEYRING"; then
+  install -m 0644 "$tmp_key" "$KEYRING"
+  echo "Installed CrowdSec APT keyring."
+else
+  echo "CrowdSec APT keyring already current."
+fi
+rm -f "$tmp_key" "$tmp_key.raw"
+trap - EXIT
+
+source_line="deb [signed-by=$KEYRING] https://packagecloud.io/crowdsec/crowdsec/any/ any main"
+if [[ ! -f "$SOURCE_LIST" ]] || [[ "$(cat "$SOURCE_LIST")" != "$source_line" ]]; then
+  printf '%s\n' "$source_line" > "$SOURCE_LIST"
+  chmod 0644 "$SOURCE_LIST"
+  echo "Configured CrowdSec APT repository."
+else
+  echo "CrowdSec APT repository already configured."
+fi
+
+apt-get update
 
 # ---------------------------------------------------------------------------
 # Step 2: Install CrowdSec and the iptables firewall bouncer.
@@ -134,9 +166,10 @@ fi
 # Container → host LAPI packets traverse the INPUT chain, where ufw's
 # default-deny applies. Allow only the RFC1918 docker bridge range; external
 # exposure stays denied by policy. `ufw allow` stages the rule whether or not
-# ufw is active yet (52-ufw enables it manually in Phase 1c), so ordering
-# against ufw activation does not matter. IPv6: the `edge` network is
-# v4-only today — add a matching fd00::/8 rule if that ever changes.
+# ufw is active yet (52-ufw stages rules, then enables ufw once the SSH rule
+# is verified), so ordering against ufw activation does not matter. IPv6: the
+# `edge` network is v4-only today — add a matching fd00::/8 rule if that
+# ever changes.
 # ---------------------------------------------------------------------------
 
 if command -v ufw >/dev/null 2>&1; then
@@ -147,7 +180,7 @@ if command -v ufw >/dev/null 2>&1; then
     echo "ufw: LAPI rule already present — skipping"
   fi
   if ! ufw status 2>/dev/null | grep -q 'Status: active'; then
-    echo "WARNING: ufw is installed but NOT active — LAPI binds 0.0.0.0:8080 with no firewall filter (enable ufw manually per Phase 1c)" >&2
+    echo "WARNING: ufw is installed but NOT active — LAPI binds 0.0.0.0:8080 with no firewall filter (run 52-ufw to stage and enable ufw)" >&2
   fi
 fi
 
@@ -185,21 +218,25 @@ cs_was_active=0
 systemctl is-active --quiet crowdsec && cs_was_active=1
 
 # 4a. Strip any Caddy block previously appended to acquis.yaml. The appended
-# block had a fixed shape: `---` / `filenames:` / `  - <path>` / `labels:` /
-# `  type: caddy`. Only exact-shape caddy docs are removed.
+# block had a fixed shape: `---` / `filenames:` / one-or-more `  - <path>`
+# lines / `labels:` / `  type: caddy`. Only exact-shape caddy docs are
+# removed. The rewrite is atomic: filter to a temp file, then `install`
+# over the original (preserving its mode) so a crash mid-write can never
+# leave a truncated acquis.yaml.
 if grep -q 'type: caddy' "$ACQUIS_YAML" 2>/dev/null; then
+  tmp_acquis="$(mktemp "${ACQUIS_YAML}.bootstrap-tmp.XXXXXX")"
   awk '
     /^---[[:space:]]*$/              { buf=$0; state=1; next }
     state==1 && /^filenames:[[:space:]]*$/ { buf=buf "\n" $0; state=2; next }
-    state==2 && /^[[:space:]]+-[[:space:]]/ { buf=buf "\n" $0; state=3; next }
-    state==3 && /^labels:[[:space:]]*$/    { buf=buf "\n" $0; state=4; next }
-    state==4 && /^[[:space:]]+type:[[:space:]]+caddy[[:space:]]*$/ { state=0; buf=""; next }
+    state==2 && /^[[:space:]]+-[[:space:]]/ { buf=buf "\n" $0; next }
+    state==2 && /^labels:[[:space:]]*$/    { buf=buf "\n" $0; state=3; next }
+    state==3 && /^[[:space:]]+type:[[:space:]]+caddy[[:space:]]*$/ { state=0; buf=""; next }
     state>0 { printf "%s\n", buf; buf=""; state=0 }
     { print }
     END { if (buf != "") printf "%s\n", buf }
-  ' "$ACQUIS_YAML" > "$ACQUIS_YAML.bootstrap-tmp"
-  cat "$ACQUIS_YAML.bootstrap-tmp" > "$ACQUIS_YAML"
-  rm -f "$ACQUIS_YAML.bootstrap-tmp"
+  ' "$ACQUIS_YAML" > "$tmp_acquis"
+  install -m "$(stat -c '%a' "$ACQUIS_YAML")" "$tmp_acquis" "$ACQUIS_YAML"
+  rm -f "$tmp_acquis"
   echo "Removed previously appended Caddy source from ${ACQUIS_YAML} (now managed in acquis.d)"
   acquis_changed=1
 fi
@@ -248,6 +285,13 @@ fi
 # Make config + credentials group-readable for diagnostics. chown/chmod are
 # idempotent. This is deliberately NOT sufficient for cscli management
 # commands on root-owned installs — see the header comment above.
+#
+# DELIBERATE CHOICE: 0640 root:crowdsec on local_api_credentials.yaml and
+# online_api_credentials.yaml widens LAPI/CAPI credential reads to anyone in
+# the crowdsec group (which the deploy user joins below). Accepted because
+# these credentials only authenticate to the LOCAL LAPI and CrowdSec's CAPI
+# enrollment — they do not grant host management. Do not extend this
+# pattern to other files without the same analysis.
 for f in /etc/crowdsec/config.yaml \
          /etc/crowdsec/local_api_credentials.yaml \
          /etc/crowdsec/online_api_credentials.yaml; do
