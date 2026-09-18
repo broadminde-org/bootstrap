@@ -36,9 +36,11 @@ parse_metadata() {
   local step="$1" kind="$2"
   local val
   if [[ "$kind" == "summary" ]]; then
-    val="$(grep '^# @summary ' "$step" 2>/dev/null | sed 's/^# @summary //')" || true
+    # First match only: a duplicated metadata line must not return two
+    # values (the multi-line result kills integer tests under set -e).
+    val="$(grep -m1 '^# @summary ' "$step" 2>/dev/null | sed 's/^# @summary //')" || true
   else
-    val="$(grep "^# @${kind} " "$step" 2>/dev/null | awk '{print $3}')" || true
+    val="$(grep -m1 "^# @${kind} " "$step" 2>/dev/null | awk '{print $3}')" || true
   fi
   printf '%s' "${val:-}"
 }
@@ -58,10 +60,17 @@ while [[ $# -gt 0 ]]; do
       ;;
     --list)   LIST_ONLY=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --from)   FROM="$2"; shift 2 ;;
+    --from)
+      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "--from requires a numeric operand (e.g. --from 70)" >&2; exit 1
+      fi
+      FROM="$2"; shift 2
+      ;;
     -t|--tier)
+      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "--tier requires a numeric operand (e.g. --tier 2)" >&2; exit 1
+      fi
       REQUESTED_TIER="$2"
-      [[ "$REQUESTED_TIER" =~ ^[0-9]+$ ]] || { echo "Invalid tier: $REQUESTED_TIER" >&2; exit 1; }
       shift 2
       ;;
     --only)
@@ -192,7 +201,7 @@ fi
 
 failed=0
 ran=0
-skipped=0
+matched_target=0
 
 for step_file in "${steps[@]}"; do
   step_path="$STEPS_DIR/$step_file"
@@ -203,9 +212,11 @@ for step_file in "${steps[@]}"; do
   step_tier="$(parse_metadata "$step_path" "tier")"
   step_tier="${step_tier:-1}"
 
-  # Bare number filter (overrides tier)
+  # Bare number filter (overrides tier). Numeric comparison normalizes
+  # leading zeros, so `maintain 5` selects 05-….
   if [[ -n "$TARGET_STEP" ]]; then
-    [[ "$num" == "$TARGET_STEP" ]] || continue
+    [[ $((10#$num)) -eq $((10#$TARGET_STEP)) ]] || continue
+    matched_target=1
   else
     # Tier filter
     [[ "$step_tier" -le "$REQUESTED_TIER" ]] || continue
@@ -226,6 +237,11 @@ for step_file in "${steps[@]}"; do
   fi
 done
 
+if [[ -n "$TARGET_STEP" && $matched_target -eq 0 ]]; then
+  echo "No such step: $TARGET_STEP" >&2
+  echo "Run 'maintain --list' to see available steps." >&2
+  exit 1
+fi
 if [[ $ran -eq 0 && $failed -eq 0 ]]; then
   echo "No steps matched selection." >&2
   exit 1

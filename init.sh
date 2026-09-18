@@ -61,21 +61,37 @@ fi
 from_number=""
 only_number=""
 
+usage() { sed -n '/^# Usage:/,/^$/p' "$0"; }
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h)
-      sed -n '/^# Usage:/,/^$/p' "$0"
+      usage
       exit 0
       ;;
     --from)
+      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "Error: --from requires a numeric operand (e.g. --from 25)." >&2
+        usage >&2
+        exit 1
+      fi
       from_number="$2"
       shift 2
+      ;;
+    -*)
+      echo "Error: unknown option '$1'." >&2
+      usage >&2
+      exit 1
       ;;
     *)
       if [[ "$1" =~ ^[0-9]+[^0-9].*$ ]]; then
         only_number="${1%%[^0-9]*}"
       elif [[ "$1" =~ ^[0-9]+$ ]]; then
         only_number="$1"
+      else
+        echo "Error: unrecognized argument '$1'." >&2
+        usage >&2
+        exit 1
       fi
       shift
       ;;
@@ -140,6 +156,7 @@ fi
 
 failed=0
 declare -a failed_names=()
+selector_matched=0
 
 mapfile -t sorted_nums < <(printf "%s\n" "${!steps_by_num[@]}" | sort -n)
 
@@ -150,14 +167,17 @@ echo "==========================================="
 echo ""
 
 for num in "${sorted_nums[@]}"; do
-  # Step selection.
-  if [[ -n "$only_number" && "$num" != "$only_number" ]]; then
+  # Step selection. Numeric comparison normalizes leading zeros, so
+  # `./init.sh 5` selects 05-…. An unmatched selector is a hard error
+  # (checked after the loop) — a typo must never silently run nothing.
+  if [[ -n "$only_number" ]] && (( 10#$num != 10#$only_number )); then
     continue
   fi
   if [[ -n "$from_number" ]] && (( 10#$num < 10#$from_number )); then
     continue
   fi
 
+  selector_matched=1
   path="${steps_by_num[$num]}"
   kind="${steps_kind[$num]}"
   name="$(basename "$path")"
@@ -190,6 +210,15 @@ for num in "${sorted_nums[@]}"; do
   fi
   echo ""
 done
+
+if [[ -n "$only_number" && "$selector_matched" -eq 0 ]]; then
+  echo "Error: no step matches selector '$only_number'." >&2
+  echo "Available steps:" >&2
+  for num in "${sorted_nums[@]}"; do
+    echo "  $(basename "${steps_by_num[$num]}")" >&2
+  done
+  exit 1
+fi
 
 if [[ "$failed" -gt 0 ]]; then
   echo "" >&2
