@@ -24,7 +24,7 @@ case "${1:-up}" in
     (
       cd "$backend_dir"
       setsid air >> "${DEV_DIR}/backend.log" 2>&1 </dev/null &
-      echo $! > "${DEV_DIR}/backend.pid"
+      record_pid "${DEV_DIR}/backend.pid" $!
     )
     go_pid=$(cat "${DEV_DIR}/backend.pid" 2>/dev/null || echo "")
 
@@ -57,19 +57,7 @@ case "${1:-up}" in
 
   down)
     log "Stopping backend..."
-    kill_pid "${DEV_DIR}/backend.pid" "backend"
-    # Prefer the port file (auto-port) over $BACKEND_PORT (may be stale).
-    down_port="${BACKEND_PORT:-}"
-    if [[ -f "${BACKEND_PORT_FILE:-}" ]]; then
-      down_port="$(cat "${BACKEND_PORT_FILE}")"
-    fi
-    if [[ -n "$down_port" && "$down_port" =~ ^[0-9]+$ ]]; then
-      pids=$(own_port_pids "$down_port")
-      if [[ -n "$pids" ]]; then
-        echo "$pids" | xargs kill 2>/dev/null || true
-      fi
-    fi
-    rm -f "${BACKEND_PORT_FILE:-}"
+    backend_down "${DEV_DIR}/backend.pid" "${BACKEND_PORT_FILE:-}" "${BACKEND_PORT:-}"
     ok "Backend stopped"
     ;;
 esac

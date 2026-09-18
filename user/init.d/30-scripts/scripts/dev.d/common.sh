@@ -60,33 +60,78 @@ wait_for_healthz() {
   done
 }
 
+# record_pid <pidfile> <pid> — record a started process's PID and its
+# PGID (sidecar <pidfile>.pgid) so kill_pid can later verify the PID
+# still belongs to the process we started before killing its group.
+record_pid() {
+  local pidfile="$1" pid="$2"
+  echo "$pid" > "$pidfile"
+  ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' > "${pidfile}.pgid" || true
+}
+
 # kill_pid <pidfile> <label> — kill a process recorded in a pidfile,
 # including its whole process group when it was started via setsid.
+#
+# PID-recycle guard: when a <pidfile>.pgid sidecar exists (written by
+# record_pid at start time), the live process's PGID must match the
+# recorded one before we touch it — otherwise the recorded PID exited
+# long ago and the number now belongs to an unrelated process whose
+# entire group a `kill -9 -- -PGID` would take down.
 kill_pid() {
   local pidfile="$1" label="$2"
   if [[ -f "$pidfile" ]]; then
-    local pid
+    local pid pgid expected_pgid
     pid=$(cat "$pidfile" 2>/dev/null || echo "")
     if [[ -n "$pid" ]]; then
-      local pgid
-      pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || echo "")
-      if [[ -n "$pgid" && "$pgid" != "0" ]]; then
+      pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || echo "")
+      if [[ -f "${pidfile}.pgid" ]]; then
+        expected_pgid=$(cat "${pidfile}.pgid" 2>/dev/null || echo "")
+        if [[ -z "$pgid" || "$pgid" != "$expected_pgid" ]]; then
+          echo "Ignoring stale ${label} pidfile (PID ${pid} gone or recycled)"
+          pid=""
+        fi
+      fi
+      if [[ -n "$pid" && -n "$pgid" && "$pgid" != "0" ]]; then
         echo "Stopping ${label} (PID ${pid}, PGID ${pgid})..."
         kill -- "-${pgid}" 2>/dev/null || true
         for _ in $(seq 1 10); do
           kill -0 "$pid" 2>/dev/null || break
           sleep 0.5
         done
+        # shellcheck disable=SC2015  # best-effort escalation
         kill -0 "$pid" 2>/dev/null && kill -9 -- "-${pgid}" 2>/dev/null || true
-      elif kill -0 "$pid" 2>/dev/null; then
+      elif [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
         echo "Stopping ${label} (PID ${pid})..."
         kill "$pid" 2>/dev/null || true
         sleep 1
+        # shellcheck disable=SC2015  # best-effort escalation
         kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
       fi
     fi
-    rm -f "$pidfile"
+    rm -f "$pidfile" "${pidfile}.pgid"
   fi
+}
+
+# backend_down <pidfile> <portfile> [fallback_port] — shared 'down'
+# logic for the backend steps: kill the recorded process (group-aware),
+# then kill any listener still holding the port. The port file wins
+# over the fallback (auto-port runs record the real port there).
+backend_down() {
+  local pidfile="$1" portfile="$2" fallback_port="${3:-}"
+  kill_pid "$pidfile" "backend"
+  local down_port=""
+  if [[ -f "$portfile" ]]; then
+    down_port="$(cat "$portfile")"
+  fi
+  [[ -z "$down_port" ]] && down_port="$fallback_port"
+  if [[ -n "$down_port" && "$down_port" =~ ^[0-9]+$ ]]; then
+    local pids
+    pids=$(own_port_pids "$down_port")
+    if [[ -n "$pids" ]]; then
+      echo "$pids" | xargs kill 2>/dev/null || true
+    fi
+  fi
+  rm -f "$portfile"
 }
 
 # rotate_log <file> — mv non-empty log to .1, truncate the original.

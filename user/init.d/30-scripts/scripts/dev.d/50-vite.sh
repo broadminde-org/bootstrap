@@ -4,17 +4,19 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-if ! command -v pm2 &>/dev/null; then
-  fail "pm2 not found — install it with: npm install -g pm2"
-  exit 1
-fi
-
+# pm2 is only needed when there IS a frontend — Go-only projects must
+# not be aborted by a missing pm2 (check after the has_frontend skip).
 PM2_NAME="${DETECTED_APP}-vite"
 
 case "${1:-up}" in
   up)
     if ! has_frontend; then
       log_skip "No frontend found (no frontend/package.json)"
+      exit 0
+    fi
+
+    if ! command -v pm2 &>/dev/null; then
+      log_skip "pm2 not found — skipping Vite dev server (install: npm install -g pm2)"
       exit 0
     fi
 
@@ -32,7 +34,7 @@ module.exports = {
   apps: [{
     name:        '${PM2_NAME}',
     script:      'npm',
-    args:        '--prefix ${FRONTEND_DIR} run dev -- --host ${FRONTEND_DEV_HOST:-::}',
+        args:        '--prefix ${FRONTEND_DIR} run dev -- --host ${FRONTEND_DEV_HOST:-0.0.0.0}',
     cwd:         '${PROJECT_DIR}',
     env:         {
       VITE_BACKEND_PORT: '${BACKEND_PORT}',
