@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/user.sh"
 
 # 40-profile — Install the bootstrap-managed PATH block into the
 # deploy user's ~/.profile.
@@ -38,8 +39,8 @@ SNIPPET_FILE="${SCRIPT_DIR}/profile.snippet"
 MARKER_BEGIN='# --- BEGIN bootstrap-managed PATH block (do not edit between these lines) ---'
 MARKER_END='# --- END bootstrap-managed PATH block ---'
 
-: "${SUDO_USER:?must run under sudo (e.g., sudo ./init.sh)}"
-TARGET_USER="$SUDO_USER"
+require_deploy_user
+TARGET_USER="$DEPLOY_USER"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 TARGET_GROUP="$(id -gn "$TARGET_USER")"
 PROFILE="${TARGET_HOME}/.profile"

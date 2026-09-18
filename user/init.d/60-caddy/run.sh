@@ -83,16 +83,26 @@ fi
 # only root may do — crowdsec group membership is not sufficient.
 # ---------------------------------------------------------------------------
 
+# Change flags are initialized BEFORE Step 2: Step 2 sets compose_changed=1
+# when it writes a bouncer key (a container-env change only applies on
+# recreate), and initializing the flags later (in Step 5) would wipe that.
+image_changed=0
+compose_changed=0
+config_changed=0
+
 if cap_enabled public; then
   if grep -q '^CROWDSEC_BOUNCER_KEY=$' "$STACK_DIR/.env" 2>/dev/null; then
     if command -v cscli >/dev/null 2>&1; then
       echo "Generating CrowdSec bouncer key for caddy-edge …"
-      if ! bkey="$(sudo cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
+      # sudo -n: never hang this non-interactive step on a password
+      # prompt — a missing/stale sudoers drop-in fails into the
+      # recovery branch instead.
+      if ! bkey="$(sudo -n cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
         # A stale caddy-edge bouncer (e.g. from a previous partial run)
         # blocks re-creation by name — remove it and regenerate so the
         # step is self-healing instead of permanently running unprotected.
-        sudo cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
-        bkey="$(sudo cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
+        sudo -n cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
+        bkey="$(sudo -n cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
       fi
       if [[ -n "$bkey" ]]; then
         # `|` delimiter: cscli keys are base64 (charset A-Za-z0-9+/=) —
@@ -139,11 +149,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 5: Sync stack files (compare-before-write).
+# (image_changed/compose_changed/config_changed initialized above Step 2.)
 # ---------------------------------------------------------------------------
-
-image_changed=0
-compose_changed=0
-config_changed=0
 
 # sync_file src dst [mode] [flag]
 #   flag: name of the change-flag to set on write (image_changed/compose_changed/
@@ -186,8 +193,12 @@ fi
 
 mkdir -p "$HOME/.local/bin"
 
-if [[ ! -L "$HOME/.local/bin/caddy-route" ]]; then
-  ln -sf "$STACK_DIR/bin/caddy-route" "$HOME/.local/bin/caddy-route"
+# ln -sfn unconditionally: `[[ ! -L … ]]` passes on a broken/stale
+# symlink and would leave it pointing at an old stack location.
+if [[ "$(readlink "$HOME/.local/bin/caddy-route" 2>/dev/null || true)" == "$STACK_DIR/bin/caddy-route" ]]; then
+  :
+else
+  ln -sfn "$STACK_DIR/bin/caddy-route" "$HOME/.local/bin/caddy-route"
   echo "Symlinked ~/.local/bin/caddy-route"
 fi
 
@@ -212,6 +223,8 @@ template_text="$(cat "$SRC_DIR/Caddyfile.tmpl")"
 # ACME_EMAIL is unset. Caddy runs fine without an ACME account email; the
 # line returns on the next run once .env is filled.
 if [[ -z "$ACME_EMAIL" ]]; then
+  # Single quotes intentional — match the literal template text.
+  # shellcheck disable=SC2016
   template_text="$(echo "$template_text" | grep -vF 'email ${ACME_EMAIL}')"
 fi
 
@@ -225,10 +238,12 @@ if [[ -n "$CROWDSEC_BOUNCER_KEY" ]]; then
   template_text="${template_text/\$CROWDSEC_SECTION/$crowdsec_block}"
 else
   # Drop the marker line entirely — a leftover blank line trips `caddy fmt`
-  # warnings on every adapt.
+  # warnings on every adapt. Single quotes intentional (literal match).
+  # shellcheck disable=SC2016
   template_text="$(echo "$template_text" | grep -vF '$CROWDSEC_SECTION')"
 fi
 
+# shellcheck disable=SC2016  # envsubst takes a literal variable-name list
 rendered="$(echo "$template_text" | ACME_EMAIL="$ACME_EMAIL" CROWDSEC_API_URL="$CROWDSEC_API_URL" envsubst '${ACME_EMAIL} ${CROWDSEC_API_URL}')"
 
 if [[ ! -f "$STACK_DIR/Caddyfile" ]] || [[ "$(cat "$STACK_DIR/Caddyfile")" != "$rendered" ]]; then
@@ -278,6 +293,7 @@ else
       fi
       active_labels+=("$label")
       dest="$STACK_DIR/routes.d/${label}-wildcard.caddy"
+      # shellcheck disable=SC2016  # envsubst takes a literal variable-name list
       rendered="$(ZONE_FQDN="$zone_fqdn" envsubst '$ZONE_FQDN' < "$SRC_DIR/wildcard.caddy.tmpl")"
       if [[ ! -f "$dest" ]] || [[ "$(cat "$dest")" != "$rendered" ]]; then
         echo "$rendered" > "$dest"
@@ -336,7 +352,7 @@ central_json() {
     --arg cli "$HOME/.local/bin/caddy-route" \
     --arg routes_dir "$STACK_DIR/routes.d" \
     --arg edge_dir "$EDGE_DIR" \
-    --arg docs "~/bootstrap/docs/central-caddy.md" \
+    --arg docs "$HOME/bootstrap/docs/central-caddy.md" \
     --argjson running "$was_running_d" \
     '{
       "version": 1,

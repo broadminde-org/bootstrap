@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/user.sh"
 
-# 55-lazydocker — Install lazydocker into the actual user's
+# 55-lazydocker — Install lazydocker into the deploy user's
 # ~/.local/bin/.
 #
 # Downloads the upstream tarball + checksums, verifies SHA256, and
-# drops the binary in $SUDO_USER/.local/bin. Idempotent: skips if the
-# pinned version is already present at the expected path.
+# drops the binary in the deploy user's ~/.local/bin. Idempotent: skips
+# if the pinned version is already present at the expected path.
 #
 # Lazydocker does not need root at runtime — placing the binary in the
 # user's home keeps it out of the system package set and lets the
@@ -17,8 +18,8 @@
 
 : "${LAZYDOCKER_VERSION:=v0.25.2}"
 
-# Resolve the non-root user who invoked sudo.
-TARGET_USER="${SUDO_USER:?must run under sudo (e.g., sudo ./init.sh)}"
+require_deploy_user
+TARGET_USER="$DEPLOY_USER"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 INSTALL_DIR="$TARGET_HOME/.local/bin"
 INSTALL_BIN="$INSTALL_DIR/lazydocker"
@@ -29,9 +30,11 @@ if ! command -v curl >/dev/null 2>&1; then
   apt-get install -y curl
 fi
 
-# Skip if already at the pinned version.
+# Skip if already at the pinned version. Probe as the target user —
+# root may lack execute permission on the user's home in hardened
+# setups, which would masquerade as a broken binary.
 if [[ -x "$INSTALL_BIN" ]]; then
-  current_version="$("$INSTALL_BIN" --version 2>/dev/null | awk '{print $3}' || true)"
+  current_version="$(sudo -u "$TARGET_USER" "$INSTALL_BIN" --version 2>/dev/null | awk '{print $3}' || true)"
   if [[ "${current_version#v}" == "${LAZYDOCKER_VERSION#v}" ]]; then
     echo "lazydocker ${LAZYDOCKER_VERSION} already installed at ${INSTALL_BIN}; skipping."
     exit 0
@@ -55,15 +58,16 @@ echo "Downloading ${CHECKSUMS_URL}..."
 curl -fsSL --retry 3 -o "${tmpdir}/checksums.txt" "$CHECKSUMS_URL"
 
 echo "Verifying SHA256..."
+# `--ignore-missing` passes vacuously when the release renamed its
+# assets, so require the exact tarball name to appear in checksums.txt
+# first, then verify just that line.
+if ! grep -F " ${TARBALL}" "${tmpdir}/checksums.txt" > "${tmpdir}/checksum.txt"; then
+  echo "ERROR: ${TARBALL} not found in upstream checksums.txt — asset renamed?" >&2
+  exit 1
+fi
 (
-  cd "$tmpdir"
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c --ignore-missing checksums.txt
-  else
-    expected="$(awk -v t="${TARBALL}" '$2 == t {print $1}' checksums.txt)"
-    actual="$(sha256sum "$TARBALL" | awk '{print $1}')"
-    [[ "$expected" == "$actual" ]] || { echo "SHA256 mismatch: expected=$expected actual=$actual" >&2; exit 1; }
-  fi
+  cd "$tmpdir" || exit 1
+  sha256sum -c checksum.txt
 )
 
 echo "Installing lazydocker to ${INSTALL_BIN} (as ${TARGET_USER})..."
@@ -73,4 +77,4 @@ install -m 0755 "${tmpdir}/lazydocker" "$INSTALL_BIN"
 chown "$TARGET_USER":"$(id -gn "$TARGET_USER")" "$INSTALL_BIN"
 
 echo "lazydocker ${LAZYDOCKER_VERSION} installed at ${INSTALL_BIN}"
-"$INSTALL_BIN" --version || true
+sudo -u "$TARGET_USER" "$INSTALL_BIN" --version || true

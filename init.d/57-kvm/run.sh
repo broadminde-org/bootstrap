@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/user.sh"
 
 # 57-kvm — Install KVM virtualization stack.
 #
@@ -47,31 +48,38 @@ apt-get install -y \
 # VMs without sudo. These groups are created by the packages above.
 # We own this membership here rather than in 20-groups so it is only
 # granted when KVM is actually installed on the host.
-if [[ -n "${SUDO_USER:-}" ]]; then
-  usermod -aG kvm "$SUDO_USER"
-  usermod -aG libvirt "$SUDO_USER"
-  echo "Added $SUDO_USER to kvm and libvirt groups"
-  if ! groups "$SUDO_USER" 2>/dev/null | grep -q '\blibvirt\b'; then
-    echo "  NOTE: Group changes require a new login to take effect."
-  fi
+require_deploy_user
 
-  # Create /opt/kvm tree — owned by the deploy user so apps don't need root.
-  # Subdirs match env vars that kvm-ctl and other KVM apps reference.
-  KVM_OPT=/opt/kvm
-  install -m 0755 -d "${KVM_OPT}/data" "${KVM_OPT}/vm-images" "${KVM_OPT}/isos"
-  chown -R "$SUDO_USER:$(id -gn "$SUDO_USER")" "$KVM_OPT"
-  echo "Created $KVM_OPT/{data,vm-images,isos} (owner: $SUDO_USER)"
+usermod -aG kvm "$DEPLOY_USER"
+usermod -aG libvirt "$DEPLOY_USER"
+echo "Added $DEPLOY_USER to kvm and libvirt groups"
+if ! groups "$DEPLOY_USER" 2>/dev/null | grep -q '\blibvirt\b'; then
+  echo "  NOTE: Group changes require a new login to take effect."
+fi
 
-  # Write system-wide env vars so all shells (and docker compose) pick them up.
-  # /etc/profile.d/ scripts are sourced by login shells and bash --login.
-  cat > /etc/profile.d/kvm.sh <<KVM_ENV_EOF
+# Create /opt/kvm tree — owned by the deploy user so apps don't need root.
+# Subdirs match env vars that kvm-ctl and other KVM apps reference.
+KVM_OPT=/opt/kvm
+install -m 0755 -d "${KVM_OPT}/data" "${KVM_OPT}/vm-images" "${KVM_OPT}/isos"
+chown -R "$DEPLOY_USER:$(id -gn "$DEPLOY_USER")" "$KVM_OPT"
+echo "Created $KVM_OPT/{data,vm-images,isos} (owner: $DEPLOY_USER)"
+
+# Write system-wide env vars so all shells (and docker compose) pick them up.
+# /etc/profile.d/ scripts are sourced by login shells and bash --login.
+KVM_PROFILE=/etc/profile.d/kvm.sh
+KVM_PROFILE_NEW="$(cat <<KVM_ENV_EOF
 # Managed by bootstrap/init.d/57-kvm. Do not edit by hand.
 export KVM_CTL_DATA_DIR=${KVM_OPT}/data
 export KVM_CTL_VM_DISK_DIR=${KVM_OPT}/vm-images
 export KVM_CTL_ISOS_DIR=${KVM_OPT}/isos
 KVM_ENV_EOF
-  chmod 0644 /etc/profile.d/kvm.sh
-  echo "Wrote /etc/profile.d/kvm.sh (sourced by login shells)"
+)"
+if [[ -f "$KVM_PROFILE" ]] && [[ "$(cat "$KVM_PROFILE")" == "$KVM_PROFILE_NEW" ]]; then
+  echo "ok: $KVM_PROFILE (unchanged)"
+else
+  printf '%s\n' "$KVM_PROFILE_NEW" > "$KVM_PROFILE"
+  chmod 0644 "$KVM_PROFILE"
+  echo "Wrote $KVM_PROFILE (sourced by login shells)"
 fi
 
 echo ""
@@ -127,25 +135,19 @@ fi
 KVM_SYSCTL_FILE=/etc/sysctl.d/99-kvm-ctl.conf
 install -m 0755 -d /etc/sysctl.d
 
-NEED_SYSCTLS=0
-for setting in net.ipv4.ip_forward net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables; do
-  val="$(sysctl -n "$setting" 2>/dev/null || echo '0')"
-  if [[ "$val" != "1" ]]; then
-    NEED_SYSCTLS=1
-    break
-  fi
-done
-
-if [[ "$NEED_SYSCTLS" -eq 0 ]]; then
-  echo "  KVM sysctls already active — skipping drop-in."
-else
-  cat > "$KVM_SYSCTL_FILE" <<'KVM_SYSCTL_EOF'
-# Managed by bootstrap/init.d/57-kvm.
+# Persistence check tests for the drop-in FILE, not the runtime value:
+# Docker may already have set ip_forward=1 in-memory, which would skip
+# the write and lose the setting on reboot.
+KVM_SYSCTL_NEW='# Managed by bootstrap/init.d/57-kvm.
 # Required for KVM/libvirt bridge networking; do not edit by hand.
 net.ipv4.ip_forward = 1
 net.bridge.bridge-nf-call-iptables = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-KVM_SYSCTL_EOF
+net.bridge.bridge-nf-call-ip6tables = 1'
+
+if [[ -f "$KVM_SYSCTL_FILE" ]] && [[ "$(cat "$KVM_SYSCTL_FILE")" == "$KVM_SYSCTL_NEW" ]]; then
+  echo "  KVM sysctls already persisted in ${KVM_SYSCTL_FILE} — skipping."
+else
+  printf '%s\n' "$KVM_SYSCTL_NEW" > "$KVM_SYSCTL_FILE"
   sysctl --system >/dev/null
   echo "  Applied KVM sysctls via ${KVM_SYSCTL_FILE}"
 fi
@@ -191,8 +193,17 @@ HOOK_MARKER="# managed-by: bootstrap/init.d/57-kvm"
 
 install -m 0755 -d "$HOOK_DIR"
 
+# Guard: never overwrite a hook that is not ours. libvirt supports only
+# ONE qemu hook file, so a foreign hook would be silently replaced.
+if [[ -f "$HOOK_FILE" ]] && ! grep -qF "$HOOK_MARKER" "$HOOK_FILE"; then
+  echo "ERROR: $HOOK_FILE exists and is not managed by bootstrap" >&2
+  echo "       (missing marker '$HOOK_MARKER'). Refusing to overwrite." >&2
+  echo "       Move it aside or merge it manually, then re-run this step." >&2
+  exit 1
+fi
+
 # Write the hook, replacing any previous bootstrap-managed version.
-cat > "$HOOK_FILE" <<'HOOK_EOF'
+HOOK_NEW="$(cat <<'HOOK_EOF'
 #!/usr/bin/env bash
 # managed-by: bootstrap/init.d/57-kvm — do not edit by hand.
 #
@@ -219,10 +230,16 @@ for PTY in $PTY_PATHS; do
   fi
 done
 HOOK_EOF
+)"
 
-chmod 0755 "$HOOK_FILE"
-echo "  Installed libvirt QEMU hook: ${HOOK_FILE}"
-echo "  (Serial PTYs will be chmod 0660 group:libvirt-qemu on every VM start)"
+if [[ -f "$HOOK_FILE" ]] && [[ "$(cat "$HOOK_FILE")" == "$HOOK_NEW" ]]; then
+  echo "  ok: ${HOOK_FILE} (unchanged)"
+else
+  printf '%s\n' "$HOOK_NEW" > "$HOOK_FILE"
+  chmod 0755 "$HOOK_FILE"
+  echo "  Installed libvirt QEMU hook: ${HOOK_FILE}"
+  echo "  (Serial PTYs will be chmod 0660 group:libvirt-qemu on every VM start)"
+fi
 
 # Remove the old broken udev rule if present.
 UDEV_RULE_FILE=/etc/udev/rules.d/99-kvm-pty.rules

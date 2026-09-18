@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # 56-ssh-client — SSH client defaults + stale ControlMaster cleanup
 #
-# Root tier: runs as root to write into $SUDO_USER's home directory.
+# Root tier: runs as root to write into the deploy user's home directory.
 # Idempotent — re-running is a no-op when the marker is present.
 # Skips rather than clobbers when a user-managed `Host *` block exists.
 
 # shellcheck source=../lib/common.sh
 . "$(dirname "$0")/../lib/common.sh"
+# shellcheck source=../lib/user.sh
+. "$(dirname "$0")/../lib/user.sh"
 
-TARGET_USER="${SUDO_USER:?must run under sudo (e.g., sudo ./init.sh)}"
+require_deploy_user
+TARGET_USER="$DEPLOY_USER"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 # ---------------------------------------------------------------------------
@@ -23,7 +26,9 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 # user's shell namespace.
 BASHRC="$TARGET_HOME/.bashrc"
 CLEANUP_MARKER="ee SSH stale control-master cleanup"
-if [ -f "$BASHRC" ] && ! grep -qF "$CLEANUP_MARKER" "$BASHRC" 2>/dev/null; then
+if [ ! -f "$BASHRC" ]; then
+  echo "NOTE: $BASHRC does not exist — skipping stale control-master cleanup snippet."
+elif ! grep -qF "$CLEANUP_MARKER" "$BASHRC" 2>/dev/null; then
   cat >> "$BASHRC" <<'CLEANUP_EOF'
 
 # --- ee SSH stale control-master cleanup ---
@@ -75,7 +80,9 @@ SSHCONFIG_MARKER="ee SSH client defaults"
 
 if [ ! -f "$SSHCONFIG" ]; then
   # Case 1: brand-new host. Create the directory + file with sane modes, drop
-  # in the defaults + Include for split-config pattern.
+  # in the defaults + Include for split-config pattern. (`Include ~/...` tilde
+  # expansion in USER config is supported since OpenSSH 7.3 — every targeted
+  # Debian/Ubuntu release qualifies.)
   mkdir -p "$TARGET_HOME/.ssh"
   chmod 700 "$TARGET_HOME/.ssh"
   chown "$TARGET_USER:" "$TARGET_HOME/.ssh"
