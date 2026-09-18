@@ -34,7 +34,7 @@ fi
 
 append_log "### Docker Image Build"
 append_log ""
-append_log '\`\`\`'
+append_log '```'
 
 log "[${app}] Building Docker image..."
 
@@ -70,7 +70,7 @@ fi
 
 if [[ $_docker_rc -eq 0 ]]; then
 
-  append_log '\`\`\`'
+  append_log '```'
   ok "[${app}] Image built: ${app}:${image_tag}"
   append_log ""
   append_log "**Docker Image: SUCCESS** — ${app}:${image_tag}"
@@ -80,7 +80,7 @@ if [[ $_docker_rc -eq 0 ]]; then
     append_log ""
     append_log "### Docker Image Push"
     append_log ""
-    append_log '\`\`\`'
+    append_log '```'
     log "[${app}] Pushing ${registry}/${app}:${image_tag} ..."
     push_ok=true
     if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then
@@ -92,7 +92,7 @@ if [[ $_docker_rc -eq 0 ]]; then
       if $push_ok && ! docker push "${registry}/${app}:${version_tag}" >> "${log_file}" 2>&1; then push_ok=false; fi
       if $push_ok && ! docker push "${registry}/${app}:${semver_tag}" >> "${log_file}" 2>&1; then push_ok=false; fi
     fi
-    append_log '\`\`\`'
+    append_log '```'
     if $push_ok; then
       ok "[${app}] Pushed ${registry}/${app}:${image_tag}"
       append_log ""
@@ -120,7 +120,7 @@ if [[ $_docker_rc -eq 0 ]]; then
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
   exit 0
 else
-  append_log '\`\`\`'
+  append_log '```'
   append_log ""
   append_log "**Docker Image: FAILED** — Docker build failed"
   fail "[${app}] Docker build failed"

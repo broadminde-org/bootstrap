@@ -30,7 +30,7 @@ fi
 
 append_log "### Frontend Build"
 append_log ""
-append_log '\`\`\`'
+append_log '```'
 
 log "[${BUILD_HOOK_APP}] Building frontend..."
 
@@ -61,6 +61,15 @@ if [[ ! -d "${npm_dir}/node_modules" ]]; then
   else
     (cd "$npm_dir" && npm ci) >> "${BUILD_HOOK_LOG_FILE}" 2>&1 || _npm_ci_rc=$?
   fi
+  if [[ $_npm_ci_rc -ne 0 ]]; then
+    append_log '```'
+    append_log ""
+    append_log "**Frontend: FAILED** — npm ci failed (exit ${_npm_ci_rc})"
+    fail "[${BUILD_HOOK_APP}] npm ci failed (exit ${_npm_ci_rc})"
+    elapsed=$(( $(date +%s%3N) - start_ms ))
+    step_event "step_fail" "$STEP_NAME" "$STEP_LABEL" "$elapsed" "npm ci failed"
+    exit 1
+  fi
 fi
 
 _npm_rc=0
@@ -71,7 +80,7 @@ else
 fi
 
 if [[ $_npm_rc -eq 0 ]]; then
-  append_log '\`\`\`'
+  append_log '```'
 
   # Copy to static/built/ (for go:embed `all:built`) and to dist/frontend/ (for runtime-only Dockerfiles).
   # Generated output lives under a single `built/` subdir so a single .gitignore rule covers it
@@ -106,7 +115,7 @@ if [[ $_npm_rc -eq 0 ]]; then
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
   exit 0
 else
-  append_log '\`\`\`'
+  append_log '```'
   append_log ""
   append_log "**Frontend: FAILED** — npm build failed"
   fail "[${BUILD_HOOK_APP}] Frontend build failed"

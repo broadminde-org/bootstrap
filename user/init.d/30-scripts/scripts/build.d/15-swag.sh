@@ -35,7 +35,7 @@ fi
 
 append_log "### ${STEP_LABEL}"
 append_log ""
-append_log '\`\`\`'
+append_log '```'
 log "[${BUILD_HOOK_APP}] Running swag init..."
 
 output_dir="${BUILD_HOOK_PROJECT_DIR}/docs/swagger"
@@ -49,14 +49,14 @@ else
 fi
 
 if [[ $_swag_rc -eq 0 ]]; then
-  append_log '\`\`\`'
+  append_log '```'
   ok "[${BUILD_HOOK_APP}] OpenAPI spec generated → docs/swagger/swagger.json"
   append_log ""
   append_log "**${STEP_LABEL}: SUCCESS**"
   elapsed=$(( $(date +%s%3N) - start_ms ))
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
 else
-  append_log '\`\`\`'
+  append_log '```'
   warn "[${BUILD_HOOK_APP}] swag init failed (spec may be stale)"
   append_log ""
   append_log "**${STEP_LABEL}: FAILED** (non-fatal, continuing)"

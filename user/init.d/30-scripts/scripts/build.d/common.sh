@@ -13,10 +13,10 @@
 
 # Colors (disabled when stdout is not a TTY)
 if [[ -t 1 ]]; then
-  BOLD='\033[1m'; RED='\033[0;31m'; GREEN='\033[0;32m'
+  RED='\033[0;31m'; GREEN='\033[0;32m'
   YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 else
-  BOLD=''; RED=''; GREEN=''; YELLOW=''; BLUE=''; NC=''
+  RED=''; GREEN=''; YELLOW=''; BLUE=''; NC=''
 fi
 
 log()  { echo -e "${BLUE}==>${NC} $*"; }
@@ -33,7 +33,11 @@ step_event() {
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   local json="{\"ts\":\"${ts}\",\"event\":\"${event}\",\"step\":\"${step}\",\"label\":\"${label}\""
   [[ -n "$ms" ]] && json="${json},\"ms\":${ms}"
-  [[ -n "$err" ]] && json="${json},\"err\":\"${err}\""
+  # Escape $err via jq before JSON interpolation — a raw error message
+  # can contain quotes/backslashes/newlines and corrupt the JSONL line.
+  if [[ -n "$err" ]]; then
+    json="${json},\"err\":$(printf '%s' "$err" | jq -Rs .)"
+  fi
   json="${json}}"
   echo "$json" >> "$STEP_EVENTS_LOG"
 }

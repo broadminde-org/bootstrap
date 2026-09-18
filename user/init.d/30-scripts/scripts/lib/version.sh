@@ -45,6 +45,10 @@ next_build_number() {
 write_build_number() {
   local app_dir="$1"
   local n="$2"
+  if [[ ! "$n" =~ ^[0-9]+$ ]]; then
+    echo "write_build_number: refusing non-numeric build number '$n'" >&2
+    return 1
+  fi
   printf '%s\n' "$n" > "${app_dir}/.build-number"
 }
 

@@ -23,7 +23,7 @@ export CGO_ENABLED
 
 append_log "### Go Generate (sourcemap)"
 append_log ""
-append_log '\`\`\`'
+append_log '```'
 log "[${BUILD_HOOK_APP}] Running go generate..."
 
 gen_dir="${BUILD_HOOK_PROJECT_DIR}"
@@ -41,14 +41,14 @@ else
 fi
 
 if [[ $_gen_rc -eq 0 ]]; then
-  append_log '\`\`\`'
+  append_log '```'
   ok "[${BUILD_HOOK_APP}] go generate done"
   append_log ""
   append_log "**Go Generate: SUCCESS**"
   elapsed=$(( $(date +%s%3N) - start_ms ))
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
 else
-  append_log '\`\`\`'
+  append_log '```'
   warn "[${BUILD_HOOK_APP}] go generate failed (generated code may be stale)"
   append_log ""
   append_log "**Go Generate: FAILED** (continuing)"

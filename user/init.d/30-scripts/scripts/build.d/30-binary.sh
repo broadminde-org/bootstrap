@@ -49,7 +49,7 @@ fi
 
 append_log "### Go Binary Build"
 append_log ""
-append_log '\`\`\`'
+append_log '```'
 
 log "[${app}] Building binary..."
 mkdir -p "${dist_dir}"
@@ -81,7 +81,7 @@ fi
 
 if [[ $_build_rc -eq 0 ]]; then
 
-  append_log '\`\`\`'
+  append_log '```'
   ok "[${app}] Binary built: dist/${app}"
   append_log ""
   append_log "**Binary: SUCCESS** — dist/${app}"
@@ -93,7 +93,7 @@ if [[ $_build_rc -eq 0 ]]; then
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
   exit 0
 else
-  append_log '\`\`\`'
+  append_log '```'
   append_log ""
   append_log "**Binary: FAILED** — Go build failed"
   fail "[${app}] Binary build failed"

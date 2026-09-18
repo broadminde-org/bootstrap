@@ -39,15 +39,18 @@ ci_test_run() {
   local log_file="$CI_TEST_TMP_DIR/${#CI_TEST_FAILED_CHECKS[@]}-${check//[^[:alnum:]_.-]/_}.log"
 
   printf '\n-- %s --\n' "$check"
-  if "$@" > >(tee "$log_file") 2>&1; then
+  # Pipe (not process substitution): tee finishes flushing before we
+  # read $log_file for the failure digest — with > >(tee) the digest
+  # can read a partially-written log.
+  "$@" 2>&1 | tee "$log_file"
+  local status=${PIPESTATUS[0]}
+  if [[ $status -eq 0 ]]; then
     printf 'PASS %s\n' "$check"
     return 0
-  else
-    local status=$?
-    printf 'FAIL %s (exit %s)\n' "$check" "$status" >&2
-    ci_test_record_failure "$check" "$log_file"
-    return "$status"
   fi
+  printf 'FAIL %s (exit %s)\n' "$check" "$status" >&2
+  ci_test_record_failure "$check" "$log_file"
+  return "$status"
 }
 
 ci_test_digest() {

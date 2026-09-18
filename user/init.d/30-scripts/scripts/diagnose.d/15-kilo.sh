@@ -6,7 +6,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
 KILO_STATE_DIR="$REAL_HOME/.local/share/kilo"
 
-kilo_rss="$(ps -eo rss,command 2>/dev/null | awk '/kilo serve/ && !/awk/ {s+=$1} END {printf "%.0f", s/1024}')"
+kilo_rss="$(ps -eo rss,command -u "$(id -u)" 2>/dev/null | awk '/kilo serve/ && !/awk/ {s+=$1} END {printf "%.0f", s/1024}')"
 if [[ -n "$kilo_rss" && "$kilo_rss" -gt 0 ]]; then
   if [[ "$kilo_rss" -gt 1024 ]]; then
     log_warn "Kilo process: ${kilo_rss} MB RSS"
