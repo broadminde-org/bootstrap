@@ -17,9 +17,12 @@ capability that needs credentials:
 
   - gh login (required by the dev capability);
   - dev: read-only go-shared and frontend-shared deploy keys via the GitHub
-    API, the GitHub Packages token (validated, stored in bootstrap/.env, and
-    written to ~/.npmrc by user/init.d/98-npm-shared), and — when you confirm
-    this host pushes source — the separate source RW token (repo, workflow);
+    API, the GitHub Packages token (validated, stored in
+    ~/.config/gh/broadminde-packages.token, and written to ~/.npmrc by
+    user/init.d/98-npm-shared; hosts whose conf sets
+    github.packages_write: true get write:packages for publishing), and —
+    when the conf sets github.source_rw: true — the separate source RW
+    token (repo, workflow), stored in ~/.config/gh/broadminde-source-rw.token;
   - caddy: the ACME account email for ~/infra/caddy/.env, plus acme-dns
     registration when the conf declares wildcard zones.
 
@@ -28,7 +31,8 @@ reported and skipped. Re-running is safe: every stage verifies current state
 before prompting.
 
 Do not run the helper with sudo: gh credentials, SSH keys, npm auth, and
-bootstrap .env tokens are stored for the user who runs it.
+PAT files are stored for the user who runs it. Tokens never live in the
+bootstrap checkout (docs/adr/0001-github-pat-storage.md).
 
 The GitHub stages delegate to ~/scripts/github-access, which is also the
 entry point for redoing one piece:

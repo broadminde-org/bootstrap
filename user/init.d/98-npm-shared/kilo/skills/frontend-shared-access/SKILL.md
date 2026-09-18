@@ -40,13 +40,11 @@ can override the working user configuration with an empty token.
 The token is a classic PAT with `read:packages` on consume-only hosts and
 `write:packages` on publish hosts. The preferred setup path is
 `~/scripts/github-access packages [--write]`, which prints the token-creation
-URL, stores the token as `BROADMINDE_PACKAGES_TOKEN` in `~/bootstrap/.env`
-(gitignored), and runs step 98. Legacy `GITHUB_PACKAGES_TOKEN` remains a
-fallback. Step 98 still deploys this skill when the variable is unset but skips
-the npm configuration — if `~/.npmrc` has no `_authToken` line, run the helper
-or add the token to `~/bootstrap/.env` and re-run `user/init.sh 98`. A 401 from
-the verify command means the PAT lacks `read:packages` or the package is not
-published.
+URL, stores the token in `~/.config/gh/broadminde-packages.token` (mode 0600),
+and runs step 98. Step 98 still deploys this skill when the token is absent
+but skips the npm configuration — if `~/.npmrc` has no `_authToken` line, run
+the helper and re-run `user/init.sh 98`. A 401 from the verify command means
+the PAT lacks `read:packages` or the package is not published.
 
 ## Rules
 
