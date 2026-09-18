@@ -63,8 +63,13 @@ registration; see [Wildcard zones](docs/central-caddy.md#wildcard-zones).
 
 ## Quick start
 
+Fresh hosts provision in two phases. Step 10 — which creates the deploy
+user — runs as **root** on the fresh VPS; everything after it runs as
+the **deploy user** via `sudo` (the remaining root-tier steps resolve
+the deploy user from `SUDO_USER`).
+
 ```bash
-# ---- root tier (as root on a freshly provisioned VPS) ----
+# ---- Phase 1: as root on the freshly provisioned VPS ----
 apt-get install -y git
 git clone https://github.com/<your-org>/bootstrap.git
 cd bootstrap
@@ -74,11 +79,25 @@ cp example.bootstrap.conf.yml bootstrap.conf.yml
 # Edit bootstrap.conf.yml — set docker, caddy, kvm, dev, public to true/false.
 $EDITOR bootstrap.conf.yml
 
-sudo BOOTSTRAP_USER=luke BOOTSTRAP_PASSWORD='…' ./init.sh
+# Provide the deploy-user parameters via .env (gitignored). Keeping the
+# password in .env — instead of on the command line — keeps it out of
+# root's shell history.
+cat > .env <<'EOF'
+BOOTSTRAP_USER=luke
+BOOTSTRAP_PASSWORD='…'
+# Optional but recommended: enroll an SSH key so the deploy user can
+# log in even after password auth is disabled in a later round.
+# BOOTSTRAP_SSH_PUBKEY=ssh-ed25519 AAAA… you@your-workstation
+EOF
+chmod 600 .env
 
-# ---- log out, log back in as the deploy user ----
-cd bootstrap/user
-./init.sh
+./init.sh 10          # creates the deploy user (as root)
+
+# ---- Phase 2: log out, log back in as the deploy user ----
+cd bootstrap
+sudo ./init.sh        # all remaining root-tier steps
+cd user
+./init.sh             # user tier
 
 # ---- hand off to an app repo ----
 cd ../<app>            # or wherever the app repo lives
@@ -212,9 +231,10 @@ capabilities is disabled.
 | `kvm` | 57-kvm | `false` |
 | `dev` | 06-playwright-deps, user-tier 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
+| `woodpecker` | 45-woodpecker-local | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
-20-groups, 30-sudo, 40-profile, 45-woodpecker-local, 51-ssh-hardening, 52-ufw,
+20-groups, 30-sudo, 40-profile, 51-ssh-hardening, 52-ufw,
 53-fail2ban, 56-ssh-client, 58-mdns, 59-gh-cli. The user tier always runs;
 per-step gating applies (e.g. 60-caddy requires `docker` + `caddy`).
 
@@ -336,20 +356,21 @@ bootstrap/
 │   ├── 05-packages/                  # git, curl, wget, vim, htop, unzip, ca-certificates, sudo,
 │   │   └── packages.txt              #   gnupg, gettext-base, jq, openssl, direnv, build-essential
 │   ├── 06-playwright-deps/           # browser shared libs (Chromium/Firefox/WebKit; dev-gated)
-│   ├── 10-create-deploy-user/        # useradd + chpasswd + sudo group (idempotent)
-│   ├── 20-groups/                    # SUDO_USER → groups from groups.txt
+│   ├── 10-create-deploy-user/        # useradd + chpasswd + sudo group + SSH key enrollment (idempotent)
+│   ├── 20-groups/                    # DEPLOY_USER → groups from groups.txt
 │   │   └── groups.txt                # adm, docker, sudo, systemd-journal, kvm, libvirt
-│   ├── 30-passwordless-sudo/         # writes /etc/sudoers.d/99-<user>-passwordless
-│   │   └── commands.txt              # /usr/bin/systemctl *, /usr/bin/docker, /usr/bin/docker compose
-│   ├── 40-profile/                   # writes bootstrap-managed PATH block to $SUDO_USER/.profile
+│   ├── 30-passwordless-sudo/         # writes /etc/sudoers.d/99-<user>-passwordless (visudo-checked first)
+│   │   ├── commands.txt              # verb-scoped systemctl, exact cscli bouncer cmds, maintenance wrappers
+│   │   └── wrappers/                 # root-owned /usr/local/sbin helpers (drop-caches, prune-text-logs)
+│   ├── 40-profile/                   # writes bootstrap-managed PATH block to the deploy user's .profile
 │   │   └── profile.snippet           # idempotent ~/.local/bin + ~/.kilo/bin PATH block
-│   ├── 45-woodpecker-local/          # unprivileged woodpecker account + plugin-git for local backend
-│   ├── 50-docker/                    # installs Docker CE + Compose plugin, writes daemon.json
-│   ├── 51-ssh-hardening/             # PermitRootLogin no, X11Forwarding no, AllowUsers
-│   ├── 52-ufw/                       # ufw install + rule staging (does NOT enable)
+│   ├── 45-woodpecker-local/          # unprivileged woodpecker account + plugin-git for local backend (woodpecker-gated)
+│   ├── 50-docker/                    # installs Docker CE + Compose plugin, merges daemon.json
+│   ├── 51-ssh-hardening/             # PermitRootLogin no via 00-bootstrap-*.conf drop-ins; sshd -t + effective-value assertions
+│   ├── 52-ufw/                       # ufw install + rule staging + gated auto-enable (MGMT_SSH_CIDR from .env)
 │   ├── 53-fail2ban/                  # fail2ban with sshd + Caddy jails
-│   ├── 54-crowdsec/                  # CrowdSec LAPI + iptables bouncer
-│   ├── 55-lazydocker/                # drops lazydocker into $SUDO_USER/.local/bin/
+│   ├── 54-crowdsec/                  # CrowdSec LAPI + iptables bouncer (vendored apt repo setup)
+│   ├── 55-lazydocker/                # drops lazydocker into the deploy user's ~/.local/bin/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
 │   ├── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
 │   ├── 58-mdns/                      # mDNS via nsswitch + private-interface Avahi config
@@ -390,9 +411,12 @@ bootstrap/
 ### Tier-privilege model
 
 - **Root tier** (`./init.sh`) — refuses to run as non-root. Steps
-  `20-groups`, `30-passwordless-sudo`, `40-profile`, and
-  `55-lazydocker` require `SUDO_USER` to be set (i.e., invoked via
-  `sudo`); the rest work as plain root.
+  `20-groups`, `30-passwordless-sudo`, `40-profile`, `51-ssh-hardening`,
+  `55-lazydocker`, `56-ssh-client`, and `57-kvm` resolve the deploy user
+  via `init.d/lib/user.sh` (`require_deploy_user`): `BOOTSTRAP_USER`
+  first, then `SUDO_USER`; empty, `root`, an invalid account name, or a
+  nonexistent user is a hard error. The remaining steps work as plain
+  root.
 - **User tier** (`./user/init.sh`) — refuses to run as
   root. All steps operate on `$HOME` and need no privilege
   escalation.

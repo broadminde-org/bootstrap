@@ -26,8 +26,14 @@ __pycache__/
 .tmp/
 
 # Config
-bootstrap.conf.yml
+# Host capability/pin configs are per-host and may hold local
+# parameters — only the annotated example is tracked.
+*.conf.yml
+!example.bootstrap.conf.yml
 .env
+
+# Generated host secrets (see AGENTS.md): never commit.
+secrets/
 
 # AI agent guidelines (not project code)
 *deepseek-v4-plan*.md

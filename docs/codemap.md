@@ -11,8 +11,10 @@ Kilo configuration, agent skills, shared-repository access, Woodpecker CLI, and
 the optional central Caddy stack.
 
 Both runners discover flat `NN-name.sh` files and directory steps containing
-`run.sh`, sort them numerically, support `--from` and single-step selectors, and
-skip disabled steps. A step-local `.requires` file gates optional capabilities.
+`run.sh`, sort them numerically, support `--from` and single-step selectors
+(numerically normalized — `5` matches `05-…`; an unmatched selector or
+unrecognized argument is a hard error), and skip disabled steps. A step-local
+`.requires` file gates optional capabilities.
 Steps without `.requires` always run. The root and user runners resolve the same
 configuration, preferring `<hostname>.conf.yml` over `bootstrap.conf.yml`, and
 export the selected path as `BOOTSTRAP_CONFIG_FILE`.
@@ -78,6 +80,13 @@ pins default to `latest`.
 | `kvm` | `init.d/57-kvm` |
 | `dev` | `init.d/06-playwright-deps`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
+| `woodpecker` | `init.d/45-woodpecker-local` |
+
+Steps that act on the deploy account (`20-groups`, `30-passwordless-sudo`,
+`40-profile`, `51-ssh-hardening`, `55-lazydocker`, `56-ssh-client`, `57-kvm`)
+resolve that account through `init.d/lib/user.sh`'s `require_deploy_user`:
+`BOOTSTRAP_USER` first, then `SUDO_USER`; empty, `root`, an invalid account
+name, or a nonexistent user is a hard error.
 
 The example configuration also contains `versions:` pins for `uv`, `python`,
 `kilo`, `go`, and `node`; `skills.agents` for explicit `npx skills` targets;
@@ -90,14 +99,14 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `01-apt-update-upgrade` | Refreshes apt indexes and applies pending upgrades. |
 | `05-packages` | Installs baseline packages from `packages.txt`, including curl, git, sudo, jq, openssl, gettext-base, direnv, and build tools. |
 | `06-playwright-deps` | Installs distro-specific shared libraries required by Chromium, Firefox, and WebKit. Unknown distros are skipped with instructions. Requires `dev`. |
-| `10-create-deploy-user` | Creates the configured non-root deploy user, home, shell, and sudo membership; applies the bootstrap password. |
-| `20-groups` | Adds the invoking deploy user to groups listed in `groups.txt`: `adm`, `docker`, `sudo`, and `systemd-journal`. |
-| `30-passwordless-sudo` | Manages a validated sudoers drop-in for systemctl, Docker, and CrowdSec administration. |
+| `10-create-deploy-user` | Creates the configured non-root deploy user, home, shell, and sudo membership; applies the bootstrap password and/or enrolls `BOOTSTRAP_SSH_PUBKEY` into `authorized_keys`. Parameters come from the environment or a parsed repo-root `.env`. |
+| `20-groups` | Adds the resolved deploy user to groups listed in `groups.txt`: `adm`, `docker`, `sudo`, and `systemd-journal`. |
+| `30-passwordless-sudo` | Manages a validated (temp-file + `visudo -cf` before install) sudoers drop-in with verb-scoped systemctl entries, the exact cscli bouncer commands, and the root-owned maintenance wrappers it installs to `/usr/local/sbin/`. |
 | `40-profile` | Adds the marker-guarded PATH block for `~/.local/bin` and `~/.kilo/bin` to the deploy user’s `~/.profile`. |
-| `45-woodpecker-local` | Creates the unprivileged `woodpecker` service account and home, then runs selected user-tier toolchain steps for that account; installs `plugin-git`. |
-| `50-docker` | Installs Docker CE, Compose/buildx plugins, and configures dual-stack IPv4/IPv6 daemon settings. Requires `docker`. |
-| `51-ssh-hardening` | Applies sshd hardening, an `AllowUsers` policy, and post-change `sshd -T` assertions. |
-| `52-ufw` | Installs ufw, disables LLMNR, and stages deny-incoming/allow-outgoing plus SSH and Docker/CrowdSec rules without enabling ufw. |
+| `45-woodpecker-local` | Creates the unprivileged `woodpecker` service account and home, then runs selected user-tier toolchain steps for that account; installs a SHA256-verified `plugin-git`. Requires `woodpecker`. |
+| `50-docker` | Installs Docker CE, Compose/buildx plugins, and merges dual-stack IPv4/IPv6 daemon settings into `daemon.json` (app-added keys survive re-runs; fingerprint-pinned GPG key). Requires `docker`. |
+| `51-ssh-hardening` | Applies sshd hardening via `00-bootstrap-*.conf` drop-ins that sort before cloud-init's, validates with `sshd -t` before reload, asserts effective values via `sshd -T`, and refuses to disable root login without a working non-root login path. |
+| `52-ufw` | Installs ufw, disables LLMNR, stages deny-incoming/allow-outgoing plus SSH (from `.env`'s `MGMT_SSH_CIDR`) and LLMNR rules, and enables ufw non-interactively once the SSH rule is verified staged. |
 | `53-fail2ban` | Installs fail2ban and manages SSH, Caddy-auth, and NetBird-installer jails and filters. |
 | `54-crowdsec` | Installs CrowdSec and its firewall bouncer, collections, Caddy log acquisition, LAPI configuration, and the Docker-bridge ufw rule. Requires `public`. |
 | `55-lazydocker` | Downloads and SHA256-verifies the pinned lazydocker release into the deploy user’s `~/.local/bin/`. Requires `docker`. |
