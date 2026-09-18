@@ -66,9 +66,10 @@ flowchart LR
 
 ## Capability Configuration
 
-Capabilities are parsed by `init.d/lib/conf.sh`. If a config file exists,
-capabilities not listed in it are enabled; if the config file is missing, all
-capabilities are disabled and version pins default to `latest`.
+Capabilities are parsed by `init.d/lib/conf.sh`. A capability is enabled only
+when listed and set to `true` — unlisted capabilities are disabled. If the
+config file is missing entirely, all capabilities are disabled and version
+pins default to `latest`.
 
 | Capability | Gated steps |
 |---|---|
@@ -125,7 +126,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; never starts a stopped stack. |
 | `97-gh-auth-instructions` | Points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
-| `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when `BROADMINDE_PACKAGES_TOKEN` (or legacy `GITHUB_PACKAGES_TOKEN`) is present. |
+| `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when a packages token is present. |
 | `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, registers them through `gh api` when authenticated and authorized, manages known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 
 **User-tier step count: 15** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
@@ -139,13 +140,17 @@ the user common library. Supported tools are `uv`, `python`, `kilo`, `go`, and
 individual step documents them. Environment variables override configuration.
 
 The `dev` capability deliberately gates only development-node extras, not the
-core user tier. `98-npm-shared` consumes `BROADMINDE_PACKAGES_TOKEN` from the
-repo root `.env`, with legacy `GITHUB_PACKAGES_TOKEN` as a fallback; the
-interactive `github-access packages [--write]` helper validates and stores the
-classic PAT. GitHub Packages' npm registry requires a classic PAT, and `gh`
-cannot mint a separate PAT. `github-access source-rw` manages the optional
+core user tier. `98-npm-shared` reads `BROADMINDE_PACKAGES_TOKEN` from the
+environment, then `~/.config/gh/broadminde-packages.token` (the authoritative
+store), then a legacy repo-root `.env` entry; the interactive
+`github-access packages [--write]` helper validates and stores the classic
+PAT. GitHub Packages' npm registry requires a classic PAT, and `gh` cannot
+mint a separate PAT. `github-access source-rw` manages the optional
 `BROADMINDE_SOURCE_RW_TOKEN` (`repo`, `workflow`) for CI/update hosts that push
-source changes and create issues or PRs. `99-go-shared` generates separate keys
+source changes and create issues or PRs; it lives in
+`~/.config/gh/broadminde-source-rw.token`. Neither PAT is ever stored in the
+bootstrap checkout (see `docs/adr/0001-github-pat-storage.md`).
+`99-go-shared` generates separate keys
 for `broadminde-org/go-shared` and `broadminde-org/frontend-shared`, uses
 `gh api` to create matching read-only deploy keys when the authenticated
 operator has permission, and then verifies access with `git ls-remote`.

@@ -118,9 +118,12 @@ each one that needs interactive credentials:
 - **gh login** — whenever any enabled stage needs `gh` (today: `dev`).
 - **dev** — read-only `go-shared`/`frontend-shared` deploy keys registered via
   the GitHub API, the GitHub Packages classic PAT (validated and stored in
-  `bootstrap/.env`, then written to `~/.npmrc` by `98-npm-shared`), and — when
-  you answer that this host pushes source — the source RW PAT (`repo`,
-  `workflow`).
+  `~/.config/gh/broadminde-packages.token`, then written to `~/.npmrc` by
+  `98-npm-shared`), and the
+  optional source RW PAT (`repo`, `workflow`). Credential breadth comes from
+  the conf's `github:` section: `packages_write: true` collects
+  `write:packages` on publish hosts, `source_rw: true` collects the source RW
+  PAT — the walk reads the conf instead of asking per run.
 - **caddy** — the ACME account email for `~/infra/caddy/.env`, plus acme-dns
   account registration when `caddy.wildcards` declares zone labels (prints the
   `_acme-challenge` CNAMEs to add to DNS).
@@ -152,9 +155,13 @@ Credentials are intentionally split by blast radius:
 |---|---|---|---|
 | Operator `gh` auth | gh credential store | gh defaults | Human issue/PR/API workflows |
 | Per-repo deploy keys | `~/.ssh/` | read-only | Source fetches for shared repos |
-| `BROADMINDE_PACKAGES_TOKEN` | `bootstrap/.env` | `read:packages` | npm/GHCR package pulls |
-| `BROADMINDE_PACKAGES_TOKEN` on publish hosts | `bootstrap/.env` | `read:packages`, `write:packages` | npm/GHCR package pushes |
-| `BROADMINDE_SOURCE_RW_TOKEN` | `bootstrap/.env` | `repo`, `workflow` | CI/source updates, pushes, issues, and PRs |
+| `BROADMINDE_PACKAGES_TOKEN` | `~/.config/gh/broadminde-packages.token` → `~/.npmrc` | `read:packages` | npm/GHCR package pulls |
+| `BROADMINDE_PACKAGES_TOKEN` on publish hosts | `~/.config/gh/broadminde-packages.token` → `~/.npmrc` | `read:packages`, `write:packages` | npm/GHCR package pushes |
+| `BROADMINDE_SOURCE_RW_TOKEN` | `~/.config/gh/broadminde-source-rw.token` | `repo`, `workflow` | CI/source updates, pushes, issues, and PRs |
+
+The classic PATs live in dedicated mode-0600 files under `~/.config/gh/`,
+never in the bootstrap checkout — see `docs/adr/0001-github-pat-storage.md`.
+Legacy `bootstrap/.env` entries are migrated on the next `github-access` run.
 
 GitHub Packages' npm registry requires a classic PAT. `gh` cannot mint a
 separate PAT, and its broader OAuth token is not copied into `~/.npmrc`. If the
@@ -178,16 +185,19 @@ Useful follow-ups:
 ~/scripts/github-access packages          # read:packages
 ~/scripts/github-access packages --write  # read:packages + write:packages
 ~/scripts/github-access source-rw         # repo + workflow
+~/scripts/github-access clear source-rw   # remove a stored token
+~/scripts/github-access clear --all       # remove both stored tokens
 ```
 
 ---
 
 ## Configuration (`bootstrap.conf.yml`)
 
-`bootstrap.conf.yml` is a single file with four sections: `capabilities:` (which
+`bootstrap.conf.yml` is a single file with five sections: `capabilities:` (which
 provisioning steps run), `versions:` (which toolchain versions to install),
-`skills:` (which agent targets receive npx-installed skills), and `caddy:`
-(wildcard zone `base_domain` and `wildcards` labels).
+`skills:` (which agent targets receive npx-installed skills), `caddy:`
+(wildcard zone `base_domain` and `wildcards` labels), and `github:` (host
+credential role for the access walk).
 
 ### Capability flags
 
@@ -208,8 +218,12 @@ Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 53-fail2ban, 56-ssh-client, 58-mdns, 59-gh-cli. The user tier always runs;
 per-step gating applies (e.g. 60-caddy requires `docker` + `caddy`).
 
-If `bootstrap.conf.yml` is missing, every capability is treated as disabled and
-versions default to `"latest"`.
+Capabilities are an allowlist: a capability is enabled only when it is listed
+and set to `true`. Unlisted capabilities are disabled — a typo'd key or a
+newly introduced capability can never silently activate. Host confs should
+list every capability explicitly (the example conf does). If
+`bootstrap.conf.yml` is missing entirely, every capability is treated as
+disabled and versions default to `"latest"`.
 
 A hostname-specific override (`<hostname>.conf.yml` in the repo root) takes
 precedence over `bootstrap.conf.yml` when present. Both tiers resolve it the
@@ -236,6 +250,24 @@ time, or pin an exact version string.
 | `kilo` | `KILO_VERSION` | Kilo CLI binary |
 | `go` | `EE_GO_VERSION` | Go toolchain |
 | `node` | `EE_NODE_VERSION` | Node.js (via nvm) |
+
+### GitHub credential role
+
+The `github:` section is read by `bootstrap-access` when the `dev` capability
+is enabled. It declares host credential breadth — no init.d step is gated on
+it, and flipping a key never mints a token by itself; the walk validates (or
+re-collects) the stored classic PATs to match.
+
+```yaml
+github:
+  packages_write: false  # true on publish hosts → PAT gains write:packages
+  source_rw: false       # true on push/PR hosts → collects repo,workflow PAT
+```
+
+Both keys default to `false` when unlisted, so a dev host with no `github:`
+section gets read-only package access and no source RW token. Set
+`packages_write: true` before running `github-access setup --ci`; to widen an
+existing host, flip the key and re-run `~/scripts/bootstrap-access`.
 
 ### Example configurations
 
