@@ -34,17 +34,11 @@
 #
 # Run as root (sudo ./init.sh 50-docker).
 
-# Optional per-step .env override. If the operator wants DOCKER_REGISTRY
-# or DOCKER_IPV6_FIXED_CIDR read from a file rather than an env var,
-# drop a `.env` next to this run.sh (init.d/50-docker/.env):
-#   DOCKER_REGISTRY=http://registry.local:5000
-_STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$_STEP_DIR/.env" ]]; then
-  set -a; source "$_STEP_DIR/.env"; set +a
-fi
-unset _STEP_DIR
-
-REGISTRY="${DOCKER_REGISTRY:-}"
+# Optional registry / IPv6-subnet overrides. Read from the repo-root
+# .env (parsed, never sourced — same convention as 10-create-deploy-user
+# and 52-ufw); environment variables take precedence over the file.
+REGISTRY="${DOCKER_REGISTRY:-$(env_file_value DOCKER_REGISTRY || true)}"
+DOCKER_IPV6_FIXED_CIDR="${DOCKER_IPV6_FIXED_CIDR:-$(env_file_value DOCKER_IPV6_FIXED_CIDR || true)}"
 
 # Only mark a registry as insecure when its scheme is plain HTTP. An
 # HTTPS registry must NOT appear under "insecure-registries" — doing
@@ -97,6 +91,18 @@ rm -f /etc/apt/sources.list.d/docker.list
 install -m 0755 -d /etc/apt/keyrings
 curl -fsSL "https://download.docker.com/linux/${DISTRO}/gpg" -o /etc/apt/keyrings/docker.asc
 chmod a+r /etc/apt/keyrings/docker.asc
+
+# Pin the Docker Release (CE deb) signing key fingerprint — the URL is
+# effectively TOFU, so verify the fetched key before trusting the repo.
+DOCKER_KEY_FP="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+actual_fp="$(gpg --show-keys --with-fingerprint /etc/apt/keyrings/docker.asc 2>/dev/null \
+  | awk '/^ / { gsub(/ /, ""); print; exit }')"
+if [[ "$actual_fp" != "$DOCKER_KEY_FP" ]]; then
+  echo "ERROR: Docker GPG key fingerprint mismatch (got ${actual_fp:-none}, want $DOCKER_KEY_FP)" >&2
+  exit 1
+fi
+echo "Docker GPG key fingerprint verified."
+
 printf 'Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc\n' \
   "$DISTRO" "$CODENAME" > /etc/apt/sources.list.d/docker.sources
 apt-get update
@@ -112,14 +118,15 @@ if [[ -n "${SUDO_USER:-}" ]]; then
   echo "Added $SUDO_USER to docker group"
 fi
 
-# Write daemon.json — preserves iptables, ip6tables, userland-proxy and
-# adds insecure-registries ONLY when REGISTRY is HTTP. The list is
-# built with jq from the bash array to avoid hand-rolled JSON escaping
-# bugs.
+# Write daemon.json by MERGING into the existing file: this step owns
+# only the keys it sets, so app-added keys (e.g. extra "hosts" entries
+# like isogen's TCP listener on :2375) survive re-runs. The list is
+# built with jq to avoid hand-rolled JSON escaping bugs.
 #
 # Idempotent: builds the expected content in memory, compares against
-# the on-disk file, and skips the write when they match. This avoids
-# needlessly restarting Docker or tripping filesystem watches.
+# the on-disk file (key-order-normalized), and skips the write when
+# they match. This avoids needlessly restarting Docker or tripping
+# filesystem watches. Backs up the previous file on first change.
 if (( ${#INSECURE_REGISTRIES[@]} > 0 )); then
   INSECURE_JSON=$(printf '%s\n' "${INSECURE_REGISTRIES[@]}" | jq -R . | jq -s .)
 else
@@ -127,22 +134,35 @@ else
 fi
 
 DAEMON_JSON="/etc/docker/daemon.json"
-NEW_DAEMON_JSON=$(cat <<DAEMON_EOF
-{
-  "iptables": true,
-  "ip6tables": true,
-  "userland-proxy": false,
-  "ipv6": true,
-  "fixed-cidr-v6": "${DOCKER_IPV6_FIXED_CIDR}",
-  "hosts": ["unix:///var/run/docker.sock"],
-  "insecure-registries": ${INSECURE_JSON}
-}
-DAEMON_EOF
-)
 
-if [[ -f "$DAEMON_JSON" ]] && [[ "$(cat "$DAEMON_JSON")" == "$NEW_DAEMON_JSON" ]]; then
+existing_json="{}"
+if [[ -f "$DAEMON_JSON" ]]; then
+  if jq -e . "$DAEMON_JSON" >/dev/null 2>&1; then
+    existing_json="$(cat "$DAEMON_JSON")"
+  else
+    echo "WARNING: existing $DAEMON_JSON is not valid JSON — replacing it (backup: ${DAEMON_JSON}.bootstrap.bak)" >&2
+  fi
+fi
+
+NEW_DAEMON_JSON="$(jq -n \
+  --argjson base "$existing_json" \
+  --arg cidr "$DOCKER_IPV6_FIXED_CIDR" \
+  --argjson reg "$INSECURE_JSON" '
+  $base
+  | .iptables = true
+  | .ip6tables = true
+  | .["userland-proxy"] = false
+  | .ipv6 = true
+  | .["fixed-cidr-v6"] = $cidr
+  | .hosts = (((.hosts // []) | map(select(. != "unix:///var/run/docker.sock"))) + ["unix:///var/run/docker.sock"])
+  | .["insecure-registries"] = $reg
+')"
+
+if [[ -f "$DAEMON_JSON" ]] && [[ "$(jq -S . "$DAEMON_JSON" 2>/dev/null)" == "$(jq -S . <<<"$NEW_DAEMON_JSON")" ]]; then
   echo "daemon.json already up to date — skipping."
 else
+  [[ -f "$DAEMON_JSON" && ! -f "${DAEMON_JSON}.bootstrap.bak" ]] \
+    && cp -a "$DAEMON_JSON" "${DAEMON_JSON}.bootstrap.bak"
   printf '%s\n' "$NEW_DAEMON_JSON" > "$DAEMON_JSON"
   echo "Wrote daemon.json"
 fi
@@ -194,19 +214,27 @@ fi
 # `sysctl --system` is a no-op when runtime values already match.
 # ---------------------------------------------------------------------------
 
-SYSCtl_FILE=/etc/sysctl.d/99-docker-ipv6.conf
+SYSCTL_FILE=/etc/sysctl.d/99-docker-ipv6.conf
 install -m 0755 -d /etc/sysctl.d
 
-cat > "$SYSCtl_FILE" <<'SYSC_EOF'
-# Managed by bootstrap/init.d/50-docker.
+SYSCTL_NEW='# Managed by bootstrap/init.d/50-docker.
 # Required for Docker IPv6 port publishing; do not edit by hand.
 net.ipv6.bindv6only = 0
-net.ipv6.conf.all.forwarding = 1
-SYSC_EOF
+net.ipv6.conf.all.forwarding = 1'
+
+sysctl_changed=0
+if [[ -f "$SYSCTL_FILE" ]] && [[ "$(cat "$SYSCTL_FILE")" == "$SYSCTL_NEW" ]]; then
+  echo "ok: $SYSCTL_FILE (unchanged)"
+else
+  printf '%s\n' "$SYSCTL_NEW" > "$SYSCTL_FILE"
+  sysctl_changed=1
+fi
 
 if [[ -e /proc/sys/net/ipv6 ]]; then
-  sysctl --system >/dev/null
-  echo "Applied IPv6 sysctls: bindv6only=$(sysctl -n net.ipv6.bindv6only), all.forwarding=$(sysctl -n net.ipv6.conf.all.forwarding)"
+  if (( sysctl_changed )); then
+    sysctl --system >/dev/null
+  fi
+  echo "IPv6 sysctls: bindv6only=$(sysctl -n net.ipv6.bindv6only), all.forwarding=$(sysctl -n net.ipv6.conf.all.forwarding)"
 else
   echo "WARNING: /proc/sys/net/ipv6 not present — kernel has no IPv6 support; IPv6 publishes will not work." >&2
 fi

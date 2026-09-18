@@ -13,4 +13,8 @@ echo "==> apt-get update"
 apt-get update
 
 echo "==> apt-get upgrade -y"
-apt-get upgrade -y
+# confdef/confold: never stop on a conffile prompt (consistent with
+# 05-packages, 06-playwright-deps, and 50-docker).
+apt-get upgrade -y \
+  -o Dpkg::Options::="--force-confdef" \
+  -o Dpkg::Options::="--force-confold"

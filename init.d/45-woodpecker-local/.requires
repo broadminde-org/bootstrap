@@ -1,0 +1,3 @@
+# 45-woodpecker-local provisions a CI-runner system account — only
+# meaningful on hosts that actually run Woodpecker's local backend.
+woodpecker
