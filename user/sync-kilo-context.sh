@@ -54,9 +54,13 @@ mkdir -p "$DST_CONFIG"
 
 echo "=== Syncing from ~/.config/kilo/ to _config/kilo/ ==="
 
-# 1a. Agents
+# 1a. Agents / commands / rules. This is an intentional wholesale mirror
+# (rm -rf + cp -r), unlike sync_dir_preserve() in the user-tier lib:
+# deleted context files must disappear from the repo too.
 sync_dir() {
-  local name="$1" src="$SRC_CONFIG/$name" dst="$DST_CONFIG/$name"
+  local name="$1"
+  local src="$SRC_CONFIG/$name"
+  local dst="$DST_CONFIG/$name"
 
   if [[ -d "$src" ]]; then
     rm -rf "$dst"
@@ -71,17 +75,19 @@ sync_dir() {
   fi
 }
 
-for dir in agents commands; do
+for dir in agents commands rules; do
   sync_dir "$dir"
 done
 
-# 1b. kilo.jsonc
-if [[ -f "$SRC_CONFIG/kilo.jsonc" ]]; then
-  cp "$SRC_CONFIG/kilo.jsonc" "$DST_CONFIG/kilo.jsonc"
-  echo "  synced kilo.jsonc"
-else
-  echo "  skipped kilo.jsonc (not found in source)"
-fi
+# 1b. kilo.jsonc + kilo.json (deep-merged by Kilo; both are context).
+for cfg in kilo.jsonc kilo.json; do
+  if [[ -f "$SRC_CONFIG/$cfg" ]]; then
+    cp "$SRC_CONFIG/$cfg" "$DST_CONFIG/$cfg"
+    echo "  synced $cfg"
+  else
+    echo "  skipped $cfg (not found in source)"
+  fi
+done
 
 # -------------------------------------------------------------------
 # 2. Sync from ~/.kilo  -->  _kilo/
@@ -98,22 +104,23 @@ mkdir -p "$DST_KILO"
 
 echo "=== Syncing from ~/.kilo/ to _kilo/ ==="
 
-for dir in skills; do
-  src="$SRC_KILO/$dir"
-  dst="$DST_KILO/$dir"
+# Skills — same intentional wholesale mirror as section 1a (deleted
+# skills must disappear from the repo). Single directory, so a plain
+# block instead of a loop.
+src="$SRC_KILO/skills"
+dst="$DST_KILO/skills"
 
-  if [[ -d "$src" ]]; then
-    rm -rf "$dst"
-    cp -r "$src" "$dst"
-    echo "  synced $dir/"
-  elif [[ -d "$SRC_KILO/f-$dir" ]]; then
-    rm -rf "$dst"
-    cp -r "$SRC_KILO/f-$dir" "$dst"
-    echo "  synced f-$dir/ -> $dir/"
-  else
-    echo "  skipped $dir/ (not found in source)"
-  fi
-done
+if [[ -d "$src" ]]; then
+  rm -rf "$dst"
+  cp -r "$src" "$dst"
+  echo "  synced skills/"
+elif [[ -d "$SRC_KILO/f-skills" ]]; then
+  rm -rf "$dst"
+  cp -r "$SRC_KILO/f-skills" "$dst"
+  echo "  synced f-skills/ -> skills/"
+else
+  echo "  skipped skills/ (not found in source)"
+fi
 
 # Route feature-step skills out of the 37 skeleton to their owning step.
 # The live ~/.kilo/skills/ namespace is flat, so the whole-dir copy above

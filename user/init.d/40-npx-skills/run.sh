@@ -13,6 +13,14 @@ set -euo pipefail
 # shellcheck source=../lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+# Non-interactive invocations (ssh, cron) do not source ~/.bashrc, where
+# nvm is normally wired up — load it explicitly, same as 98-npm-shared.
+if ! command -v npx >/dev/null 2>&1 && [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.nvm/nvm.sh" --no-use
+  nvm use default >/dev/null
+fi
+
 if ! command -v npx >/dev/null 2>&1; then
   echo "ERROR: npx not found — 35-node must run before 40-npx-skills." >&2
   exit 1

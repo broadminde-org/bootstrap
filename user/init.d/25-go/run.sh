@@ -36,20 +36,15 @@ resolve_go_version() {
   fi
 
   local releases
-  releases="$(curl -fsSL "https://go.dev/dl/?mode=json" 2>/dev/null)"
+  releases="$(curl -fsSL --retry 3 "https://go.dev/dl/?mode=json" 2>/dev/null)"
   if [[ -z "$releases" ]]; then
     echo "$pin"
     return
   fi
 
   # All version numbers from the response, newest first (strip "go" prefix).
-  # Use `go[0-9]` not `go[0-9.]*` to avoid matching bare "go" words in the
-  # JSON that grep -o would otherwise also emit as zero-length matches.
   local all_versions
-  all_versions="$(printf '%s' "$releases" \
-    | grep -o '"version": *"go[^"]*"' \
-    | grep -oE 'go[0-9][0-9.]*' \
-    | sed 's/^go//')"
+  all_versions="$(printf '%s' "$releases" | jq -r '.[].version' | sed 's/^go//')"
 
   if [[ "$pin" == "latest" ]]; then
     echo "$all_versions" | head -1
@@ -99,8 +94,11 @@ GO_BIN="${HOME}/.local/go/bin/go"
 install_go() {
   echo "--- Installing Go ${GO_VERSION} (${GOARCH})"
 
-  if command_exists go; then
-    CURRENT_GO=$(go version | awk '{print $3}' | sed 's/go//')
+  # Check the INSTALLED location, not PATH: a foreign Go at the pinned
+  # version on PATH must not skip the tarball install (everything below
+  # uses $GO_BIN, which would then be missing).
+  if [[ -x "$GO_BIN" ]]; then
+    CURRENT_GO="$("$GO_BIN" version | awk '{print $3}' | sed 's/^go//')"
     if [ "$CURRENT_GO" = "$GO_VERSION" ]; then
       echo "Go ${GO_VERSION} already installed. Skipping."
       write_go_shell_env
@@ -114,7 +112,12 @@ install_go() {
 
   mkdir -p "$HOME/.cache"
   echo "Downloading ${URL}..."
-  curl -fsSL -o "${HOME}/.cache/${TARBALL}" "$URL"
+  curl -fsSL --retry 3 -o "${HOME}/.cache/${TARBALL}" "$URL"
+
+  # Verify against go.dev's published SHA256 before extracting.
+  echo "Verifying SHA256 (${URL}.sha256)..."
+  expected_sha="$(curl -fsSL --retry 3 "${URL}.sha256")"
+  echo "${expected_sha}  ${HOME}/.cache/${TARBALL}" | sha256sum -c -
 
   GO_INSTALL_DIR="${HOME}/.local/go"
   echo "Installing to ${GO_INSTALL_DIR}..."
@@ -203,21 +206,24 @@ install_go_tools() {
       "${GO_BIN}" install "$pkg"
   }
 
-  # golangci-lint
-  echo "Installing golangci-lint..."
-  go_install_as_user github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+  # Idempotent per the step header: skip a tool whose binary already
+  # exists instead of re-installing @latest on every run (which would
+  # silently upgrade the toolchain). Delete the binary to force an
+  # upgrade.
+  install_tool() {
+    local pkg="$1" bin="$2"
+    if [[ -x "$HOME/go/bin/$bin" ]]; then
+      echo "$bin already installed — skipping (rm ~/go/bin/$bin to upgrade)"
+      return 0
+    fi
+    echo "Installing ${bin}..."
+    go_install_as_user "$pkg"
+  }
 
-  # gosec
-  echo "Installing gosec..."
-  go_install_as_user github.com/securego/gosec/v2/cmd/gosec@latest
-
-  # govulncheck
-  echo "Installing govulncheck..."
-  go_install_as_user golang.org/x/vuln/cmd/govulncheck@latest
-
-  # air (hot reload for Go)
-  echo "Installing air..."
-  go_install_as_user github.com/air-verse/air@latest
+  install_tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest golangci-lint
+  install_tool github.com/securego/gosec/v2/cmd/gosec@latest gosec
+  install_tool golang.org/x/vuln/cmd/govulncheck@latest govulncheck
+  install_tool github.com/air-verse/air@latest air
 
   echo "Go dev tools installed to $HOME/go/bin/"
 }
@@ -238,7 +244,8 @@ prune_orphan_gotoolchains() {
 
 # Persist GOPROXY / GOSUMDB / GOPRIVATE / GOTOOLCHAIN via `go env -w` so
 # non-interactive shells (CI, scripts, MCP-launched dev stack) inherit them
-# from ~/.config/go/env.
+# from ~/.config/go/env. GOPRIVATE is MERGED with any existing user-added
+# entries, never wholesale-overwritten.
 persist_go_env() {
   echo "--- Persisting go env"
   mkdir -p "$HOME/.config/go"
@@ -249,13 +256,26 @@ persist_go_env() {
     sed -i '/^GOROOT=/d' "$go_env_file"
   fi
 
-  env \
-    "HOME=$HOME" \
-    "PATH=${HOME}/.local/go/bin:${HOME}/go/bin:/usr/bin:/bin" \
-    "${GO_BIN}" env -w \
+  local go_env=(
+    env
+    "HOME=$HOME"
+    "PATH=${HOME}/.local/go/bin:${HOME}/go/bin:/usr/bin:/bin"
+    "${GO_BIN}"
+  )
+
+  # Merge github.com/broadminde-org/* into the existing GOPRIVATE.
+  local current merged
+  current="$("${go_env[@]}" env GOPRIVATE)"
+  merged="$current"
+  case ",$current," in
+    *,github.com/broadminde-org/\*,*) ;;
+    *) merged="${current:+$current,}github.com/broadminde-org/*" ;;
+  esac
+
+  "${go_env[@]}" env -w \
     GOPROXY="https://proxy.golang.org,direct" \
     GOSUMDB="sum.golang.org" \
-    GOPRIVATE="github.com/broadminde-org/*" \
+    GOPRIVATE="$merged" \
     "GOTOOLCHAIN=${GO_TOOLCHAIN_PIN}+auto"
 }
 
@@ -270,11 +290,11 @@ persist_go_env
 
 echo "--- Go summary"
 if command_exists "$GO_BIN"; then
-  echo "Go:            $($GO_BIN version)"
+  echo "Go:            $("$GO_BIN" version)"
   echo "go env:"
   "$GO_BIN" env GOPROXY GOSUMDB GOPRIVATE | sed 's/^/  /'
 fi
-[ -x "$HOME/go/bin/golangci-lint" ] && echo "golangci-lint: $($HOME/go/bin/golangci-lint version --short 2>/dev/null || echo 'installed')"
+[ -x "$HOME/go/bin/golangci-lint" ] && echo "golangci-lint: $("$HOME/go/bin/golangci-lint" version --short 2>/dev/null || echo 'installed')"
 [ -x "$HOME/go/bin/gosec" ]         && echo "gosec:         installed"
 [ -x "$HOME/go/bin/govulncheck" ]   && echo "govulncheck:   installed"
 [ -x "$HOME/go/bin/air" ]           && echo "air:           installed"

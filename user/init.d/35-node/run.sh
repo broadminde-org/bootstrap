@@ -32,20 +32,15 @@ resolve_node_version() {
   fi
 
   local index
-  index="$(curl -fsSL "https://nodejs.org/dist/index.json" 2>/dev/null)"
+  index="$(curl -fsSL --retry 3 "https://nodejs.org/dist/index.json" 2>/dev/null)"
   if [[ -z "$index" ]]; then
     echo "$pin"
     return
   fi
 
   # All version numbers, newest first (strip leading "v").
-  # Use `v[0-9]` not `v[0-9.]*` to avoid matching the bare `v` in
-  # the literal word "version" which grep -o would also emit.
   local all_versions
-  all_versions="$(printf '%s' "$index" \
-    | grep -o '"version":"v[^"]*"' \
-    | grep -oE 'v[0-9][0-9.]*' \
-    | sed 's/^v//')"
+  all_versions="$(printf '%s' "$index" | jq -r '.[].version' | sed 's/^v//')"
 
   if [[ "$pin" == "latest" ]]; then
     # First even-major entry is the latest LTS.
@@ -88,19 +83,25 @@ install_node() {
   echo "--- Installing Node.js v${EE_NODE_VERSION} via nvm"
 
   # Install nvm — download nvm.sh, nvm-exec, and bash_completion directly
-  # (avoids install.sh's git auto-detection and SSH config issues)
+  # (avoids install.sh's git auto-detection and SSH config issues).
+  # Pinned to the v0.40.4 COMMIT, not the tag — a git tag is mutable and
+  # could be re-pointed at hostile content.
   if [ ! -s "$NVM_DIR/nvm.sh" ]; then
     echo "Installing nvm..."
     mkdir -p "$NVM_DIR"
-    curl -fLo "$NVM_DIR/nvm.sh" https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/nvm.sh
-    curl -fLo "$NVM_DIR/nvm-exec" https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/nvm-exec
-    curl -fLo "$NVM_DIR/bash_completion" https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/bash_completion
+    NVM_COMMIT="62387b8f92aa012d48202747fd75c40850e5e261"  # v0.40.4
+    curl -fLo "$NVM_DIR/nvm.sh" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/nvm.sh"
+    curl -fLo "$NVM_DIR/nvm-exec" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/nvm-exec"
+    curl -fLo "$NVM_DIR/bash_completion" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/bash_completion"
     chmod a+x "$NVM_DIR/nvm-exec"
   fi
 
   source "$NVM_DIR/nvm.sh" --no-use
 
-  # Add nvm sourcing to .bashrc for interactive shells
+  # Add nvm sourcing to .bashrc for interactive shells.
+  # Single quotes intentional — these lines must reach .bashrc literally
+  # and expand only when the user's shell sources it.
+  # shellcheck disable=SC2016
   if ! grep -qF 'NVM_DIR' "$HOME/.bashrc" 2>/dev/null; then
     printf '\n%s\n%s\n%s\n' \
       'export NVM_DIR="$HOME/.nvm"' \
@@ -161,26 +162,47 @@ install_packages() {
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
 
     pkg_spec="$line"
-    # Strip trailing version (@version) to get the bare package name.
-    # For scoped packages like @playwright/test (no trailing @version), the
-    # name is the full spec — ${pkg%@*} would strip from the leading @ yielding
-    # empty. Only strip if there is a non-leading @ (i.e. a version suffix).
-    if [[ "$pkg_spec" =~ ^(@[^@/]+/[^@]+|[^@]+)@.+ ]]; then
-      pkg_name="${pkg_spec%@*}"
+    # Split spec into name + optional pinned version. The pin separator is
+    # the LAST @: `@playwright/test` is a bare scoped name (no pin),
+    # `@playwright/test@1.50.0` is name @playwright/test pinned to 1.50.0.
+    if [[ "$pkg_spec" =~ ^(@[^@/]+/[^@]+|[^@]+)@(.+)$ ]]; then
+      pkg_name="${BASH_REMATCH[1]}"
+      pkg_version="${BASH_REMATCH[2]}"
     else
       pkg_name="$pkg_spec"
+      pkg_version=""
     fi
 
     if [ "$pkg_name" = "@playwright/test" ]; then
       has_playwright=true
     fi
 
-    if echo "$npm_list" | grep -q " ${pkg_name}@"; then
-      echo "${pkg_name} already installed globally"
+    # Resolve the installed version (if any) from the npm list snapshot.
+    # `npm list -g --depth=0` prints `├── name@ver` — strip the tree
+    # prefix, split at the LAST @, compare names exactly.
+    installed_ver="$(printf '%s\n' "$npm_list" | awk -v want="$pkg_name" '
+      {
+        line=$0
+        sub(/^[├└]── /, "", line)
+        pos=0
+        for (i=1; i<=length(line); i++) if (substr(line,i,1)=="@") pos=i
+        if (pos==0) next
+        if (substr(line,1,pos-1)==want) { print substr(line,pos+1); exit }
+      }')"
+
+    # Unpinned spec: any installed version suffices. Pinned spec: reinstall
+    # when the installed version differs — a version bump in packages.txt
+    # must actually take effect.
+    if [[ -n "$installed_ver" && ( -z "$pkg_version" || "$installed_ver" == "$pkg_version" ) ]]; then
+      echo "${pkg_name} already installed globally${pkg_version:+ at pinned ${pkg_version}}"
       continue
     fi
 
-    echo "Installing ${pkg_spec}..."
+    if [[ -n "$installed_ver" ]]; then
+      echo "Reinstalling ${pkg_name}: installed ${installed_ver}, pinned ${pkg_version}..."
+    else
+      echo "Installing ${pkg_spec}..."
+    fi
     npm install -g "$pkg_spec"
   done < "$packages_file"
 

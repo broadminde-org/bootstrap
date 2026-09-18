@@ -46,11 +46,15 @@
 # resolve it to the actual latest stable release.
 resolve_latest_uv() {
   local tag
-  tag="$(curl -fsSL "https://api.github.com/repos/astral-sh/uv/releases/latest" 2>/dev/null \
-    | grep -o '"tag_name": *"[^"]*"' \
-    | head -1 \
-    | grep -o '[0-9][^"]*')"
-  echo "${tag:-0.9.0}"
+  tag="$(curl -fsSL --retry 3 "https://api.github.com/repos/astral-sh/uv/releases/latest" 2>/dev/null \
+    | jq -r '.tag_name // empty')"
+  if [[ -z "$tag" ]]; then
+    echo "ERROR: could not resolve the latest uv release from the GitHub API." >&2
+    echo "       Pin an explicit version (versions: uv: in bootstrap.conf.yml)" >&2
+    echo "       or check connectivity to api.github.com." >&2
+    exit 1
+  fi
+  echo "$tag"
 }
 
 resolve_latest_python() {
@@ -143,13 +147,15 @@ fi
 # ---------------------------------------------------------------------------
 
 # `uv python list --only-installed` prints installed interpreters
-# e.g. "cpython-3.14.0-<platform>-<libc>-x86_64-gnu". We accept any
-# installed CPython whose major.minor prefix matches EE_PYTHON_VERSION.
+# e.g. "cpython-3.14.0-<platform>-<libc>-x86_64-gnu" — note the HYPHEN
+# after the version. Accept any installed CPython whose version is
+# EE_PYTHON_VERSION followed by '.', '-', or end (exact pins and
+# major.minor prefixes both match).
 python_already=0
 if [[ -n "$UV_CMD" ]]; then
   if "$UV_CMD" python list --only-installed 2>/dev/null \
         | awk '{print $1}' \
-        | grep -E "^cpython-${EE_PYTHON_VERSION}(\.|$)" >/dev/null; then
+        | grep -E "^cpython-${EE_PYTHON_VERSION}(\.|-|$)" >/dev/null; then
     python_already=1
   fi
 fi

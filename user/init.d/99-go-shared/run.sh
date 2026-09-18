@@ -189,9 +189,15 @@ configure_repo_access \
   "frontend-shared-read"
 
 # Keep the private-module scope explicit for non-interactive Go commands.
+# Merge into any existing GOPRIVATE — never wholesale-overwrite entries
+# the user added for other private hosts.
 
 if command -v go >/dev/null 2>&1; then
-  go env -w GOPRIVATE='github.com/broadminde-org/*'
+  current_goprivate="$(go env GOPRIVATE)"
+  case ",$current_goprivate," in
+    *,github.com/broadminde-org/\*,*) ;;
+    *) go env -w GOPRIVATE="${current_goprivate:+$current_goprivate,}github.com/broadminde-org/*" ;;
+  esac
 fi
 
 echo "Broadminde shared-repository access configured and verified."

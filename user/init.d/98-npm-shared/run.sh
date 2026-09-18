@@ -40,9 +40,10 @@ fi
 if [[ -z "$PACKAGES_TOKEN" && -f "$REPO_ROOT/.env" ]]; then
   # Transitional fallback: the pre-ADR-0001 store. `github-access packages`
   # migrates the token to $PACKAGES_TOKEN_FILE and removes this entry.
-  # shellcheck disable=SC1091
-  . "$REPO_ROOT/.env"
-  PACKAGES_TOKEN="${BROADMINDE_PACKAGES_TOKEN:-}"
+  # Parse the single key — sourcing .env would execute arbitrary shell
+  # and trip on unset-variable references under set -u.
+  PACKAGES_TOKEN="$(grep -E '^BROADMINDE_PACKAGES_TOKEN=' "$REPO_ROOT/.env" \
+    | head -n 1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
   if [[ -n "$PACKAGES_TOKEN" ]]; then
     echo "NOTE: using legacy bootstrap/.env token; run 'github-access packages' to migrate it to ~/.config/gh/."
   fi

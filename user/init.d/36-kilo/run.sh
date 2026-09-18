@@ -20,9 +20,12 @@ if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
   exit 1
 fi
 
-# Re-select the Node version that 35-node installed.
+# Re-select the Node version that 35-node installed. 35-node always
+# points nvm's `default` alias at the RESOLVED pin, so use the alias —
+# EE_NODE_VERSION here may still be the raw pin ("latest", "24"), which
+# nvm cannot resolve ("latest" is not an nvm alias at all).
 source "$NVM_DIR/nvm.sh" --no-use
-nvm use --delete-prefix "$EE_NODE_VERSION" >/dev/null
+nvm use --delete-prefix default >/dev/null
 
 # Remove legacy native binary installs (from the former GitHub-release step).
 rm -f "$HOME/.local/bin/kilo" "$HOME/.kilo/bin/kilo"

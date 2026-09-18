@@ -4,7 +4,9 @@
 # Packages already installed are skipped (idempotent).
 #
 # @playwright/test gets special handling: after install, browsers
-# (chromium, firefox, webkit) are installed via `npx playwright install --with-deps`.
+# (chromium, firefox, webkit) are installed via `npx playwright install`
+# — deliberately WITHOUT --with-deps: OS library deps need root and are
+# owned by the root tier (init.d/06-playwright-deps).
 
 @playwright/test
 

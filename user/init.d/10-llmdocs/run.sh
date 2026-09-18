@@ -32,11 +32,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # 1. Copy llmdocs/ to $HOME/llmdocs/
+#
+# sync_dir_preserve (not rm -rf + cp -r): local edits/extras the user
+# added under ~/llmdocs survive a re-run; stale bootstrap-managed files
+# are updated in place.
 # ---------------------------------------------------------------------------
 
-rm -rf "$LLMDOCS_DST"
-cp -r "$LLMDOCS_SRC" "$LLMDOCS_DST"
-echo "Copied llmdocs/ to ${LLMDOCS_DST}/"
+sync_dir_preserve "$LLMDOCS_SRC" "$LLMDOCS_DST"
 
 # ---------------------------------------------------------------------------
 # 2. Install wrapper at $HOME/.local/bin/llmdocs
