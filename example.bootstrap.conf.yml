@@ -13,6 +13,11 @@
 # name per line). A step whose `.requires` lists at least one disabled
 # capability is skipped. Steps without a `.requires` file always run.
 #
+# A capability is enabled ONLY when it is listed here and set to true.
+# Unlisted capabilities are disabled, so a host conf should list every
+# capability explicitly (as this example does) — a missing key can never
+# silently turn a feature on.
+#
 #   docker  Docker CE + lazydocker. Required for any host that runs containers
 #           (app servers, CI runners, registries).
 #
@@ -90,3 +95,23 @@ skills:
 caddy:
   base_domain: example.com
   wildcards: ""
+
+# ── GitHub credential role ───────────────────────────────────────────────────
+#
+# Read by bootstrap-access (the interactive credential walk) when the dev
+# capability is enabled. This is host credential breadth, NOT a capability:
+# no init.d step is gated on it and no token is minted by flipping it —
+# the walk validates/re-collects the stored classic PATs to match.
+#
+#   packages_write  true on publish hosts: the GitHub Packages PAT gets
+#                   write:packages in addition to read:packages. Also set
+#                   before running `github-access setup --ci`.
+#   source_rw       true on hosts that push source / open issues / PRs:
+#                   collects the separate repo,workflow classic PAT.
+#
+# Keys are false when unlisted or absent — a dev host with no github:
+# section gets read-only package access and no source RW token.
+
+github:
+  packages_write: false
+  source_rw: false

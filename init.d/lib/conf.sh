@@ -14,11 +14,19 @@
 #   skills:              # npx skills installation targets
 #     agents: "kilo"
 #
+#   github:              # host credential role (drives bootstrap-access)
+#     packages_write: false
+#     source_rw: false
+#
 # Replaces the former caps.sh (capabilities only, bash-regex parser) and
 # user/init.d/lib/versions.sh (versions only, standalone awk parser).
 # All sections are parsed by a single section-aware awk function.
 #
 # Public interface:
+#   resolve_conf_file                print the active config file path
+#                                    (<hostname>.conf.yml over
+#                                    bootstrap.conf.yml); returns 1 when
+#                                    neither exists
 #   load_conf [config_file]          parse and cache the config; safe to call
 #                                    multiple times (idempotent after first load)
 #   cap_enabled <name>               returns 0 if capability is enabled
@@ -26,6 +34,7 @@
 #   get_pinned_version <tool> [def]  returns pinned version string or default
 #   get_skills_conf <key> [def]      returns skills section value or default
 #   get_caddy_conf <key> [def]       returns caddy section value or default
+#   get_github_conf <key> [def]      returns github section value or default
 #
 # When no config_file is provided, load_conf resolves the default in order:
 #   1. $BOOTSTRAP_CONFIG_FILE (environment) — exported by both init.sh runners
@@ -51,12 +60,37 @@ declare -A _CAP_ENABLED
 declare -A _TOOL_VERSION
 declare -A _SKILLS_CONF
 declare -A _CADDY_CONF
+declare -A _GITHUB_CONF
 _CONF_LOADED=0
 
 # Infer default config path from this file's own location.
 # conf.sh: bootstrap/init.d/lib/conf.sh → ../../ → bootstrap/bootstrap.conf.yml
 _CONF_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_DEFAULT_CONF="${BOOTSTRAP_CONFIG_FILE:-$(cd "$_CONF_SH_DIR/../.." && pwd)/bootstrap.conf.yml}"
+_CONF_ROOT="$(cd "$_CONF_SH_DIR/../.." && pwd)"
+_DEFAULT_CONF="${BOOTSTRAP_CONFIG_FILE:-$_CONF_ROOT/bootstrap.conf.yml}"
+
+# resolve_conf_file — print the active config file path:
+#   <repo root>/<hostname>.conf.yml when present, else
+#   <repo root>/bootstrap.conf.yml.
+#
+# The repo root is inferred from this file's own location, so the result
+# always matches the conf.sh copy that was sourced (every caller sources
+# conf.sh from the checkout it wants to configure). Returns 1 when neither
+# file exists; the caller decides how to report that (the runners proceed
+# with all capabilities disabled, the interactive access scripts abort).
+resolve_conf_file() {
+  local hostname_conf default_conf
+  hostname_conf="$_CONF_ROOT/$(hostname).conf.yml"
+  default_conf="$_CONF_ROOT/bootstrap.conf.yml"
+
+  if [[ -f "$hostname_conf" ]]; then
+    printf '%s\n' "$hostname_conf"
+  elif [[ -f "$default_conf" ]]; then
+    printf '%s\n' "$default_conf"
+  else
+    return 1
+  fi
+}
 
 # _parse_section <file> <section>
 #
@@ -119,14 +153,19 @@ load_conf() {
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _CADDY_CONF["$key"]="$val"
   done < <(_parse_section "$config_file" "caddy")
+
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _GITHUB_CONF["$key"]="$val"
+  done < <(_parse_section "$config_file" "github")
 }
 
 # cap_enabled <name>
 #
-# Returns 0 (true) if the named capability is enabled. Returns 1 otherwise.
+# Returns 0 (true) only if the named capability is explicitly set to "true"
+# in the loaded config. Returns 1 otherwise: unlisted capabilities are
+# disabled (allowlist — the conf names everything a host turns on, so a
+# typo'd key or a newly introduced capability can never silently activate).
 # If no config was loaded, all capabilities are disabled.
-# Capabilities not present in the config are treated as enabled (opt-in
-# gating: the config only needs to name capabilities it wants to disable).
 cap_enabled() {
   local cap="$1"
 
@@ -134,7 +173,7 @@ cap_enabled() {
     return 1
   fi
   if [[ ! -v _CAP_ENABLED[$cap] ]]; then
-    return 0
+    return 1
   fi
   [[ "${_CAP_ENABLED[$cap]}" == "true" ]]
 }
@@ -210,6 +249,26 @@ get_caddy_conf() {
 
   if [[ -v _CADDY_CONF[$key] && -n "${_CADDY_CONF[$key]}" ]]; then
     echo "${_CADDY_CONF[$key]}"
+  else
+    echo "$default"
+  fi
+}
+
+# get_github_conf <key> [default]
+#
+# Returns a key from the github: section (host credential role:
+# packages_write, source_rw), or <default> (empty) when unset or the
+# section is absent — both mean the host holds read-only credentials.
+get_github_conf() {
+  local key="$1"
+  local default="${2:-}"
+
+  if [[ "$_CONF_LOADED" == "0" ]]; then
+    load_conf
+  fi
+
+  if [[ -v _GITHUB_CONF[$key] && -n "${_GITHUB_CONF[$key]}" ]]; then
+    echo "${_GITHUB_CONF[$key]}"
   else
     echo "$default"
   fi

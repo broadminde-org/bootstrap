@@ -86,15 +86,12 @@ done
 # Load capability config
 # ---------------------------------------------------------------------------
 
-CAPS_CONFIG=""
-_hostname_conf="$SCRIPT_DIR/$(hostname).conf.yml"
-_default_conf="$SCRIPT_DIR/bootstrap.conf.yml"
-if [[ -f "$_hostname_conf" ]]; then
-  CAPS_CONFIG="$_hostname_conf"
-elif [[ -f "$_default_conf" ]]; then
-  CAPS_CONFIG="$_default_conf"
-fi
-unset _hostname_conf _default_conf
+# shellcheck source=init.d/lib/conf.sh
+. "$SCRIPT_DIR/init.d/lib/conf.sh"
+
+# resolve_conf_file applies the hostname-override rule: <hostname>.conf.yml
+# takes precedence over bootstrap.conf.yml when both exist.
+CAPS_CONFIG="$(resolve_conf_file || true)"
 
 # Export the runner-selected file so step subshells that re-source conf.sh
 # and call load_conf with no arguments resolve the same config (see conf.sh).
@@ -102,8 +99,6 @@ if [[ -n "$CAPS_CONFIG" ]]; then
   export BOOTSTRAP_CONFIG_FILE="$CAPS_CONFIG"
 fi
 
-# shellcheck source=init.d/lib/conf.sh
-. "$SCRIPT_DIR/init.d/lib/conf.sh"
 load_conf "$CAPS_CONFIG"
 
 # ---------------------------------------------------------------------------
