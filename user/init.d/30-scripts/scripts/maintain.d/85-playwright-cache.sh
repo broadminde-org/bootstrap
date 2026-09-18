@@ -20,8 +20,11 @@ log_info "removing Playwright browser cache (${size_before}) from $CACHE_DIR"
 log_warn "'npx playwright install' will be needed before running E2E tests"
 run_cmd rm -rf "$CACHE_DIR"
 
-if [[ ! -d "$CACHE_DIR" ]]; then
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  : # post-state check is meaningless in dry-run — nothing was removed
+elif [[ ! -d "$CACHE_DIR" ]]; then
   log_ok "removed Playwright browser cache (freed ${size_before})"
 else
   log_err "failed to remove Playwright browser cache"
+  exit 1
 fi

@@ -35,8 +35,15 @@ prune_results_dir() {
   local results_dir="${1:-}"
   local keep="${2:-${EE_RESULTS_KEEP:-10}}"
 
+  # Numeric-validate: a non-numeric EE_RESULTS_KEEP must not reach the
+  # arithmetic/tests below (and silently disable or crash pruning).
+  if [[ ! "$keep" =~ ^[0-9]+$ ]]; then
+    echo "retention: EE_RESULTS_KEEP='$keep' is not numeric — skipping prune" >&2
+    return 0
+  fi
+
   # EE_RESULTS_KEEP=0 → pruning disabled
-  if [[ "$keep" -eq 0 ]] 2>/dev/null; then
+  if [[ "$keep" -eq 0 ]]; then
     return 0
   fi
 
@@ -45,10 +52,16 @@ prune_results_dir() {
     return 0
   fi
 
-  # Safety guard: resolve and refuse paths outside PROJECT_DIR
+  # Safety guard: resolve and refuse paths outside PROJECT_DIR. Soft
+  # checks only — the header contract is "never blocks the caller", so
+  # no `${PROJECT_DIR:?}` (which would abort the sourcing script).
+  if [[ -z "${PROJECT_DIR:-}" ]]; then
+    echo "retention: PROJECT_DIR not set — skipping prune" >&2
+    return 0
+  fi
   local resolved
   resolved="$(readlink -f "$results_dir" 2>/dev/null || echo "")"
-  if [[ -z "$resolved" || "$resolved" != "${PROJECT_DIR:?PROJECT_DIR not set}"/* ]]; then
+  if [[ -z "$resolved" || "$resolved" != "$PROJECT_DIR"/* ]]; then
     echo "retention: refusing to prune outside PROJECT_DIR: $results_dir" >&2
     return 0
   fi
@@ -96,12 +109,14 @@ prune_results_dir() {
     fi
   fi
 
-  # Delete unprotected directories
+  # Delete unprotected directories. Delete via the RESOLVED path (the
+  # one the safety guard validated), never the unresolved input.
   local removed=0
   local kept=0
   for name in "${sorted_dirs[@]}"; do
     if [[ -z "${protected[$name]+_}" ]]; then
-      rm -rf -- "${results_dir}/${name}"
+      # shellcheck disable=SC2115  # resolved is guarded non-empty + under PROJECT_DIR above
+      rm -rf -- "${resolved}/${name}"
       removed=$((removed + 1))
     else
       kept=$((kept + 1))

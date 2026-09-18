@@ -16,12 +16,22 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
-RETENTION_LIB="${EE_ROOT}/infra/mcp/lib/retention.sh"
+# ee-layout step: never run against the EE_ROOT=$HOME fallback.
+require_ee_layout
+
+# retention.sh lives in the deployed scripts tree (~/scripts/lib) —
+# source that copy, not the ee monorepo's infra/mcp path, so the step
+# works on any host this scripts tree is deployed to.
+RETENTION_LIB="${SCRIPT_ROOT}/lib/retention.sh"
 if [[ ! -f "$RETENTION_LIB" ]]; then
   log_skip "retention.sh not found at $RETENTION_LIB"
   exit 0
 fi
+# shellcheck disable=SC1090  # deployed path — resolved at install time
 source "$RETENTION_LIB"
+
+# retention.sh's safety guard validates against PROJECT_DIR.
+export PROJECT_DIR="$EE_ROOT"
 
 KEEP="${EE_RESULTS_KEEP:-10}"
 
@@ -33,7 +43,8 @@ log_step "pruning old results directories (keep: $KEEP)"
 results_dirs=()
 while IFS= read -r -d '' rd; do
   results_dirs+=("$rd")
-done < <(find "$EE_ROOT" -type d \( \
+done < <(find "$EE_ROOT" \( -name node_modules -o -name .git -o -name .cache \) -prune \
+  -o -type d \( \
   -name 'test-results' -o \
   -name 'build-results' -o \
   -name 'update-results' -o \
@@ -83,7 +94,8 @@ while IFS= read -r -d '' results_dir; do
     done
     (( cleaned_dirs++ )) || true
   done
-done < <(find "$EE_ROOT" -type d -name 'test-results' -print0 2>/dev/null)
+done < <(find "$EE_ROOT" \( -name node_modules -o -name .git -o -name .cache \) -prune \
+  -o -type d -name 'test-results' -print0 2>/dev/null)
 
 if [[ $cleaned_dirs -eq 0 ]]; then
   log_info "no test-results directories found"

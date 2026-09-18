@@ -17,9 +17,9 @@ if [[ ! -d "$KILO_STATE_DIR" ]]; then
 fi
 
 # Check if Kilo process is running
-if pgrep -u "${SUDO_USER:-$USER}" -f 'kilo serve' >/dev/null 2>&1; then
+if kilo_running; then
   log_warn "Kilo process is running — cannot reset state while agent is active"
-  log_info "stop Kilo first, then re-run with --all --only 45"
+  log_info "stop Kilo first, then re-run with: maintain 135"
   exit 0
 fi
 

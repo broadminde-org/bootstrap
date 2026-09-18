@@ -17,18 +17,43 @@ active=""
 if command -v node >/dev/null 2>&1; then
   active="$(node --version)"  # e.g. v24.15.0
 fi
-# Also read alias/default as a fallback (normalise: add 'v' prefix if missing)
+# Also read alias/default as a fallback (normalise: add 'v' prefix if
+# missing). Only numeric aliases resolve to an installed dir — symbolic
+# aliases (lts/*, node, stable) do not and must not be treated as one.
 alias_ver=""
 if [[ -f "$NVM_DIR/alias/default" ]]; then
-  alias_ver="$(cat "$NVM_DIR/alias/default")"
-  [[ "$alias_ver" == v* ]] || alias_ver="v$alias_ver"
+  raw_alias="$(cat "$NVM_DIR/alias/default")"
+  if [[ "$raw_alias" =~ ^v?[0-9] ]]; then
+    alias_ver="$raw_alias"
+    [[ "$alias_ver" == v* ]] || alias_ver="v$alias_ver"
+  fi
 fi
+
+# Total-deletion guard: with neither reference resolvable, every installed
+# version would fail the keep-match below and ALL of them would be removed.
+if [[ -z "$active" && -z "$alias_ver" ]]; then
+  log_skip "cannot determine the active Node version (no node on PATH, no resolvable ~/.nvm/alias/default) — refusing to prune"
+  exit 0
+fi
+
+# Keep-match: exact, or prefix-match a partial alias against installed
+# dirs (alias "24" / "v24" keeps installed "v24.15.0").
+is_keeper() {
+  local ver="$1" keeper
+  for keeper in "$active" "$alias_ver"; do
+    [[ -z "$keeper" ]] && continue
+    if [[ "$ver" == "$keeper" || "$ver" == "$keeper".* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
 removed=0
 for ver_dir in "$VERSIONS_DIR"/*; do
   [[ -d "$ver_dir" ]] || continue
   ver="$(basename "$ver_dir")"
-  if [[ (-n "$active" && "$ver" == "$active") || (-n "$alias_ver" && "$ver" == "$alias_ver") ]]; then
+  if is_keeper "$ver"; then
     log_info "keeping active version: $ver"
     continue
   fi

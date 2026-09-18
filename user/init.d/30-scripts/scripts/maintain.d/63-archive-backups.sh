@@ -7,6 +7,10 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
+# ee-layout step: never run against the EE_ROOT=$HOME fallback —
+# otherwise a tier-1 maintain on a non-ee host deletes from ~/archive.
+require_ee_layout
+
 ARCHIVE_DIR="$EE_ROOT/archive"
 RETENTION_DAYS="${ARCHIVE_RETENTION_DAYS:-30}"
 

@@ -21,9 +21,9 @@ fi
 
 size_before="$(human_size "$CACHE_DIR")"
 log_info "uv cache before: $size_before"
-# uv cache clean prompts interactively. Pipe `yes` to handle that.
-# Use --force so it doesn't hang waiting for in-use locks.
+# --force removes the cache even when another uv process holds its lock;
+# no interactive prompt exists in that path, so no `yes |` cargo-cult.
 # Tier 2: cache regenerates on next `uv sync`/`uv pip install`.
-yes | user_run uv cache clean --force 2>/dev/null
+user_run uv cache clean --force 2>/dev/null
 size_after="$(human_size "$CACHE_DIR")"
 log_ok "uv cache after: $size_after"

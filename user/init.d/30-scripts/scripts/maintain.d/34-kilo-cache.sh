@@ -19,8 +19,11 @@ size_before="$(human_size "$PACKAGES_DIR")"
 log_info "removing Kilo package cache (${size_before}) from $PACKAGES_DIR"
 run_cmd rm -rf "$PACKAGES_DIR"
 
-if [[ ! -d "$PACKAGES_DIR" ]]; then
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  : # post-state check is meaningless in dry-run — nothing was removed
+elif [[ ! -d "$PACKAGES_DIR" ]]; then
   log_ok "removed Kilo package cache (freed ${size_before})"
 else
   log_err "failed to remove Kilo package cache"
+  exit 1
 fi

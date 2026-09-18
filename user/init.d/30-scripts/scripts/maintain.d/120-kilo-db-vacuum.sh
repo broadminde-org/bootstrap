@@ -24,9 +24,9 @@ fi
 size_before=$(du -h "$KILO_DB" 2>/dev/null | awk '{print $1}')
 
 # Check if Kilo process is running
-if pgrep -u "${SUDO_USER:-$USER}" -f 'kilo serve' >/dev/null 2>&1; then
+if kilo_running; then
   log_warn "Kilo process is running — DB vacuum will be skipped (lock risk)"
-  log_info "stop Kilo first, then re-run with --all --only 35"
+  log_info "stop Kilo first, then re-run with: maintain 120"
   exit 0
 fi
 

@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # env.sh — derive SCRIPT_ROOT and EE_ROOT for maintain scripts
 #
 # Lives at $HOME/scripts/lib/env.sh. Sets SCRIPT_ROOT and EE_ROOT

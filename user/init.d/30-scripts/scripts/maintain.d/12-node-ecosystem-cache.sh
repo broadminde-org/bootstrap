@@ -6,6 +6,7 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/maintain-common.sh"
 
 skipped=()
+step_failed=0
 
 # --- npm cache ---
 log_step "npm cache"
@@ -28,18 +29,28 @@ fi
 
 # --- NVM download cache ---
 log_step "nvm download cache"
-NVM_CACHE="${NVM_DIR:-$REAL_HOME/.nvm}/.cache"
-if [[ ! -d "$NVM_CACHE" ]]; then
+# Safety: only touch $NVM_DIR/.cache when $NVM_DIR is a real nvm install
+# (nvm.sh present) — a misconfigured NVM_DIR=$HOME would otherwise turn
+# this into `rm -rf ~/.cache`.
+NVM_DIR_RESOLVED="${NVM_DIR:-$REAL_HOME/.nvm}"
+NVM_CACHE="$NVM_DIR_RESOLVED/.cache"
+if [[ ! -f "$NVM_DIR_RESOLVED/nvm.sh" ]]; then
+  log_skip "nvm not found at $NVM_DIR_RESOLVED (no nvm.sh) — refusing to touch its .cache"
+  skipped+=(nvm)
+elif [[ ! -d "$NVM_CACHE" ]]; then
   log_skip "NVM cache directory not found at $NVM_CACHE"
   skipped+=(nvm)
 else
   size_before="$(human_size "$NVM_CACHE")"
   log_info "removing NVM download cache (${size_before}) from $NVM_CACHE"
   run_cmd rm -rf "$NVM_CACHE"
-  if [[ ! -d "$NVM_CACHE" ]]; then
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    : # post-state check is meaningless in dry-run — nothing was removed
+  elif [[ ! -d "$NVM_CACHE" ]]; then
     log_ok "removed NVM download cache (freed ${size_before})"
   else
     log_err "failed to remove NVM download cache"
+    step_failed=1
   fi
 fi
 
@@ -61,3 +72,6 @@ log_ok "Cleaned build artifacts ($cleaned projects)"
 if [[ ${#skipped[@]} -gt 0 ]]; then
   log_info "skipped: ${skipped[*]}"
 fi
+
+# Surface failures to the runner (maintain counts non-zero exits).
+exit "$step_failed"

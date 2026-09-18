@@ -16,15 +16,20 @@ if [[ ! -d "$DUMP_DIR" ]]; then
   exit 0
 fi
 
-# Find date-stamped dump directories (e.g., 2026-05-25T... or similar)
-count_before=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+# Find date-stamped dump directories. The name predicate is required:
+# without it, ANY subdirectory of the VSCodium state dir older than the
+# retention window would be deleted. Observed formats:
+#   20260918T030327   (compact YYYYMMDDTHHMMSS — this host)
+#   2026-05-25T…      (dashed ISO variant)
+DUMP_PRED=( -name '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T*' -o -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*' )
+count_before=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d \( "${DUMP_PRED[@]}" \) 2>/dev/null | wc -l)
 
 if [[ $count_before -eq 0 ]]; then
   log_info "no VSCodium dump directories found"
   exit 0
 fi
 
-candidates=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETENTION_DAYS}" 2>/dev/null | wc -l)
+candidates=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d \( "${DUMP_PRED[@]}" \) -mtime "+${RETENTION_DAYS}" 2>/dev/null | wc -l)
 
 if [[ $candidates -eq 0 ]]; then
   log_info "no VSCodium dump directories older than $RETENTION_DAYS days"
@@ -32,7 +37,7 @@ if [[ $candidates -eq 0 ]]; then
 fi
 
 log_info "removing $candidates VSCodium dump directory(ies) older than $RETENTION_DAYS days from $DUMP_DIR"
-run_cmd find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "+${RETENTION_DAYS}" -exec rm -rf {} + 2>/dev/null || true
+run_cmd find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d \( "${DUMP_PRED[@]}" \) -mtime "+${RETENTION_DAYS}" -exec rm -rf {} + 2>/dev/null || true
 
-count_after=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+count_after=$(find "$DUMP_DIR" -mindepth 1 -maxdepth 1 -type d \( "${DUMP_PRED[@]}" \) 2>/dev/null | wc -l)
 log_ok "removed $((count_before - count_after)) dump directory(ies); $count_after remaining"

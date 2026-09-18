@@ -12,5 +12,15 @@ if ! require_cmd docker; then
   exit 0
 fi
 
-run_cmd docker builder prune -f --filter "until=24h"
-log_ok "Docker builder pruned"
+# require_cmd only proves the binary exists — the prune needs the DAEMON.
+if ! user_run docker info >/dev/null 2>&1; then
+  log_skip "docker daemon not reachable — skipping builder prune"
+  exit 0
+fi
+
+if run_cmd docker builder prune -f --filter "until=24h"; then
+  log_ok "Docker builder pruned"
+else
+  log_err "docker builder prune failed"
+  exit 1
+fi
