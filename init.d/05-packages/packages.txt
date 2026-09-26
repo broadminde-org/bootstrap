@@ -62,6 +62,9 @@ build-essential
 # Shell script linting
 shellcheck
 
+# Test tooling (bats test runner for ci-test contract tests)
+bats
+
 # Fast recursive code search
 ripgrep
 
