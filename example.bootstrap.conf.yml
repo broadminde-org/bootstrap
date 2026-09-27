@@ -41,9 +41,9 @@
 #           proxy for all app stacks on the host. Snippets register via
 #           caddy-route. Requires docker. Gated on both: docker AND caddy.
 #
-#   woodpecker  Woodpecker CI local-backend account (45-woodpecker-local):
-#           provisions the unprivileged `woodpecker` system user and its
-#           per-user toolchains. Only enable on hosts that run CI jobs.
+#   woodpecker  RETIRED — 45-woodpecker-local is .disabled. The local
+#           backend agent runs as the deploy user via a user systemd unit
+#           provisioned by the ci repo's init.d/20-agent-local.
 
 capabilities:
   docker: true

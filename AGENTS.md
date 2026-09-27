@@ -84,7 +84,7 @@ Current capability map (verify against `*/.requires` files before editing):
 | `kvm` | `init.d/57-kvm` |
 | `dev` | `init.d/06-playwright-deps`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec` |
-| `woodpecker` | `init.d/45-woodpecker-local` |
+| `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled`; the local backend agent runs as the deploy user via a user systemd unit provisioned by the ci repo's `init.d/20-agent-local` |
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
 node — `"latest"`, `"24"`, `"1.26"`, or `"1.26.4"`), `skills:` (npx skills

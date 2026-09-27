@@ -231,7 +231,7 @@ capabilities is disabled.
 | `kvm` | 57-kvm | `false` |
 | `dev` | 06-playwright-deps, user-tier 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
-| `woodpecker` | 45-woodpecker-local | `false` |
+| `woodpecker` | RETIRED — 45-woodpecker-local.disabled (local agent runs as deploy user via ci repo) | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 20-groups, 30-sudo, 40-profile, 51-ssh-hardening, 52-ufw,
@@ -364,7 +364,7 @@ bootstrap/
 │   │   └── wrappers/                 # root-owned /usr/local/sbin helpers (drop-caches, prune-text-logs)
 │   ├── 40-profile/                   # writes bootstrap-managed PATH block to the deploy user's .profile
 │   │   └── profile.snippet           # idempotent ~/.local/bin + ~/.kilo/bin PATH block
-│   ├── 45-woodpecker-local/          # unprivileged woodpecker account + plugin-git for local backend (woodpecker-gated)
+│   ├── 45-woodpecker-local.disabled/ # RETIRED: local agent runs as deploy user via ci/init.d/20-agent-local
 │   ├── 50-docker/                    # installs Docker CE + Compose plugin, merges daemon.json
 │   ├── 51-ssh-hardening/             # PermitRootLogin no via 00-bootstrap-*.conf drop-ins; sshd -t + effective-value assertions
 │   ├── 52-ufw/                       # ufw install + rule staging + gated auto-enable (MGMT_SSH_CIDR from .env)

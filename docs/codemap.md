@@ -80,7 +80,7 @@ pins default to `latest`.
 | `kvm` | `init.d/57-kvm` |
 | `dev` | `init.d/06-playwright-deps`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
-| `woodpecker` | `init.d/45-woodpecker-local` |
+| `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled` (local agent runs as deploy user via ci repo) |
 
 Steps that act on the deploy account (`20-groups`, `30-passwordless-sudo`,
 `40-profile`, `51-ssh-hardening`, `55-lazydocker`, `56-ssh-client`, `57-kvm`)
@@ -103,7 +103,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `20-groups` | Adds the resolved deploy user to groups listed in `groups.txt`: `adm`, `docker`, `sudo`, and `systemd-journal`. |
 | `30-passwordless-sudo` | Manages a validated (temp-file + `visudo -cf` before install) sudoers drop-in with verb-scoped systemctl entries, the exact cscli bouncer commands, and the root-owned maintenance wrappers it installs to `/usr/local/sbin/`. |
 | `40-profile` | Adds the marker-guarded PATH block for `~/.local/bin` and `~/.kilo/bin` to the deploy user’s `~/.profile`. |
-| `45-woodpecker-local` | Creates the unprivileged `woodpecker` service account and home, then runs selected user-tier toolchain steps for that account; installs a SHA256-verified `plugin-git`. Requires `woodpecker`. |
+| `45-woodpecker-local.disabled` | RETIRED — formerly provisioned a dedicated `woodpecker` service account for the local backend. Canonical architecture: the local agent runs as the deploy user via a user systemd unit from the ci repo's `init.d/20-agent-local`. Kept for reference only; never re-enable without an ADR. |
 | `50-docker` | Installs Docker CE, Compose/buildx plugins, and merges dual-stack IPv4/IPv6 daemon settings into `daemon.json` (app-added keys survive re-runs; fingerprint-pinned GPG key). Requires `docker`. |
 | `51-ssh-hardening` | Applies sshd hardening via `00-bootstrap-*.conf` drop-ins that sort before cloud-init's, validates with `sshd -t` before reload, asserts effective values via `sshd -T`, and refuses to disable root login without a working non-root login path. |
 | `52-ufw` | Installs ufw, disables LLMNR, stages deny-incoming/allow-outgoing plus SSH (from `.env`'s `MGMT_SSH_CIDR`) and LLMNR rules, and enables ufw non-interactively once the SSH rule is verified staged. |
