@@ -10,6 +10,10 @@ set -euo pipefail
 #
 # Disabled scripts use .disabled suffix and are skipped.
 #
+# macOS: a directory step may carry a run.macos.sh sibling; on Darwin it
+# is preferred over run.sh, and steps without one are skipped entirely
+# (the root tier on macOS is intentionally tiny).
+#
 # Every script must be run as root (sudo) — bootstrap owns host
 # provisioning only. To continue into a non-root deployment, log in
 # as the deploy user and run that app's init.sh (e.g.
@@ -42,8 +46,16 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# On Darwin there is no apt — the root tier is tiny (brew packages only),
+# so only require the base tooling.
+OS="$(uname -s)"
 missing=0
-for cmd in apt-get curl find xargs; do
+if [[ "$OS" == "Darwin" ]]; then
+  prereq_cmds="curl find xargs"
+else
+  prereq_cmds="apt-get curl find xargs"
+fi
+for cmd in $prereq_cmds; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "  [FAIL] $cmd not found in PATH" >&2
     missing=1
@@ -182,6 +194,21 @@ for num in "${sorted_nums[@]}"; do
   kind="${steps_kind[$num]}"
   name="$(basename "$path")"
 
+  # On Darwin the root tier is intentionally tiny: only directory steps
+  # that carry a run.macos.sh variant run at all (see _plans/macos-compatibility.md).
+  run_script=""
+  if [[ "$OS" == "Darwin" ]]; then
+    if [[ "$kind" == "dir" && -f "$path/run.macos.sh" ]]; then
+      run_script="run.macos.sh"
+    else
+      echo "--> $name  (skipped — Linux-only step)"
+      echo ""
+      continue
+    fi
+  elif [[ "$kind" == "dir" ]]; then
+    run_script="run.sh"
+  fi
+
   if ! step_requires_caps "$path"; then
     echo "--> $name  (skipped — capability not enabled)"
     echo ""
@@ -189,9 +216,9 @@ for num in "${sorted_nums[@]}"; do
   fi
 
   echo "==> Running $name"
-  if [[ "$kind" == "dir" ]]; then
-    chmod +x "$path/run.sh"
-    if (cd "$path" && ./run.sh); then
+  if [[ -n "$run_script" ]]; then
+    chmod +x "$path/$run_script"
+    if (cd "$path" && "./$run_script"); then
       echo "    done."
     else
       echo "    FAILED (exit $?)." >&2

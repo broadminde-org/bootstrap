@@ -1,0 +1,3 @@
+# Casks installed on macOS hosts (05-packages/run.macos.sh), one per line.
+# `#` for comments, blank lines ignored. Currently empty by default —
+# add per-machine GUI apps here (e.g. docker, iterm2, visual-studio-code).

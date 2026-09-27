@@ -1,0 +1,65 @@
+# Packages installed on macOS hosts (05-packages/run.macos.sh).
+#
+# Formulas installed via `brew install`, one per line. `#` for comments,
+# blank lines ignored. brew is a no-op for already-installed packages,
+# so this list is safe to re-run. Casks live in packages.macos-casks.txt.
+#
+# Note: build-essential's macOS equivalent is the Xcode Command Line
+# Tools (`xcode-select --install`) — brew prompts for them if missing.
+
+# === Sysadmin baseline ===
+
+# Source control + downloads
+git
+curl
+wget
+
+# Editors + process tools
+vim
+htop
+# unzip + xxd ship with macOS — no formula needed.
+
+# Archiving
+p7zip
+
+# DNS troubleshooting (dig, nslookup, host)
+bind
+
+# Network troubleshooting (traceroute, tcpdump, lsof ship with macOS)
+
+# === Dev/ops ===
+
+# Template rendering — envsubst lives in gettext
+gettext
+
+# JSON / crypto helpers
+jq
+openssl
+
+# Per-directory environment loading (.envrc → shell env)
+direnv
+
+# GitHub CLI (replaces the Linux-only 59-gh-cli step)
+gh
+
+# GPG for commit signing / keyrings
+gnupg
+
+# === Developer tooling ===
+
+# Shell script linting
+shellcheck
+
+# Fast recursive code search
+ripgrep
+
+# Terminal multiplexer
+tmux
+
+# File transfer / sync between hosts (macOS ships an old rsync)
+rsync
+
+# GNU coreutils (gsha256sum, gstat, gtimeout — g-prefixed binaries).
+# Installed for convenience only; nothing in this repo depends on its
+# gnubin being on PATH — steps are made portable in place instead.
+coreutils
