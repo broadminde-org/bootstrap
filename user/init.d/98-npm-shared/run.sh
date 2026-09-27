@@ -12,6 +12,8 @@ set -euo pipefail
 # shellcheck source=../lib/common.sh
 # shellcheck disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# shellcheck source=../lib/os.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/os.sh"
 
 umask 077
 
@@ -92,7 +94,7 @@ printf '%s\n' \
   >> "$tmp"
 chmod 600 "$tmp"
 
-if [[ -f "$NPMRC" ]] && cmp -s "$tmp" "$NPMRC" && [[ "$(stat -c %a "$NPMRC")" == 600 ]]; then
+if [[ -f "$NPMRC" ]] && cmp -s "$tmp" "$NPMRC" && [[ "$(stat_perm "$NPMRC")" == 600 ]]; then
   rm -f "$tmp"
   trap - EXIT
 else
@@ -112,7 +114,7 @@ env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/local/bin:$npm_bin_dir" \
 }
 
 if [[ "$(grep -cF '//npm.pkg.github.com/:_authToken=' "$NPMRC")" != 1 ]] || \
-  [[ "$(stat -c %a "$NPMRC")" != 600 ]]; then
+  [[ "$(stat_perm "$NPMRC")" != 600 ]]; then
   echo "ERROR: ~/.npmrc verification failed." >&2
   exit 1
 fi

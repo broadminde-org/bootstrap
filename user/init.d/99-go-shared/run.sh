@@ -14,6 +14,8 @@ set -euo pipefail
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+# shellcheck source=../lib/os.sh
+. "$(dirname "$0")/../lib/os.sh"
 
 readonly SSH_DIR="$HOME/.ssh"
 readonly HOSTS_DIR="$SSH_DIR/hosts.d"
@@ -25,6 +27,44 @@ sync_dir_preserve "$(dirname "$0")/kilo/skills" "$HOME/.kilo/skills"
 
 mkdir -p "$SSH_DIR" "$HOSTS_DIR"
 chmod 700 "$SSH_DIR" "$HOSTS_DIR"
+
+# Ensure ~/.ssh/config includes the hosts.d drop-ins. The root-tier
+# 56-ssh-client step normally manages this on Linux, but it does not run
+# on macOS — so this is a per-user macOS substitute ONLY. It must not
+# touch ~/.ssh/config on Linux, where 56-ssh-client is the sole owner.
+# The Include is placed at the top of the file: ssh uses first-match
+# precedence, so alias blocks must be seen before any global Host *.
+ensure_ssh_include() {
+  is_darwin || return 0
+
+  local config="$SSH_DIR/config"
+  # Resolve a symlinked config so we write through it, not over the link
+  # (dotfiles setups symlink ~/.ssh/config to a versioned file).
+  if [[ -L "$config" ]]; then
+    config="$(realpath "$config")"
+  fi
+  # Idempotency: match the Include in its bare (`Include path`), `=`,
+  # or space-around forms, with or without a tilde expansion.
+  if [[ -f "$config" ]] && grep -qE '^[[:space:]]*Include[[:space:]]*=?[[:space:]]*(~/)?\.ssh/hosts\.d/\*' "$config"; then
+    return 0
+  fi
+  local tmp prev_mode="600"
+  if [[ -f "$config" ]]; then
+    prev_mode="$(stat_perm "$config" || echo 600)"
+  fi
+  tmp="$(mktemp "${config}.XXXXXX")"
+  {
+    printf 'Include ~/.ssh/hosts.d/*\n'
+    if [[ -f "$config" ]]; then
+      printf '\n'
+      cat "$config"
+    fi
+  } > "$tmp"
+  chmod "$prev_mode" "$tmp"
+  mv "$tmp" "$config"
+  echo "Added 'Include ~/.ssh/hosts.d/*' to $config"
+}
+ensure_ssh_include
 
 command -v ssh-keygen >/dev/null 2>&1 || {
   echo "ERROR: ssh-keygen is required to create shared-repository deploy keys" >&2
@@ -155,7 +195,7 @@ EOF
   local verified=1
   local attempt
   for attempt in 1 2 3; do
-    if timeout 15 git ls-remote "git@$alias:$repo.git" HEAD >/dev/null 2>&1; then
+    if run_with_timeout 15 git ls-remote "git@$alias:$repo.git" HEAD >/dev/null 2>&1; then
       verified=0
       break
     fi

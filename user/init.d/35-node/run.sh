@@ -98,17 +98,26 @@ install_node() {
 
   source "$NVM_DIR/nvm.sh" --no-use
 
-  # Add nvm sourcing to .bashrc for interactive shells.
-  # Single quotes intentional — these lines must reach .bashrc literally
+  # Add nvm sourcing to .bashrc for interactive shells (and .zshrc on
+  # macOS, whose default shell is zsh).
+  # Single quotes intentional — these lines must reach the rc file literally
   # and expand only when the user's shell sources it.
   # shellcheck disable=SC2016
-  if ! grep -qF 'NVM_DIR' "$HOME/.bashrc" 2>/dev/null; then
-    printf '\n%s\n%s\n%s\n' \
-      'export NVM_DIR="$HOME/.nvm"' \
-      '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' \
-      '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' \
-      >> "$HOME/.bashrc"
+  local rc_files=("$HOME/.bashrc")
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    rc_files+=("$HOME/.zshrc")
   fi
+  local rc_file
+  for rc_file in "${rc_files[@]}"; do
+    if ! grep -qF 'NVM_DIR' "$rc_file" 2>/dev/null; then
+      printf '\n%s\n%s\n%s\n' \
+        'export NVM_DIR="$HOME/.nvm"' \
+        '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' \
+        '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' \
+        >> "$rc_file"
+      echo "Added nvm sourcing to $rc_file"
+    fi
+  done
 
   # Resolve the exact pinned version
   RESOLVED_VERSION="$(nvm version "v${EE_NODE_VERSION}" 2>/dev/null || echo "N/A")"

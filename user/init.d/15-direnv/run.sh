@@ -26,6 +26,17 @@ else
   echo "direnv hook already present in $BASHRC — skipping."
 fi
 
+# macOS default shell is zsh — add the zsh hook too.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  ZSHRC="$HOME/.zshrc"
+  if ! grep -q 'direnv hook zsh' "$ZSHRC" 2>/dev/null; then
+    printf '\n# direnv hook\neval "$(direnv hook zsh)"\n' >> "$ZSHRC"
+    echo "Added direnv hook to $ZSHRC"
+  else
+    echo "direnv hook already present in $ZSHRC — skipping."
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Create profile-level direnvrc scaffold
 # ---------------------------------------------------------------------------

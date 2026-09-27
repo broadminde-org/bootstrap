@@ -14,6 +14,8 @@ set -euo pipefail
 
 # shellcheck source=../lib/common.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# shellcheck source=../lib/os.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/os.sh"
 
 # Resolve the Go version pin to a full major.minor.patch version.
 #
@@ -68,11 +70,11 @@ fi
 GO_VERSION="$EE_GO_VERSION"
 GO_TOOLCHAIN_PIN="go${EE_GO_VERSION}"
 
-# Detect architecture
+# Detect OS + architecture (BOOTSTRAP_OS comes from lib/os.sh).
 ARCH=$(uname -m)
 case "$ARCH" in
-  x86_64)  GOARCH="amd64" ;;
-  aarch64) GOARCH="arm64" ;;
+  x86_64)        GOARCH="amd64" ;;
+  aarch64|arm64) GOARCH="arm64" ;;
   *)
     echo "Unsupported architecture: $ARCH" >&2
     exit 1
@@ -107,17 +109,20 @@ install_go() {
     echo "Upgrading Go from ${CURRENT_GO} to ${GO_VERSION}..."
   fi
 
-  TARBALL="go${GO_VERSION}.linux-${GOARCH}.tar.gz"
+  TARBALL="go${GO_VERSION}.${BOOTSTRAP_OS}-${GOARCH}.tar.gz"
   URL="https://go.dev/dl/${TARBALL}"
 
   mkdir -p "$HOME/.cache"
   echo "Downloading ${URL}..."
   curl -fsSL --retry 3 -o "${HOME}/.cache/${TARBALL}" "$URL"
 
-  # Verify against go.dev's published SHA256 before extracting.
-  echo "Verifying SHA256 (${URL}.sha256)..."
-  expected_sha="$(curl -fsSL --retry 3 "${URL}.sha256")"
-  echo "${expected_sha}  ${HOME}/.cache/${TARBALL}" | sha256sum -c -
+  # Verify against Go's published SHA256 before extracting. go.dev/dl serves
+  # the .sha256 path as an HTML vanity page (it 302s the tarball to
+  # dl.google.com but not the checksum), so fetch the digest from the
+  # canonical mirror where it is plain text.
+  echo "Verifying SHA256 (https://dl.google.com/go/${TARBALL}.sha256)..."
+  expected_sha="$(curl -fsSL --retry 3 "https://dl.google.com/go/${TARBALL}.sha256")"
+  sha256_verify "${HOME}/.cache/${TARBALL}" "$expected_sha"
 
   GO_INSTALL_DIR="${HOME}/.local/go"
   echo "Installing to ${GO_INSTALL_DIR}..."
@@ -131,11 +136,11 @@ install_go() {
   echo "Go ${GO_VERSION} installed."
 }
 
-# write_go_shell_env writes the canonical Go environment block to ~/.profile.
-# It is self-healing: any prior marker-bounded block is removed, then a single
-# fresh block is appended. Only .profile is targeted (bootstrap does not use
-# .bash_profile for Go env, and .bashrc is never written — bootstrap has no
-# env.sh).
+# write_go_shell_env writes the canonical Go environment block to ~/.profile
+# (and ~/.zprofile on macOS, whose default shell is zsh). It is self-healing:
+# any prior marker-bounded block is removed, then a single fresh block is
+# appended. Only login-shell files are targeted (bootstrap does not use
+# .bash_profile for Go env, and .bashrc/.zshrc are never written here).
 write_go_shell_env() {
   echo "--- Writing Go shell environment for $(whoami)"
 
@@ -160,26 +165,35 @@ esac
 export PATH
 # --- End Go environment ---'
 
-  # Ensure .profile exists
-  [ -f "$HOME/.profile" ] || : > "$HOME/.profile"
-
-  # 1. Delete any prior marker-bounded block
-  sed -i '/^# --- Go environment ---$/,/^# --- End Go environment ---$/d' "$HOME/.profile"
-  sed -i '\|^# --- Go environment (managed by |,\|^# --- End Go environment ---$|d' "$HOME/.profile"
-
-  # 2. Normalize trailing newlines
-  if [ -s "$HOME/.profile" ] && command -v perl >/dev/null 2>&1; then
-    perl -i -pe 'BEGIN{$/=undef} s/\n+\z/\n/' "$HOME/.profile"
+  # Target login-shell rc files: .profile everywhere, .zprofile on macOS.
+  local -a rc_files=("$HOME/.profile")
+  if [[ "$BOOTSTRAP_OS" == "darwin" ]]; then
+    rc_files+=("$HOME/.zprofile")
   fi
 
-  # 3. Ensure the file ends with a newline
-  if [ -s "$HOME/.profile" ] && [ "$(tail -c1 "$HOME/.profile" 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
-    printf '\n' >> "$HOME/.profile"
-  fi
+  local rc_file
+  for rc_file in "${rc_files[@]}"; do
+    # Ensure the file exists
+    [ -f "$rc_file" ] || : > "$rc_file"
 
-  # 4. Append the fresh marker block
-  printf '\n%s\n' "$go_block" >> "$HOME/.profile"
-  echo "Wrote Go environment block to $HOME/.profile"
+    # 1. Delete any prior marker-bounded block (sed_i: BSD/GNU-portable -i)
+    sed_i '/^# --- Go environment ---$/,/^# --- End Go environment ---$/d' "$rc_file"
+    sed_i '\|^# --- Go environment (managed by |,\|^# --- End Go environment ---$|d' "$rc_file"
+
+    # 2. Normalize trailing newlines
+    if [ -s "$rc_file" ] && command -v perl >/dev/null 2>&1; then
+      perl -i -pe 'BEGIN{$/=undef} s/\n+\z/\n/' "$rc_file"
+    fi
+
+    # 3. Ensure the file ends with a newline
+    if [ -s "$rc_file" ] && [ "$(tail -c1 "$rc_file" 2>/dev/null | wc -l | tr -d ' ')" = "0" ]; then
+      printf '\n' >> "$rc_file"
+    fi
+
+    # 4. Append the fresh marker block
+    printf '\n%s\n' "$go_block" >> "$rc_file"
+    echo "Wrote Go environment block to $rc_file"
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -253,7 +267,7 @@ persist_go_env() {
   # Remove any stale GOROOT written by Go's toolchain auto-management.
   local go_env_file="$HOME/.config/go/env"
   if [ -f "$go_env_file" ]; then
-    sed -i '/^GOROOT=/d' "$go_env_file"
+    sed_i '/^GOROOT=/d' "$go_env_file"
   fi
 
   local go_env=(
