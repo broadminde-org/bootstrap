@@ -6,8 +6,10 @@ set -euo pipefail
 #
 # Usage:
 #   dev              Show status
-#   dev up           Start infra (Docker) + backend (air/uv/custom) + Vite (pm2)
-#   dev down         Stop backend + Vite (infra is left running)
+#   dev up           Create/reconcile infra + backend + Vite
+#   dev start        Start existing infra + backend + Vite
+#   dev stop         Stop infra + backend + Vite, preserving containers
+#   dev down         Stop and remove the Compose environment
 #   dev log [svc]    Tail logs: backend, vite, infra, or all (default)
 #
 # Run from the project root ($PWD — no discovery). Requires at least one of:
@@ -16,8 +18,9 @@ set -euo pipefail
 # Auto-port: LISTEN_ADDR defaults to :0; the backend writes .dev/backend.port
 # (Go) or the port is parsed from the uvicorn log (uv), and Vite's port is
 # parsed from its log into .dev/frontend.port.
-# Infra is opt-in: `dev up` starts only the compose services named in
-# DEV_INFRA_SERVICES (set in .env); unset means no containers are touched.
+# Infra is opt-in: dev lifecycle commands affect only the compose services
+# named in DEV_INFRA_SERVICES (set in .env); unset means no containers are
+# touched.
 # Backends: air (.air.toml) for Go; uv (pyproject.toml + uvicorn/fastapi,
 # app at src/main.py|app/main.py|main.py — override with DEV_UV_APP) for
 # Python; DEV_BACKEND_CMD as an escape hatch for anything else (requires a
@@ -151,7 +154,9 @@ show_status() {
   echo ""
   echo "Commands:"
   echo "  dev up         Start everything"
-  echo "  dev down       Stop everything"
+  echo "  dev start      Resume existing containers and processes"
+  echo "  dev stop       Stop everything without removing containers"
+  echo "  dev down       Stop and remove the Compose environment"
   echo "  dev log [svc]  Tail logs (backend, vite, infra, all)"
   echo ""
 }
@@ -182,8 +187,29 @@ dev_up() {
   show_status
 }
 
-# --- Down ---
-dev_down() {
+# --- Start ---
+dev_start() {
+  local step
+  for step in 10-infra-start 40-air 42-uv 45-backend 50-vite; do
+    if [[ "$step" == "10-infra-start" ]]; then
+      bash "$DEVD_DIR/10-infra.sh" start
+    elif ! bash "$DEVD_DIR/${step}.sh" up; then
+      fail "Step ${step} failed — stopping"
+      return 1
+    fi
+    if [[ -f "$BACKEND_PORT_FILE" ]]; then
+      BACKEND_PORT="$(cat "$BACKEND_PORT_FILE")"; export BACKEND_PORT
+    fi
+    if [[ "$step" == "50-vite" && -f "$FRONTEND_PORT_FILE" ]]; then
+      FRONTEND_PORT="$(cat "$FRONTEND_PORT_FILE")"; export FRONTEND_PORT
+    fi
+  done
+  echo ""
+  show_status
+}
+
+# --- Stop ---
+dev_stop() {
   log "Stopping dev environment..."
 
   # Capture ports before step teardown deletes the port files.
@@ -192,9 +218,10 @@ dev_down() {
   if [[ -f "$FRONTEND_PORT_FILE" ]]; then vite_port="$(cat "$FRONTEND_PORT_FILE")"; fi
 
   local step
-  for step in 50-vite 45-backend 42-uv 40-air 10-infra; do
+  for step in 50-vite 45-backend 42-uv 40-air; do
     bash "$DEVD_DIR/${step}.sh" down || true
   done
+  bash "$DEVD_DIR/10-infra.sh" stop || true
 
   # Fallback: kill user-owned processes still holding the ports.
   local port pids
@@ -207,12 +234,14 @@ dev_down() {
     fi
   done
 
-  if has_compose && compose_cmd ps --status running --services 2>/dev/null | grep -q .; then
-    echo ""
-    echo "  ℹ Docker services left running — use 'stack down' to stop them."
-  fi
+  ok "Dev environment stopped"
+}
 
-  ok "Dev processes stopped"
+# --- Down ---
+dev_down() {
+  dev_stop
+  bash "$DEVD_DIR/10-infra.sh" down || true
+  ok "Dev environment removed"
 }
 
 # --- Log ---
@@ -262,13 +291,15 @@ dev_log() {
 # --- Main ---
 case "${1:-}" in
   up)    dev_up ;;
+  start) dev_start ;;
+  stop)  dev_stop ;;
   down)  dev_down ;;
   log)   dev_log "${2:-}" ;;
   logs)  dev_log all ;;
   "")    show_status ;;
   *)
     fail "Unknown command: $1"
-    echo "Usage: dev [up|down|log [svc]|logs]" >&2
+    echo "Usage: dev [up|start|stop|down|log [svc]|logs]" >&2
     exit 1
     ;;
 esac

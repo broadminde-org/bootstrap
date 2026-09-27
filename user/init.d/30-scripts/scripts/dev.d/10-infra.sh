@@ -48,8 +48,50 @@ case "${1:-up}" in
     done
     ;;
 
+  start)
+    if ! has_compose; then
+      exit 0
+    fi
+    infra_svcs=()
+    read -ra infra_svcs <<< "${DEV_INFRA_SERVICES:-}"
+    if [[ ${#infra_svcs[@]} -eq 0 ]]; then
+      log_skip "DEV_INFRA_SERVICES not set — no infra services to start"
+      exit 0
+    fi
+    log "Starting existing infra services: ${infra_svcs[*]}..."
+    compose_cmd start "${infra_svcs[@]}"
+    ;;
+
+  stop)
+    if ! has_compose; then
+      exit 0
+    fi
+
+    infra_svcs=()
+    read -ra infra_svcs <<< "${DEV_INFRA_SERVICES:-}"
+    if [[ ${#infra_svcs[@]} -eq 0 ]]; then
+      log_skip "DEV_INFRA_SERVICES not set — no infra services to stop"
+      exit 0
+    fi
+
+    log "Stopping infra services: ${infra_svcs[*]}..."
+    # Preserve containers, networks, and volumes for a fast `dev start`.
+    compose_cmd stop "${infra_svcs[@]}"
+    ok "Infra services stopped"
+    ;;
+
   down)
-    # dev does not tear down infra — `dev down` prints a note if compose
-    # services are still running.
+    if ! has_compose; then
+      exit 0
+    fi
+    infra_svcs=()
+    read -ra infra_svcs <<< "${DEV_INFRA_SERVICES:-}"
+    if [[ ${#infra_svcs[@]} -eq 0 ]]; then
+      log_skip "DEV_INFRA_SERVICES not set — no infra services to remove"
+      exit 0
+    fi
+    log "Removing Compose environment..."
+    compose_cmd down --remove-orphans
+    ok "Compose environment removed"
     ;;
 esac

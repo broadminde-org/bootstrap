@@ -6,6 +6,8 @@ set -euo pipefail
 # Usage:
 #   stack              Show stack status
 #   stack up           Start the stack
+#   stack start        Resume stopped containers
+#   stack stop         Stop containers without removing them
 #   stack up --dev     Start dev stack (no auth, no SSL, local images)
 #   stack down [-v]    Stop the stack (-v deletes volumes, requires confirmation)
 #   stack logs [svc]   View logs (or specific service)
@@ -267,6 +269,38 @@ stack_up() {
   else
     warn "Some services may not be healthy yet (check: stack logs)"
     run_hook "post-up"
+  fi
+}
+
+stack_start() {
+  local compose_args
+  compose_args=$(get_compose_args "$PROJECT_DIR") || {
+    fail "No compose file found in ${PROJECT_DIR}"
+    return 1
+  }
+
+  log "Starting existing containers for ${PROJECT_NAME}..."
+  if docker compose ${compose_args} start; then
+    ok "Stack started"
+  else
+    fail "Failed to start stack (use 'stack up' to create missing containers)"
+    return 1
+  fi
+}
+
+stack_stop() {
+  local compose_args
+  compose_args=$(get_compose_args "$PROJECT_DIR") || {
+    fail "No compose file found in ${PROJECT_DIR}"
+    return 1
+  }
+
+  log "Stopping containers for ${PROJECT_NAME}..."
+  if docker compose ${compose_args} stop; then
+    ok "Stack stopped; containers and volumes preserved"
+  else
+    fail "Failed to stop stack"
+    return 1
   fi
 }
 
@@ -569,8 +603,10 @@ Options:
   --dev          Use docker-compose.dev.yml (no auth, local dev mode)
   --tunnel       Also start the Cloudflare tunnel service (profile: tunnel)
 
-Commands:
+  Commands:
   up             Start the Docker Compose stack
+  start          Resume stopped containers without creating or removing anything
+  stop           Stop containers without removing containers, networks, or volumes
   down [-v]      Stop the stack (-v deletes volumes, requires confirmation)
   logs [svc]     View logs (optionally for a specific service)
   build          Rebuild Docker images
@@ -588,6 +624,8 @@ Hooks (place executables in <project-root>/scripts/stack-hooks/):
 
 Examples:
   stack up                   # Start production stack
+  stack start                # Resume existing containers
+  stack stop                 # Stop containers while preserving state
   stack --dev up             # Start dev stack (no auth)
   stack --dev --tunnel up    # Dev stack + Cloudflare tunnel
   stack down                 # Stop the stack
@@ -600,13 +638,22 @@ Examples:
 EOF
       exit 0
       ;;
-    up|down|logs|log|build|pull|update|ps|status)
+    up|start|stop|down|logs|log|build|pull|update|ps|status)
       cmd="$1"
       shift
       # Capture optional argument for logs/down
       if [[ ("$cmd" == "logs" || "$cmd" == "log" || "$cmd" == "down") && $# -gt 0 && "$1" != --* ]]; then
         next_arg="$1"
         shift
+      fi
+      ;;
+    -v|--volumes)
+      if [[ "$cmd" == "down" ]]; then
+        next_arg="$1"
+        shift
+      else
+        fail "Volume deletion is only valid with 'stack down'"
+        exit 1
       fi
       ;;
     --*)
@@ -643,6 +690,12 @@ case "$cmd" in
       exit 1
     fi
     stack_up
+    ;;
+  start)
+    stack_start
+    ;;
+  stop)
+    stack_stop
     ;;
   down)
     delete_volumes=false
