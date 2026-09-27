@@ -139,7 +139,12 @@ rotate_log() {
   local log="$1"
   if [[ -f "$log" ]]; then
     local size
-    size=$(stat --format=%s "$log" 2>/dev/null || echo 0)
+    # stat size is BSD/GNU-portable: %z on macOS, --format=%s on Linux.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      size=$(stat -f %z "$log" 2>/dev/null || echo 0)
+    else
+      size=$(stat --format=%s "$log" 2>/dev/null || echo 0)
+    fi
     if [[ "$size" -gt 0 ]]; then
       mv -f "$log" "${log}.1"
     fi

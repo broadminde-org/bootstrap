@@ -628,7 +628,14 @@ show_status() {
     "$HOME/.ssh/frontend-shared-read" \
     "$HOME/.npmrc"; do
     if [[ -f "$path" ]]; then
-      printf '  present: %s (mode %s)\n' "$path" "$(stat -c %a "$path")"
+      # stat: GNU uses -c %a, BSD (macOS) uses -f %Lp.
+      local mode
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        mode="$(stat -f %Lp "$path")"
+      else
+        mode="$(stat -c %a "$path")"
+      fi
+      printf '  present: %s (mode %s)\n' "$path" "$mode"
     else
       printf '  missing: %s\n' "$path"
     fi

@@ -187,7 +187,32 @@ update_changelog() {
         mv "$new_cl" "$changelog"
         ok "Updated CHANGELOG.md (generated from commits)"
     else
-        sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$new_version] - $today/" "$changelog"
+        # Portable in-place edit: BSD sed (macOS) rejects GNU's bare -i.
+        local _cl_tmp _cl_mode _prior_trap
+        _prior_trap="$(trap -p EXIT)"
+        _cl_tmp="$(mktemp "${changelog}.XXXXXX")"
+        trap 'rm -f "$_cl_tmp"' EXIT
+        # Preserve the original mode: mktemp creates 0600, but the prior
+        # sed -i left the file at its existing permissions. stat format is
+        # BSD/GNU-portable (%Lp on macOS, %a on Linux).
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+          _cl_mode="$(stat -f %Lp "$changelog")"
+        else
+          _cl_mode="$(stat -c %a "$changelog")"
+        fi
+        if ! sed "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$new_version] - $today/" "$changelog" > "$_cl_tmp"; then
+          fail "Failed to rewrite CHANGELOG.md"
+        fi
+        chmod "${_cl_mode}" "$_cl_tmp"
+        mv "$_cl_tmp" "$changelog"
+        rm -f "$_cl_tmp"
+        # Restore the caller's trap (e.g. collect_commits' COMMITS_FILE
+        # cleanup) instead of dropping it.
+        if [[ -n "$_prior_trap" ]]; then
+          eval "$_prior_trap"
+        else
+          trap - EXIT
+        fi
         ok "Updated CHANGELOG.md (rotated [Unreleased] to [$new_version])"
     fi
 }

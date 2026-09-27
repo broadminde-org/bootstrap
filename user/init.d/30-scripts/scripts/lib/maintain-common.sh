@@ -126,7 +126,12 @@ human_size() {
 
 # When run via sudo, resolve the real user's home directory.
 if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" ]]; then
-  REAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    # getent is glibc-only; macOS resolves users via directory services.
+    REAL_HOME="$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')"
+  else
+    REAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+  fi
 else
   REAL_HOME="$HOME"
 fi

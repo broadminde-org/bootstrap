@@ -51,8 +51,17 @@ EOF
     pm2 start "${DEV_DIR}/ecosystem.config.js"
 
     # Vite picks its own port — parse it from the "Local:" log line.
-    vite_port=$(timeout 30 tail -F "${DEV_DIR}/vite.log" \
-      | grep -m1 -oP '(?<=localhost:)\d+') || true
+    # timeout is GNU coreutils; use gtimeout (brew coreutils) if present,
+    # else run without a timeout guard.
+    _timeout=""
+    if command -v timeout >/dev/null 2>&1; then
+      _timeout="timeout"
+    elif command -v gtimeout >/dev/null 2>&1; then
+      _timeout="gtimeout"
+    fi
+    # BSD grep (macOS) has no -oP; match "localhost:PORT" with ERE and cut.
+    vite_port=$(${_timeout:+$_timeout 30} tail -F "${DEV_DIR}/vite.log" \
+      | grep -m1 -Eo 'localhost:[0-9]+' | cut -d: -f2) || true
     if [[ -z "${vite_port:-}" || ! "$vite_port" =~ ^[0-9]+$ ]]; then
       fail "Vite did not announce a port within 30s — see ${DEV_DIR}/vite.log"
       exit 1

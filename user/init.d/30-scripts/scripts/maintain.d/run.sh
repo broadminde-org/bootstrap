@@ -150,7 +150,12 @@ fi
 
 # -- collect_steps — gather [0-9]*-*.sh from the steps directory --
 collect_steps() {
-  find "$STEPS_DIR" -maxdepth 1 -type f -name '[0-9]*-*.sh' -printf '%f\n' 2>/dev/null | sort -t- -k1,1n
+  # Portable: GNU find's -printf is unavailable in BSD find (macOS).
+  local f
+  for f in "$STEPS_DIR"/[0-9]*-*.sh; do
+    [[ -f "$f" ]] || continue
+    printf '%s\n' "${f##*/}"
+  done | sort -t- -k1,1n
 }
 
 # -- format_summary — extract summary from @summary metadata or filename --

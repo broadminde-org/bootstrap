@@ -60,7 +60,9 @@ prune_results_dir() {
     return 0
   fi
   local resolved
-  resolved="$(readlink -f "$results_dir" 2>/dev/null || echo "")"
+  # Portable path resolution: realpath is in modern macOS base; readlink -f
+  # is GNU coreutils only.
+  resolved="$(realpath "$results_dir" 2>/dev/null || readlink -f "$results_dir" 2>/dev/null || echo "")"
   if [[ -z "$resolved" || "$resolved" != "$PROJECT_DIR"/* ]]; then
     echo "retention: refusing to prune outside PROJECT_DIR: $results_dir" >&2
     return 0

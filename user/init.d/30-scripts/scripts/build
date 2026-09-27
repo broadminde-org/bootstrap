@@ -166,7 +166,8 @@ clean_path() {
   local p="$1"
   if [[ ! -e "$p" && ! -L "$p" ]]; then return 0; fi
   local resolved
-  resolved="$(readlink -f "$p" 2>/dev/null || echo "")"
+  # Portable: realpath is in modern macOS base; readlink -f is GNU only.
+  resolved="$(realpath "$p" 2>/dev/null || readlink -f "$p" 2>/dev/null || echo "")"
   if [[ -z "$resolved" || "$resolved" != "$PROJECT_DIR"/* ]]; then
     warn "Refusing to clean outside PROJECT_DIR: $p"; return 0
   fi
