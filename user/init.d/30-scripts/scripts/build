@@ -60,6 +60,7 @@ Subcommands:
 Environment:
   IMAGE_REGISTRY     Registry prefix for image tags/pushes (env or .env)
   IMAGE_TAG          Default tag when --tag is not given (default: latest)
+  IMAGE_NAME         App/image name override (default: project dir basename)
   EE_RESULTS_KEEP    How many build-results/<ts> dirs to keep (default: 10,
                      0 disables pruning)
 
@@ -99,7 +100,10 @@ if [[ ! -f "$PROJECT_DIR/Dockerfile" \
   exit 1
 fi
 
-DETECTED_APP="$(basename "$PROJECT_DIR")"
+# App name: defaults to the project dir basename; IMAGE_NAME overrides it for
+# contexts where the checkout dir name is not the app name (e.g. Woodpecker's
+# local backend, where $PWD is a per-run dir named "workspace").
+DETECTED_APP="${IMAGE_NAME:-$(basename "$PROJECT_DIR")}"
 DIST_DIR="$PROJECT_DIR/dist"
 TIMESTAMP=$(date -u +"%Y%m%d-%H%M%S")
 
