@@ -19,6 +19,16 @@ Steps without `.requires` always run. The root and user runners resolve the same
 configuration, preferring `<hostname>.conf.yml` over `bootstrap.conf.yml`, and
 export the selected path as `BOOTSTRAP_CONFIG_FILE`.
 
+### macOS (Darwin)
+
+The root runner dispatches on `uname -s`: on Darwin a directory step runs only
+when it carries a `run.macos.sh` sibling (preferred over `run.sh`); every other
+step is skipped, so the macOS root tier is intentionally tiny (currently only
+`05-packages`, via Homebrew, with gh folded in). The user tier needs no runner
+change — steps dual-path in-step via `user/init.d/lib/os.sh`
+(`BOOTSTRAP_OS`, `sed_i`, `sha256_verify`, `run_with_timeout`), writing zsh rc
+files (`.zshrc`/`.zprofile`) where the default shell is zsh.
+
 ## Tier Model
 
 ```mermaid

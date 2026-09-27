@@ -19,6 +19,7 @@ init.d/
   NN-name.sh            # flat-file step (rare — only for single self-contained scripts)
   NN-name/              # directory step (the norm)
     run.sh              # entry point — REQUIRED
+    run.macos.sh        # optional macOS variant — preferred over run.sh on Darwin
     .requires           # optional: one capability per line (see below)
     packages.txt        # supporting files: templates, lists, snippets, assets
     ...
@@ -44,6 +45,23 @@ Rules:
   (enforces non-root + loads config + exports version pins).
 - Fail loudly: non-zero exit on error. The runner collects failures and
   reports them by name at the end.
+
+macOS (Darwin) conventions:
+
+- **No zsh scripts anywhere** — both runners stay bash (the host has bash
+  5.3). zsh only matters as an *rc-file target* (`.zshrc`/`.zprofile`).
+- Root tier on Darwin is intentionally tiny: a directory step runs **only**
+  when it carries a `run.macos.sh` variant; every other step is skipped
+  (user creation, sudoers, sshd/ufw/fail2ban/crowdsec/kvm/mdns/docker are
+  server-only). Currently only `05-packages/run.macos.sh` exists — Homebrew
+  formulas/casks, with `gh` folded in (no separate `59-gh-cli/run.macos.sh`).
+- The **user tier** has no `run.macos.sh` files: steps dual-path in-step via
+  `user/init.d/lib/os.sh` (`BOOTSTRAP_OS`, `sed_i` for BSD/GNU `sed -i`,
+  `sha256_verify` with `shasum -a 256` fallback, `run_with_timeout` with
+  `gtimeout`/no-timeout fallback).
+- Do **not** rely on brew coreutils gnubin to paper over GNU-isms — its
+  binaries are `g`-prefixed and it doesn't cover `sed`/`find`/`getent`.
+  Make each affected step portable in place.
 
 ## `.requires` and `bootstrap.conf.yml`
 

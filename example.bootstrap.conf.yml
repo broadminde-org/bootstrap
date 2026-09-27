@@ -53,6 +53,25 @@ capabilities:
   public: false
   woodpecker: false
 
+# ── macOS hosts ──────────────────────────────────────────────────────────────
+#
+# On an Apple Silicon MacBook the root tier is intentionally tiny: only
+# steps with a run.macos.sh variant run (05-packages, via Homebrew — the
+# gh CLI is folded in there; everything server-only is skipped). The user
+# tier dual-paths in-step and works as-is, but because this file is
+# gitignored and unlisted capabilities are disabled, a macOS host MUST
+# create its own bootstrap.conf.yml (or <mac-hostname>.conf.yml) before
+# the user tier runs, or 98-npm-shared / 99-go-shared silently skip.
+# Recommended minimal set for a macOS dev laptop:
+#
+#   capabilities:
+#     docker: false    # 60-caddy also needs caddy; both stay off
+#     caddy: false
+#     kvm: false
+#     dev: true        # enables user/98-npm-shared + user/99-go-shared
+#     public: false
+#     woodpecker: false
+
 # ── Versions ─────────────────────────────────────────────────────────────────
 #
 # Pins the installed version of each tool. Three formats are accepted:
