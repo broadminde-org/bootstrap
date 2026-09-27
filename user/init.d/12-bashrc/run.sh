@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 12-bashrc — Ensure ~/.local/bin and ~/.kilo/bin are on PATH for non-login
+# 12-bashrc — Ensure user tool directories are on PATH for non-login
 # interactive shells.
 #
 # User tier: runs as the deploy user (non-root).
@@ -33,7 +33,12 @@ MARKER_END='# --- END bootstrap-managed PATH block ---'
 SNIPPET_CONTENT='# Idempotent: each directory is added to PATH only if not already
 # present, so re-running this block is a no-op. Designed to be wrapped
 # in BEGIN/END markers so the bootstrap step can detect and update it.
-for _bp_dir in "$HOME/.local/bin" "$HOME/.kilo/bin"; do
+for _bp_dir in \
+    "$HOME/.local/bin" \
+    "$HOME/.kilo/bin" \
+    "/usr/local/go/bin" \
+    "$HOME/.local/go/bin" \
+    "$HOME/go/bin"; do
     if [ -d "$_bp_dir" ]; then
         case ":$PATH:" in
             *":$_bp_dir:"*) ;;

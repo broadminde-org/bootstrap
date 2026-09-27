@@ -133,12 +133,12 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | Step | What it installs or configures |
 |---|---|
 | `10-llmdocs` | Deploys the llmdocs framework and its `~/.local/bin/llmdocs` wrapper. |
-| `12-bashrc` | Adds the managed PATH block to `~/.bashrc` for non-login interactive shells. |
+| `12-bashrc` | Adds the managed PATH block to `~/.bashrc` and, on macOS, zsh rc files for non-login shells, including Go and `~/go/bin` tools. |
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
 | `25-go` | Installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
-| `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
+| `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers; publishes the active Node bin directory to `~/.zshenv` on macOS for non-interactive CLIs such as pm2. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
 | `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`, preserving user customizations. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |

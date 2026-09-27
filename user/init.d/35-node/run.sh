@@ -145,6 +145,26 @@ install_node() {
 
   nvm alias default "$EE_NODE_VERSION"
 
+  # Non-interactive shells (including tool-launched shells) read .zshenv but
+  # do not read .zshrc or .zprofile. Publish the active nvm bin directory
+  # there so npm-installed CLIs such as pm2 are available everywhere.
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local node_bin_dir
+    node_bin_dir="$(dirname "$(command -v node)")"
+    local zshenv="$HOME/.zshenv"
+    local node_path_line="# bootstrap-managed Node.js PATH"
+    local zshenv_tmp
+    zshenv_tmp="$(mktemp "${zshenv}.bootstrap.XXXXXX")"
+    if [[ -f "$zshenv" ]]; then
+      awk -v marker="$node_path_line" '$0 != marker && $0 !~ /^export PATH="[^"]*\.nvm\/versions\/node\// { print }' \
+        "$zshenv" > "$zshenv_tmp"
+    fi
+    printf '\n%s\nexport PATH="%s:$PATH"\n' "$node_path_line" "$node_bin_dir" >> "$zshenv_tmp"
+    mv "$zshenv_tmp" "$zshenv"
+    chmod 0644 "$zshenv"
+    echo "Published Node.js PATH to $zshenv"
+  fi
+
   echo "Node.js v$(node --version) installed."
   echo "npm $(npm --version) / npx $(npx --version)"
 }
