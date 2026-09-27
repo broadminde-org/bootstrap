@@ -135,6 +135,7 @@ REGISTRY="${IMAGE_REGISTRY:-}"
 export IMAGE_REGISTRY="$REGISTRY"
 
 # Parse args
+IMAGE_TAG_EXPLICIT=false
 args=("$@")
 i=0
 while [[ $i -lt ${#args[@]} ]]; do
@@ -145,8 +146,8 @@ while [[ $i -lt ${#args[@]} ]]; do
     --frontend-only) FRONTEND_ONLY=true ;;
     --binary-only) BINARY_ONLY=true ;;
     --docker-only) DOCKER_ONLY=true ;;
-    --tag) i=$((i+1)); IMAGE_TAG="${args[$i]:-}" ;;
-    --tag=*) IMAGE_TAG="${arg#--tag=}" ;;
+    --tag) i=$((i+1)); IMAGE_TAG="${args[$i]:-}"; IMAGE_TAG_EXPLICIT=true ;;
+    --tag=*) IMAGE_TAG="${arg#--tag=}"; IMAGE_TAG_EXPLICIT=true ;;
     --dry-run) DRY_RUN=true ;;
     --verbose|-v) VERBOSE=true ;;
     --debug) DEBUG=true; VERBOSE=true ;;
@@ -254,6 +255,9 @@ build_project() {
   export BUILD_HOOK_VERSION_FULL="$version_full"
   export BUILD_HOOK_REGISTRY="$REGISTRY"
   export BUILD_HOOK_IMAGE_TAG="$IMAGE_TAG"
+  # true when --tag was passed; 40-docker then drops the version/semver tag
+  # family (CI sha tags shouldn't emit junk v0.0.0* tags).
+  export BUILD_HOOK_IMAGE_TAG_EXPLICIT="$IMAGE_TAG_EXPLICIT"
   export BUILD_HOOK_PUSH_IMAGE="$PUSH_IMAGE"
   export BUILD_HOOK_LOG_FILE="$log_file"
   export BUILD_HOOK_VERSION_TAG="$version_tag"

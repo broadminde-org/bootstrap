@@ -5,7 +5,10 @@
 # inline Dockerfile detection (no MCP_ROOT detector), build context is the
 # project root. Tags <app>:{tag,version_tag,semver_tag} plus a
 # registry-prefixed set when IMAGE_REGISTRY is non-empty; pushes all three
-# registry tags when push is enabled. Installed by user/init.d/30-scripts
+# registry tags when push is enabled. When IMAGE_TAG_EXPLICIT=true (the
+# orchestrator sets this when --tag was given), the version/semver tags are
+# neither built nor pushed — CI callers pass --tag sha-<8> and the
+# v0.0.0-family tags would be junk. Installed by user/init.d/30-scripts
 # into $HOME/scripts/build.d/40-docker.sh.
 set -euo pipefail
 # shellcheck disable=SC1091
@@ -46,9 +49,22 @@ build_num="${BUILD_HOOK_BUILD_NUM}"
 version_tag="${BUILD_HOOK_VERSION_TAG}"
 semver_tag="v${semver}"
 
-declare -a build_tags=( -t "${app}:${image_tag}" -t "${app}:${version_tag}" -t "${app}:${semver_tag}" )
+# Explicit --tag (CI passes sha-<8>) replaces the version tag family entirely:
+# with no VERSION file they would be junk v0.0.0* tags on the registry.
+_version_tags=true
+if [[ "${BUILD_HOOK_IMAGE_TAG_EXPLICIT:-false}" == "true" ]]; then
+  _version_tags=false
+fi
+
+declare -a build_tags=( -t "${app}:${image_tag}" )
 if [[ -n "$registry" ]]; then
-  build_tags+=( -t "${registry}/${app}:${image_tag}" -t "${registry}/${app}:${version_tag}" -t "${registry}/${app}:${semver_tag}" )
+  build_tags+=( -t "${registry}/${app}:${image_tag}" )
+fi
+if $_version_tags; then
+  build_tags+=( -t "${app}:${version_tag}" -t "${app}:${semver_tag}" )
+  if [[ -n "$registry" ]]; then
+    build_tags+=( -t "${registry}/${app}:${version_tag}" -t "${registry}/${app}:${semver_tag}" )
+  fi
 fi
 
 _docker_rc=0
@@ -83,15 +99,18 @@ if [[ $_docker_rc -eq 0 ]]; then
     append_log '```'
     log "[${app}] Pushing ${registry}/${app}:${image_tag} ..."
     push_ok=true
-    if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then
-      if ! docker push "${registry}/${app}:${image_tag}" 2>&1 | tee -a "${log_file}"; then push_ok=false; fi
-      if $push_ok && ! docker push "${registry}/${app}:${version_tag}" 2>&1 | tee -a "${log_file}"; then push_ok=false; fi
-      if $push_ok && ! docker push "${registry}/${app}:${semver_tag}" 2>&1 | tee -a "${log_file}"; then push_ok=false; fi
-    else
-      if ! docker push "${registry}/${app}:${image_tag}" >> "${log_file}" 2>&1; then push_ok=false; fi
-      if $push_ok && ! docker push "${registry}/${app}:${version_tag}" >> "${log_file}" 2>&1; then push_ok=false; fi
-      if $push_ok && ! docker push "${registry}/${app}:${semver_tag}" >> "${log_file}" 2>&1; then push_ok=false; fi
+    declare -a push_tags=( "${registry}/${app}:${image_tag}" )
+    if $_version_tags; then
+      push_tags+=( "${registry}/${app}:${version_tag}" "${registry}/${app}:${semver_tag}" )
     fi
+    for push_tag in "${push_tags[@]}"; do
+      if ! $push_ok; then break; fi
+      if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then
+        if ! docker push "$push_tag" 2>&1 | tee -a "${log_file}"; then push_ok=false; fi
+      else
+        if ! docker push "$push_tag" >> "${log_file}" 2>&1; then push_ok=false; fi
+      fi
+    done
     append_log '```'
     if $push_ok; then
       ok "[${app}] Pushed ${registry}/${app}:${image_tag}"
