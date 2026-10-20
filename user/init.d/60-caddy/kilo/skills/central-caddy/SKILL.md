@@ -6,7 +6,7 @@ description: >-
   writing a .caddy snippet, registering a route with caddy-route, reverse
   proxying through Caddy, adding a subdomain for an app, serving an app
   behind Caddy, Caddyfile snippet creation. DO NOT USE FOR: operating the
-  Caddy server itself (see ~/infra/caddy/docs/central-caddy.md), non-Caddy
+  Caddy server itself (see references/operator-guide.md), non-Caddy
   reverse proxies, or Caddy on hosts without the central stack.
 ---
 
@@ -18,7 +18,8 @@ CrowdSec — app snippets are site blocks only.
 
 ## Discovery
 
-Check whether central Caddy is provisioned on this host:
+Check whether central Caddy is provisioned on this host when you need live
+host settings:
 
 ```bash
 cat ~/infra/caddy/central.json
@@ -69,14 +70,11 @@ Two patterns, in preference order:
 2. **Host-published port** (fallback) — app binds to `0.0.0.0:<port>` on the
    host; snippet targets `host.docker.internal:<port>`
 
-For host-published ports, restrict public access with DOCKER-USER iptables:
-
-```bash
-iptables -I DOCKER-USER -p tcp -i eth0 --dport <port> -j DROP
-```
-
-Docker DNAT bypasses ufw's INPUT chain. The Caddy container still reaches
-the port via the Docker bridge.
+For host-published ports, arrange a persistent, host-specific firewall rule
+that blocks direct public access while allowing the Caddy container through.
+Docker DNAT bypasses ufw's INPUT chain; check the host's `DOCKER-USER` policy
+and interface before adding rules. Prefer the edge network to avoid publishing
+the port at all.
 
 ## Patterns
 
@@ -96,15 +94,13 @@ networks:
     name: edge
 ```
 
-No port publishing needed — Caddy reaches the container by name.
+No port publishing needed — Caddy reaches the container by name. A name under
+an already provisioned wildcard zone needs no per-snippet TLS configuration:
 
 Snippet (`myapp.caddy`):
 
 ```caddyfile
 myapp.dev.broadminde.org {
-    tls {
-        dns acmedns /etc/caddy/acmedns.json
-    }
     reverse_proxy myapp:3000
 }
 ```
@@ -123,19 +119,19 @@ Snippet:
 
 ```caddyfile
 myapp.dev.broadminde.org {
-    tls {
-        dns acmedns /etc/caddy/acmedns.json
-    }
     reverse_proxy host.docker.internal:5173
 }
 ```
 
 ### C: Custom subdomain (not under a wildcard zone)
 
-Requires DNS records at the provider:
+Requires an A record at the provider. Public names use automatic HTTPS; if
+the name needs DNS-01, also delegate its ACME challenge and add the `tls`
+block shown above:
 
 ```
 myapp.broadminde.org                          A      <host-ip>
+# Only for DNS-01:
 _acme-challenge.myapp.broadminde.org          CNAME  <acme-dns-fulldomain>
 ```
 
@@ -150,9 +146,6 @@ Snippet:
 
 ```caddyfile
 static.dev.broadminde.org {
-    tls {
-        dns acmedns /etc/caddy/acmedns.json
-    }
     root * /srv/edge/myapp
     file_server
 }
@@ -177,16 +170,18 @@ docker exec caddy caddy adapt --config - --adapter caddyfile < myapp.caddy
 
 ## Automating in init.sh
 
-Gate on discovery, render from a template, register:
+Gate on discovery, render from a template, register. Keep rendered snippets
+in the app workspace rather than creating host-global temporary files:
 
 ```bash
 if [ -f "$HOME/infra/caddy/central.json" ] && command -v caddy-route >/dev/null 2>&1; then
   APP_HOST="${APP_HOST:-myapp.dev.broadminde.org}"
 
-  tmpfile=$(mktemp)
-  sed "s|\${APP_HOST}|$APP_HOST|g" caddy/myapp.caddy.tmpl > "$tmpfile"
-  caddy-route register myapp "$tmpfile"
-  rm -f "$tmpfile"
+  mkdir -p .tmp
+  sed -e "s|\${APP_HOST}|$APP_HOST|g" \
+      -e "s|\${APP_PORT}|$APP_PORT|g" caddy/myapp.caddy.tmpl > .tmp/myapp.caddy
+  caddy-route register myapp .tmp/myapp.caddy
+  rm -f .tmp/myapp.caddy
 else
   echo "NOTE: central caddy not detected — register manually"
 fi
@@ -196,9 +191,6 @@ Template (`caddy/myapp.caddy.tmpl`):
 
 ```caddyfile
 ${APP_HOST} {
-    tls {
-        dns acmedns /etc/caddy/acmedns.json
-    }
     reverse_proxy host.docker.internal:${APP_PORT}
 }
 ```
@@ -215,9 +207,9 @@ dig +short myapp.dev.broadminde.org # DNS resolution
 
 ## References
 
-- **Operator guide**: `~/infra/caddy/docs/central-caddy.md` — full day-2 ops,
+- **Operator guide**: `references/operator-guide.md` (relative to this skill) — full day-2 ops,
   TLS modes, wildcard zones, CrowdSec, teardown
 - **Discovery file**: `~/infra/caddy/central.json` — machine-readable
-  contract for this host
+  live contract for this host; do not rely on a bundled snapshot
 - The historical master design plan remains in the bootstrap checkout and is
   intentionally not deployed; it is not needed for day-to-day operation.

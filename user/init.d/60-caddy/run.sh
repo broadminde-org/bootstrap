@@ -40,11 +40,12 @@ echo "=== 60-caddy: provisioning central Caddy ==="
 
 sync_dir_preserve "$(dirname "$0")/kilo/skills" "$HOME/.kilo/skills"
 
-# Keep the operator guide beside the installed stack, independent of the
-# bootstrap checkout. This is documentation, not stack input.
-mkdir -p "$HOME/infra/caddy/docs"
-install -m 0644 "$(dirname "$0")/../../../docs/central-caddy.md" \
-  "$HOME/infra/caddy/docs/central-caddy.md"
+# Bundle the same guide with the skill so reading it does not require
+# access to the live infra directory. Keep the operator copy as well.
+guide="$(dirname "$0")/../../../docs/central-caddy.md"
+mkdir -p "$HOME/.kilo/skills/central-caddy/references" "$HOME/infra/caddy/docs"
+install -m 0644 "$guide" "$HOME/.kilo/skills/central-caddy/references/operator-guide.md"
+install -m 0644 "$guide" "$HOME/infra/caddy/docs/central-caddy.md"
 
 # ---------------------------------------------------------------------------
 # Preflight — docker daemon access, compose, jq, curl, envsubst.
