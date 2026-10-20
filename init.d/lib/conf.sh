@@ -15,6 +15,7 @@
 #     agents: "kilo"
 #
 #   github:              # host credential role (drives bootstrap-access)
+#     packages_read: false
 #     packages_write: false
 #     source_rw: false
 #
@@ -35,6 +36,7 @@
 #   get_skills_conf <key> [def]      returns skills section value or default
 #   get_caddy_conf <key> [def]       returns caddy section value or default
 #   get_github_conf <key> [def]      returns github section value or default
+#   get_portal_conf <key> [def]      returns portal section value or default
 #
 # When no config_file is provided, load_conf resolves the default in order:
 #   1. $BOOTSTRAP_CONFIG_FILE (environment) — exported by both init.sh runners
@@ -61,6 +63,7 @@ declare -A _TOOL_VERSION
 declare -A _SKILLS_CONF
 declare -A _CADDY_CONF
 declare -A _GITHUB_CONF
+declare -A _PORTAL_CONF
 _CONF_LOADED=0
 
 # Infer default config path from this file's own location.
@@ -157,6 +160,10 @@ load_conf() {
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _GITHUB_CONF["$key"]="$val"
   done < <(_parse_section "$config_file" "github")
+
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _PORTAL_CONF["$key"]="$val"
+  done < <(_parse_section "$config_file" "portal")
 }
 
 # cap_enabled <name>
@@ -257,8 +264,8 @@ get_caddy_conf() {
 # get_github_conf <key> [default]
 #
 # Returns a key from the github: section (host credential role:
-# packages_write, source_rw), or <default> (empty) when unset or the
-# section is absent — both mean the host holds read-only credentials.
+# packages_read, packages_write, source_rw), or <default> (empty) when unset
+# or the section is absent — both mean the host holds read-only credentials.
 get_github_conf() {
   local key="$1"
   local default="${2:-}"
@@ -269,6 +276,21 @@ get_github_conf() {
 
   if [[ -v _GITHUB_CONF[$key] && -n "${_GITHUB_CONF[$key]}" ]]; then
     echo "${_GITHUB_CONF[$key]}"
+  else
+    echo "$default"
+  fi
+}
+
+get_portal_conf() {
+  local key="$1"
+  local default="${2:-}"
+
+  if [[ "$_CONF_LOADED" == "0" ]]; then
+    load_conf
+  fi
+
+  if [[ -v _PORTAL_CONF[$key] && -n "${_PORTAL_CONF[$key]}" ]]; then
+    echo "${_PORTAL_CONF[$key]}"
   else
     echo "$default"
   fi

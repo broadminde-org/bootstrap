@@ -101,6 +101,11 @@ caddy:
   base_domain: example.com
   wildcards: ""
 
+# Portal deployment mode. `dev` registers the host's Vite dev server with
+# central Caddy; `image` deploys the published portal container image.
+portal:
+  mode: dev
+
 # ── GitHub credential role ───────────────────────────────────────────────────
 #
 # Read by bootstrap-access (the interactive credential walk) when the dev
@@ -111,6 +116,8 @@ caddy:
 #   packages_write  true on publish hosts: the GitHub Packages PAT gets
 #                   write:packages in addition to read:packages. Also set
 #                   before running `github-access setup --ci`.
+#   packages_read   true on Docker hosts that pull private GHCR images. A
+#                   development host gets package-read access automatically.
 #   source_rw       true on hosts that push source / open issues / PRs:
 #                   collects the separate repo,workflow classic PAT.
 #
@@ -118,5 +125,6 @@ caddy:
 # section gets read-only package access and no source RW token.
 
 github:
+  packages_read: false
   packages_write: false
   source_rw: false

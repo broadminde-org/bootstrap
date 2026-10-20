@@ -311,7 +311,10 @@ The file includes:
 | `static_assets.host_path` | `~/infra/edge/` — mount point for file_server snippets |
 | `documentation.path` | Path to this guide |
 | `status.running` | Whether the container is currently healthy |
-| `version` | Schema version (currently 1) |
+| `base_domain` | Host zone apex from `caddy.base_domain` in bootstrap config |
+| `wildcards` | Configured wildcard labels |
+| `portal_mode` | Portal deployment mode (`dev` or `image`) from bootstrap config |
+| `version` | Schema version (currently 2) |
 
 The file is regenerated on every provisioning run — `status.running` flips to
 `true` after the container reaches a healthy state. Its absence means central

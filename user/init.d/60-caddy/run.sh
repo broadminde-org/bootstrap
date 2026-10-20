@@ -40,6 +40,12 @@ echo "=== 60-caddy: provisioning central Caddy ==="
 
 sync_dir_preserve "$(dirname "$0")/kilo/skills" "$HOME/.kilo/skills"
 
+# Keep the operator guide beside the installed stack, independent of the
+# bootstrap checkout. This is documentation, not stack input.
+mkdir -p "$HOME/infra/caddy/docs"
+install -m 0644 "$(dirname "$0")/../../../docs/central-caddy.md" \
+  "$HOME/infra/caddy/docs/central-caddy.md"
+
 # ---------------------------------------------------------------------------
 # Preflight — docker daemon access, compose, jq, curl, envsubst.
 # ---------------------------------------------------------------------------
@@ -206,9 +212,9 @@ fi
 # Step 7: Render Caddyfile.
 # ---------------------------------------------------------------------------
 
-read -r ACME_EMAIL < <(grep '^ACME_EMAIL=' "$STACK_DIR/.env" | cut -d= -f2-) || true
-read -r CROWDSEC_BOUNCER_KEY < <(grep '^CROWDSEC_BOUNCER_KEY=' "$STACK_DIR/.env" | cut -d= -f2-) || true
-read -r CROWDSEC_API_URL < <(grep '^CROWDSEC_API_URL=' "$STACK_DIR/.env" | cut -d= -f2-) || true
+ACME_EMAIL="$(grep '^ACME_EMAIL=' "$STACK_DIR/.env" | cut -d= -f2- || true)"
+CROWDSEC_BOUNCER_KEY="$(grep '^CROWDSEC_BOUNCER_KEY=' "$STACK_DIR/.env" | cut -d= -f2- || true)"
+CROWDSEC_API_URL="$(grep '^CROWDSEC_API_URL=' "$STACK_DIR/.env" | cut -d= -f2- || true)"
 
 CROWDSEC_API_URL="${CROWDSEC_API_URL:-http://host.docker.internal:8080}"
 
@@ -347,17 +353,27 @@ central_json() {
 
   local docker_hostname
   docker_hostname="$(hostname)"
+  local base_domain portal_mode configured_wildcards
+  base_domain="$(get_caddy_conf base_domain "")"
+  portal_mode="$(get_portal_conf mode dev)"
+  configured_wildcards="$(get_caddy_conf wildcards "")"
 
   jq -n --arg hostname "$docker_hostname" \
     --arg cli "$HOME/.local/bin/caddy-route" \
     --arg routes_dir "$STACK_DIR/routes.d" \
     --arg edge_dir "$EDGE_DIR" \
-    --arg docs "$HOME/bootstrap/docs/central-caddy.md" \
+    --arg docs "$STACK_DIR/docs/central-caddy.md" \
+    --arg base_domain "$base_domain" \
+    --arg portal_mode "$portal_mode" \
+    --arg wildcards "$configured_wildcards" \
     --argjson running "$was_running_d" \
     '{
-      "version": 1,
+      "version": 2,
       "hostname": $hostname,
       "available": true,
+      "base_domain": $base_domain,
+      "wildcards": ($wildcards | split(" ") | map(select(length > 0))),
+      "portal_mode": $portal_mode,
       "container": {
         "name": "caddy",
         "network": "edge",
@@ -474,12 +490,9 @@ if [[ "$was_running" -eq 1 ]]; then
     echo "No changes — caddy stack is up to date."
   fi
 
-  # Replay routes.d. Conditional on any change: the hash-skip makes it a no-op
-  # when converged, and running it on real change heals divergence — e.g. a
-  # previous run that wiped autosave but aborted before its reconcile.
-  if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]]; then
-    "$STACK_DIR/bin/caddy-route" reconcile
-  fi
+  # Always reconcile a running stack. The command hash-skips /load when
+  # converged, while recomputing routes repairs a previous interrupted run.
+  "$STACK_DIR/bin/caddy-route" reconcile
 else
   echo ""
   echo "Caddy is provisioned but NOT started — this step never starts it automatically."
@@ -561,7 +574,10 @@ fi
 
 if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]] \
    || [[ ! -f "$STACK_DIR/central.json" ]] \
-   || [[ "$(jq -r '.status.running' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]]; then
+   || [[ "$(jq -r '.status.running' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]] \
+   || [[ "$(jq -r '.base_domain // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_caddy_conf base_domain "")" ]] \
+   || [[ "$(jq -r '.portal_mode // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_portal_conf mode dev)" ]] \
+   || [[ "$(jq -r '.version // 0' "$STACK_DIR/central.json" 2>/dev/null)" != "2" ]]; then
   central_json "$was_running"
 fi
 

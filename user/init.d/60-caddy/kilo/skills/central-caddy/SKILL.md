@@ -6,7 +6,7 @@ description: >-
   writing a .caddy snippet, registering a route with caddy-route, reverse
   proxying through Caddy, adding a subdomain for an app, serving an app
   behind Caddy, Caddyfile snippet creation. DO NOT USE FOR: operating the
-  Caddy server itself (see ~/bootstrap/docs/central-caddy.md), non-Caddy
+  Caddy server itself (see ~/infra/caddy/docs/central-caddy.md), non-Caddy
   reverse proxies, or Caddy on hosts without the central stack.
 ---
 
@@ -215,8 +215,9 @@ dig +short myapp.dev.broadminde.org # DNS resolution
 
 ## References
 
-- **Operator guide**: `~/bootstrap/docs/central-caddy.md` — full day-2 ops,
+- **Operator guide**: `~/infra/caddy/docs/central-caddy.md` — full day-2 ops,
   TLS modes, wildcard zones, CrowdSec, teardown
 - **Discovery file**: `~/infra/caddy/central.json` — machine-readable
   contract for this host
-- **Master spec**: `~/bootstrap/_plans/central-caddy.md` — design rationale
+- The historical master design plan remains in the bootstrap checkout and is
+  intentionally not deployed; it is not needed for day-to-day operation.

@@ -124,7 +124,9 @@ reconcile() {
           | map(select(.module == "acme")) | .[0] // {}
           | {email, ca} | with_entries(select(.value != null))) as $id |
         .apps.tls.automation.policies = (
-          [$ap[] | .issuers |= map(if .module == "acme" then . + $id else . end)] + $gp
+          [$ap[] | if (.issuers | type) == "array" then
+            .issuers |= map(if .module == "acme" then . + $id else . end)
+          else . end] + $gp
         )
       else . end
     ' "$tmp/global.json" "$tmp/apps.json" > "$tmp/merged.json"
