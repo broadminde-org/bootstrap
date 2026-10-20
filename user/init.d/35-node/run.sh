@@ -5,7 +5,7 @@
 # Installs nvm, then Node.js (pinned via EE_NODE_VERSION), adds nvm sourcing
 # to ~/.bashrc, and installs global npm packages from packages.txt.
 #
-# Idempotent: skips nvm install if nvm.sh exists; skips node install if
+# Idempotent: verifies nvm.sh before reuse; skips node install if
 # version matches; skips npm packages if already installed.
 
 set -euo pipefail
@@ -86,15 +86,29 @@ install_node() {
   # (avoids install.sh's git auto-detection and SSH config issues).
   # Pinned to the v0.40.4 COMMIT, not the tag — a git tag is mutable and
   # could be re-pointed at hostile content.
-  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
-    echo "Installing nvm..."
-    mkdir -p "$NVM_DIR"
-    NVM_COMMIT="62387b8f92aa012d48202747fd75c40850e5e261"  # v0.40.4
-    curl -fLo "$NVM_DIR/nvm.sh" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/nvm.sh"
-    curl -fLo "$NVM_DIR/nvm-exec" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/nvm-exec"
-    curl -fLo "$NVM_DIR/bash_completion" --retry 3 "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/bash_completion"
-    chmod a+x "$NVM_DIR/nvm-exec"
-  fi
+  NVM_COMMIT="62387b8f92aa012d48202747fd75c40850e5e261"  # v0.40.4
+  NVM_SHA256="7bb0324a92b1b7a3d612a00fd361f0daa78960cb4d404e7e42acf76eb53f6850"
+  mkdir -p "$NVM_DIR"
+  for nvm_file in nvm.sh nvm-exec bash_completion; do
+    if [[ ! -s "$NVM_DIR/$nvm_file" ]] ||
+       { [[ "$nvm_file" == nvm.sh ]] && [[ "$(sha256sum "$NVM_DIR/nvm.sh" | cut -d' ' -f1)" != "$NVM_SHA256" ]]; }; then
+      echo "Installing nvm file: $nvm_file"
+      nvm_tmp="$(mktemp "$NVM_DIR/.${nvm_file}.XXXXXX")"
+      if ! curl -fLo "$nvm_tmp" --retry 3 \
+        "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_COMMIT}/${nvm_file}"; then
+        rm -f "$nvm_tmp"
+        return 1
+      fi
+      if [[ "$nvm_file" == nvm.sh ]] &&
+         [[ "$(sha256sum "$nvm_tmp" | cut -d' ' -f1)" != "$NVM_SHA256" ]]; then
+        echo "ERROR: downloaded nvm.sh checksum mismatch" >&2
+        rm -f "$nvm_tmp"
+        return 1
+      fi
+      mv -f "$nvm_tmp" "$NVM_DIR/$nvm_file"
+    fi
+  done
+  chmod a+x "$NVM_DIR/nvm-exec"
 
   source "$NVM_DIR/nvm.sh" --no-use
 

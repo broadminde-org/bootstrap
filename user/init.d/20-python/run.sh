@@ -191,8 +191,8 @@ fi
 
 echo ""
 echo "20-python: installed"
-(( uv_installed ))    && echo "  - uv ${EE_UV_VERSION}"
-(( python_installed )) && echo "  - Python ${EE_PYTHON_VERSION} (uv-managed)"
+(( uv_installed ))    && echo "  - uv ${EE_UV_VERSION}" || true
+(( python_installed )) && echo "  - Python ${EE_PYTHON_VERSION} (uv-managed)" || true
 echo ""
 echo "PATH note: $LOCAL_BIN must be on PATH for login shells (see /etc/skel/.profile)."
 echo "Use 'uv run <script>' to run Python scripts against the uv-managed interpreter."

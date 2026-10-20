@@ -104,7 +104,7 @@ if [[ "$mode" == "replace" ]]; then
 else
   {
     cat "$BASHRC"
-    if [[ -s "$BASHRC" ]] && [[ "$(tail -c1 "$BASHRC")" != $'\n' ]]; then
+    if [[ -s "$BASHRC" ]] && [[ "$(tail -c1 "$BASHRC" | od -An -t x1 | tr -d '[:space:]')" != "0a" ]]; then
       echo ""
     fi
     echo ""

@@ -24,7 +24,7 @@ fi
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/woodpecker-cli.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
-archive="$tmp_dir/woodpecker-cli.tar.gz"
+archive="$tmp_dir/$asset"
 
 base_url="https://github.com/woodpecker-ci/woodpecker/releases/download/${version}"
 curl -fsSL --retry 3 "${base_url}/${asset}" -o "$archive"

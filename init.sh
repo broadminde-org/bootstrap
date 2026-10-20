@@ -190,20 +190,20 @@ for num in "${sorted_nums[@]}"; do
 
   echo "==> Running $name"
   if [[ "$kind" == "dir" ]]; then
-    chmod +x "$path/run.sh"
-    if (cd "$path" && ./run.sh); then
+    if chmod +x "$path/run.sh" && (cd "$path" && ./run.sh); then
       echo "    done."
     else
-      echo "    FAILED (exit $?)." >&2
+      step_status=$?
+      echo "    FAILED (exit $step_status)." >&2
       (( failed++ )) || true
       failed_names+=("$name")
     fi
   else
-    chmod +x "$path"
-    if "$path"; then
+    if chmod +x "$path" && "$path"; then
       echo "    done."
     else
-      echo "    FAILED (exit $?)." >&2
+      step_status=$?
+      echo "    FAILED (exit $step_status)." >&2
       (( failed++ )) || true
       failed_names+=("$name")
     fi
