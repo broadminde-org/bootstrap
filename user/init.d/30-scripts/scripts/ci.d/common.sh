@@ -5,8 +5,12 @@ set -u
 
 CI_TEST_FAILED_CHECKS=()
 CI_TEST_FAILURE_LINES=()
-CI_TEST_TMP_DIR="${TMPDIR:-/tmp}/ci-test.$$.${RANDOM}"
-mkdir -p "$CI_TEST_TMP_DIR"
+mkdir -p "$PWD/.tmp"
+CI_TEST_TMP_DIR="$(mktemp -d "$PWD/.tmp/ci-test.XXXXXX")" || {
+  printf 'ci-test: unable to create temporary directory under %s/.tmp\n' "$PWD" >&2
+  exit 1
+}
+export TMPDIR="$CI_TEST_TMP_DIR"
 
 ci_test_cleanup() {
   rm -rf "$CI_TEST_TMP_DIR"
@@ -23,6 +27,11 @@ ci_test_skip() {
     [[ "$item" == "$step" ]] && return 0
   done
   return 1
+}
+
+ci_test_node_has_script() {
+  node -e 'const p=require(process.argv[1]); process.exit(Object.hasOwn(p.scripts || {}, process.argv[2]) ? 0 : 1)' \
+    "$1/package.json" "$2"
 }
 
 ci_test_record_failure() {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 ci_test_run_go() {
+  cd "$CI_TEST_GO_DIR" || return 1
   ci_test_banner go "test · lint · gosec · vulncheck"
   local failed=0
 

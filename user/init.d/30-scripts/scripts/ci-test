@@ -4,7 +4,13 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_PATH" ]]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+  [[ "$SCRIPT_PATH" == /* ]] || SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
 # shellcheck source=ci.d/common.sh
 source "$SCRIPT_DIR/ci.d/common.sh"
 # shellcheck source=ci.d/10-go.sh
@@ -15,6 +21,8 @@ source "$SCRIPT_DIR/ci.d/20-node.sh"
 source "$SCRIPT_DIR/ci.d/30-python.sh"
 # shellcheck source=ci.d/40-db.sh
 source "$SCRIPT_DIR/ci.d/40-db.sh"
+
+trap 'ci_test_cleanup; ci_test_teardown_db' EXIT
 
 e2e=0
 fail_fast="${CI_TEST_FAIL_FAST:-0}"
@@ -31,10 +39,29 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-trap 'ci_test_cleanup; ci_test_teardown_db' EXIT
-
 family_failed=0
 stop_after_family=0
+CI_TEST_GO_CONFIGURED=false
+CI_TEST_NODE_CONFIGURED=false
+CI_TEST_PYTHON_CONFIGURED=false
+CI_TEST_NODE_E2E_CONFIGURED=false
+[[ -n "${CI_TEST_GO_DIR+x}" ]] && CI_TEST_GO_CONFIGURED=true
+[[ -n "${CI_TEST_NODE_DIR+x}" ]] && CI_TEST_NODE_CONFIGURED=true
+if [[ -n "${CI_TEST_NODE_CHECK_SCRIPT+x}" || -n "${CI_TEST_NODE_BUILD_SCRIPT+x}" ]]; then
+  CI_TEST_NODE_CONFIGURED=true
+fi
+[[ -n "${CI_TEST_PYTHON_DIR+x}" ]] && CI_TEST_PYTHON_CONFIGURED=true
+[[ -n "${CI_TEST_NODE_E2E_SCRIPT+x}" ]] && CI_TEST_NODE_E2E_CONFIGURED=true
+CI_TEST_GO_DIR="${CI_TEST_GO_DIR:-.}"
+CI_TEST_NODE_DIR="${CI_TEST_NODE_DIR:-.}"
+CI_TEST_PYTHON_DIR="${CI_TEST_PYTHON_DIR:-.}"
+CI_TEST_ROOT="$PWD"
+[[ "$CI_TEST_GO_DIR" == /* ]] || CI_TEST_GO_DIR="$CI_TEST_ROOT/$CI_TEST_GO_DIR"
+[[ "$CI_TEST_NODE_DIR" == /* ]] || CI_TEST_NODE_DIR="$CI_TEST_ROOT/$CI_TEST_NODE_DIR"
+[[ "$CI_TEST_PYTHON_DIR" == /* ]] || CI_TEST_PYTHON_DIR="$CI_TEST_ROOT/$CI_TEST_PYTHON_DIR"
+CI_TEST_NODE_CHECK_SCRIPT="${CI_TEST_NODE_CHECK_SCRIPT:-check}"
+CI_TEST_NODE_BUILD_SCRIPT="${CI_TEST_NODE_BUILD_SCRIPT:-build}"
+CI_TEST_NODE_E2E_SCRIPT="${CI_TEST_NODE_E2E_SCRIPT:-test:e2e}"
 if [[ -x scripts/test-db-setup ]] && ! ci_test_prepare_db; then
   printf 'db setup failed\n' > "$CI_TEST_TMP_DIR/db.log"
   ci_test_record_failure db "$CI_TEST_TMP_DIR/db.log"
@@ -42,26 +69,59 @@ if [[ -x scripts/test-db-setup ]] && ! ci_test_prepare_db; then
   (( fail_fast )) && stop_after_family=1
 fi
 
-if (( ! stop_after_family )) && [[ -f go.mod || -f go.work ]]; then
-  if ! ci_test_run_go; then family_failed=1; fi
+if (( ! stop_after_family )) && { [[ -f "$CI_TEST_GO_DIR/go.mod" || -f "$CI_TEST_GO_DIR/go.work" ]] || [[ "$CI_TEST_GO_CONFIGURED" == true ]]; }; then
+  if [[ ! -d "$CI_TEST_GO_DIR" ]]; then
+    printf 'Configured Go directory does not exist: %s\n' "$CI_TEST_GO_DIR" >&2
+    printf 'Configured Go directory does not exist: %s\n' "$CI_TEST_GO_DIR" > "$CI_TEST_TMP_DIR/go-directory.log"
+    ci_test_record_failure go-directory "$CI_TEST_TMP_DIR/go-directory.log"
+    family_failed=1
+  elif [[ ! -f "$CI_TEST_GO_DIR/go.mod" && ! -f "$CI_TEST_GO_DIR/go.work" ]]; then
+    printf 'Configured Go directory has no go.mod or go.work: %s\n' "$CI_TEST_GO_DIR" >&2
+    printf 'Configured Go directory has no go.mod or go.work: %s\n' "$CI_TEST_GO_DIR" > "$CI_TEST_TMP_DIR/go-directory.log"
+    ci_test_record_failure go-directory "$CI_TEST_TMP_DIR/go-directory.log"
+    family_failed=1
+  else
+    if ! ci_test_run_go; then family_failed=1; fi
+  fi
   (( family_failed && fail_fast )) && stop_after_family=1
 fi
-if (( ! stop_after_family )) && [[ -f package.json ]]; then
-  if ! ci_test_run_node; then family_failed=1; fi
+if (( ! stop_after_family )) && { [[ -f "$CI_TEST_NODE_DIR/package.json" ]] || [[ "$CI_TEST_NODE_CONFIGURED" == true ]]; }; then
+  if [[ ! -d "$CI_TEST_NODE_DIR" || ! -f "$CI_TEST_NODE_DIR/package.json" ]]; then
+    printf 'Configured Node directory or package.json is missing: %s\n' "$CI_TEST_NODE_DIR" >&2
+    printf '%s\n' "Configured Node directory or package.json is missing: $CI_TEST_NODE_DIR" > "$CI_TEST_TMP_DIR/node-directory.log"
+    ci_test_record_failure node-directory "$CI_TEST_TMP_DIR/node-directory.log"
+    family_failed=1
+  elif ! ci_test_run_node; then family_failed=1; fi
   (( family_failed && fail_fast )) && stop_after_family=1
 fi
-if (( ! stop_after_family )) && [[ -f pyproject.toml ]]; then
-  if ! ci_test_run_python; then family_failed=1; fi
+if (( ! stop_after_family )) && { [[ -f "$CI_TEST_PYTHON_DIR/pyproject.toml" ]] || [[ "$CI_TEST_PYTHON_CONFIGURED" == true ]]; }; then
+  if [[ ! -d "$CI_TEST_PYTHON_DIR" || ! -f "$CI_TEST_PYTHON_DIR/pyproject.toml" ]]; then
+    printf 'Configured Python directory or pyproject.toml is missing: %s\n' "$CI_TEST_PYTHON_DIR" >&2
+    printf '%s\n' "Configured Python directory or pyproject.toml is missing: $CI_TEST_PYTHON_DIR" > "$CI_TEST_TMP_DIR/python-directory.log"
+    ci_test_record_failure python-directory "$CI_TEST_TMP_DIR/python-directory.log"
+    family_failed=1
+  elif ! ci_test_run_python; then family_failed=1; fi
 fi
 
 if (( e2e )) && (( ! stop_after_family )); then
-  if ! ci_test_skip e2e && ! ci_test_run e2e npm run test:e2e --if-present; then
-    family_failed=1
+  if ! ci_test_skip e2e; then
+    if [[ "${CI_TEST_NODE_CONFIGURED}" == true || "${CI_TEST_NODE_E2E_CONFIGURED}" == true ]]; then
+      if [[ ! -f "$CI_TEST_NODE_DIR/package.json" ]] || ! ci_test_node_has_script "$CI_TEST_NODE_DIR" "$CI_TEST_NODE_E2E_SCRIPT"; then
+        printf 'Required Node E2E script "%s" is missing in %s\n' "$CI_TEST_NODE_E2E_SCRIPT" "$CI_TEST_NODE_DIR" >&2
+        printf 'Required Node E2E script "%s" is missing in %s\n' "$CI_TEST_NODE_E2E_SCRIPT" "$CI_TEST_NODE_DIR" > "$CI_TEST_TMP_DIR/e2e.log"
+        ci_test_record_failure e2e "$CI_TEST_TMP_DIR/e2e.log"
+        family_failed=1
+      elif ! ci_test_run e2e npm --prefix "$CI_TEST_NODE_DIR" run "$CI_TEST_NODE_E2E_SCRIPT"; then
+        family_failed=1
+      fi
+    elif ! ci_test_run e2e npm run test:e2e --if-present; then
+      family_failed=1
+    fi
   fi
 fi
 
 if (( family_failed == 0 && ${#CI_TEST_FAILED_CHECKS[@]} == 0 )); then
-  if [[ ! -f go.mod && ! -f go.work && ! -f package.json && ! -f pyproject.toml ]]; then
+  if [[ ! -f "$CI_TEST_GO_DIR/go.mod" && ! -f "$CI_TEST_GO_DIR/go.work" && ! -f "$CI_TEST_NODE_DIR/package.json" && ! -f "$CI_TEST_PYTHON_DIR/pyproject.toml" ]]; then
     printf 'nothing to test\n'
   fi
 fi

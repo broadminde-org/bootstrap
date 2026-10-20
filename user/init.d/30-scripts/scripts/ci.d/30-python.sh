@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 ci_test_run_python() {
+  cd "$CI_TEST_PYTHON_DIR" || return 1
   ci_test_banner python "lock · lint · test"
   local failed=0
 

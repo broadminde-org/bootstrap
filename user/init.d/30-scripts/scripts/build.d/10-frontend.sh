@@ -17,14 +17,14 @@ step_event "step_start" "$STEP_NAME" "$STEP_LABEL"
 start_ms=$(date +%s%3N)
 
 app_dir="${BUILD_HOOK_PROJECT_DIR}"
-frontend_dir="${app_dir}/frontend"
+frontend_dir="${FRONTEND_DIR:-${app_dir}/frontend}"
 
 if [[ ! -f "${frontend_dir}/package.json" ]]; then
   append_log "### Frontend Build"
   append_log ""
-  append_log "**Frontend: SKIPPED** — No frontend/package.json"
+  append_log "**Frontend: SKIPPED** — No ${frontend_dir}/package.json"
   append_log ""
-  step_event "step_skip" "$STEP_NAME" "$STEP_LABEL" "" "no frontend/package.json"
+  step_event "step_skip" "$STEP_NAME" "$STEP_LABEL" "" "no ${frontend_dir}/package.json"
   exit 0
 fi
 
@@ -47,8 +47,9 @@ fi
 npm_dir="${frontend_dir}"
 npm_build_cmd=(npm run build)
 if [[ -f "${app_dir}/package.json" ]] && grep -q '"workspaces"' "${app_dir}/package.json"; then
+  workspace_dir="${frontend_dir#"${app_dir}/"}"
   npm_dir="${app_dir}"
-  npm_build_cmd=(npm run build --workspace=frontend)
+  npm_build_cmd=(npm run build "--workspace=${workspace_dir}")
 fi
 
 # Auto-install node_modules in the same dir the build runs from, if missing

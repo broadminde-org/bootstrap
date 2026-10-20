@@ -88,8 +88,9 @@ Current capability map (verify against `*/.requires` files before editing):
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
 node — `"latest"`, `"24"`, `"1.26"`, or `"1.26.4"`), `skills:` (npx skills
-agent targets), `caddy:` (wildcard zone config), and `github:` (host
-credential role for the access walk: `packages_write` / `source_rw`).
+agent targets), `caddy:` (wildcard zone config), `github:` (host credential
+role for the access walk), and `portal:` (`mode: dev | image`, published to
+`central.json` for app deployment steps).
 See `example.bootstrap.conf.yml` for the annotated template.
 
 ## Configuration & secrets
@@ -108,6 +109,51 @@ See `example.bootstrap.conf.yml` for the annotated template.
 - No step currently generates host secret files; if one ever does, generate
   it in-step, write it outside the repo or under a gitignored `secrets/`
   (0700/0600), and never commit it.
+
+### Shared project scripts
+
+The shared `dev` and `build` commands source a project's root `.env` as trusted
+Bash. Docker Compose reads `.env` using dotenv interpolation rules instead;
+Compose values must not rely on Bash expansion, command substitution, or other
+shell syntax. Keep shared values in syntax accepted by both consumers. `stack`
+must not introduce another incompatible `.env` parser. Never print secrets or
+copy secret values into logs, generated reports, or other result artifacts.
+In `build`, explicit caller environment wins over `.env` for the `IMAGE_*`
+family (`IMAGE_REGISTRY`, `IMAGE_NAME`, `IMAGE_TAG`, `IMAGE_ALIAS_TAGS`), so a
+throwaway-registry test can override `IMAGE_REGISTRY` without editing `.env`.
+
+The shared script configuration variables below are optional. Unset values
+retain the pre-migration behavior; examples are illustrative and belong in a
+project's local `.env` (not this repository):
+
+| Variable | Default and behavior | Example |
+|---|---|---|
+| `FRONTEND_DEV_HOST` | `::`; dual-stack Vite bind default (pre-existing behavior) | `127.0.0.1` |
+| `FRONTEND_PORT` | Unset; Vite auto-selects a port and shared `dev` parses/exports it. When set, Vite uses that strict port. | `5173` |
+| `FRONTEND_HMR_HOST` | Unset; preserves the project's existing HMR behavior | `portal.dev.example.net` |
+| `FRONTEND_HMR_PROTOCOL` | Unset; preserves the project's existing HMR behavior | `wss` |
+| `FRONTEND_HMR_CLIENT_PORT` | Unset; preserves the project's existing HMR behavior | `443` |
+| `DEV_CADDY_HOST_PREFIX` | Unset; no central-Caddy discovery. When set, derives `FRONTEND_HMR_HOST` from `central.json` unless the host is explicit. | `portal.dev` |
+| `CI_TEST_GO_DIR` | `.`; root-level Go detection | `backend` |
+| `CI_TEST_NODE_DIR` | `.`; root-level Node detection | `frontend` |
+| `CI_TEST_PYTHON_DIR` | `.`; root-level Python detection | `python` |
+| `CI_TEST_NODE_CHECK_SCRIPT` | `check`; default Node check script | `lint` |
+| `CI_TEST_NODE_BUILD_SCRIPT` | `build`; default Node build script | `build:ci` |
+| `CI_TEST_NODE_E2E_SCRIPT` | `test:e2e`; default Node E2E script | `test:browser` |
+| `BUILD_SWAG_VERSION` | Unset; preserves existing Swagger executable selection | `v1.16.4` |
+| `BUILD_SWAG_DIR` | `backend`; Swagger working directory | `api` |
+| `BUILD_SWAG_MAIN` | `main.go`; Swagger entry point | `cmd/server.go` |
+| `BUILD_SWAG_OUTPUT` | `docs/swagger`; generated output directory | `api/openapi` |
+| `BUILD_SWAG_PARSE_DEPENDENCY` | `true`; preserves existing dependency parsing | `false` |
+| `BUILD_SWAG_PARSE_INTERNAL` | `true`; preserves existing internal parsing | `false` |
+| `BUILD_SWAG_REQUIRED_PATHS` | Empty; no additional required path checks. Separate multiple exact paths with commas. | `/api/health,/api/config` |
+| `BUILD_GENERATE_STRICT` | `false`; generation failures retain compatibility behavior | `true` |
+| `IMAGE_ALIAS_TAGS` | Empty; no extra image aliases. Separate aliases with commas. | `main,stable` |
+
+`stack config` prints Docker Compose's effective configuration using the
+resolved project files and profiles, and accepts Compose config flags. Treat
+its output as potentially sensitive because Compose interpolation can include
+secret values; do not capture or publish it in result artifacts.
 
 ## Runner CLI (both tiers, identical)
 

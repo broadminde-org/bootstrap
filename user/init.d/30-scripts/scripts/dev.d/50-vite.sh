@@ -11,7 +11,7 @@ PM2_NAME="${DETECTED_APP}-vite"
 case "${1:-up}" in
   up)
     if ! has_frontend; then
-      log_skip "No frontend found (no frontend/package.json)"
+      log_skip "No frontend found (${FRONTEND_DIR}/package.json)"
       exit 0
     fi
 
@@ -29,15 +29,23 @@ case "${1:-up}" in
 
     rotate_log "${DEV_DIR}/vite.log"
 
+    vite_args="--prefix ${FRONTEND_DIR} run dev -- --host ${FRONTEND_DEV_HOST:-::}"
+    if [[ -n "${FRONTEND_PORT:-}" ]]; then
+      vite_args+=" --port ${FRONTEND_PORT} --strictPort"
+    fi
+
     cat > "${DEV_DIR}/ecosystem.config.js" <<EOF
 module.exports = {
   apps: [{
     name:        '${PM2_NAME}',
     script:      'npm',
-        args:        '--prefix ${FRONTEND_DIR} run dev -- --host ${FRONTEND_DEV_HOST:-0.0.0.0}',
+        args:        '${vite_args}',
     cwd:         '${PROJECT_DIR}',
     env:         {
       VITE_BACKEND_PORT: '${BACKEND_PORT}',
+      FRONTEND_HMR_HOST: '${FRONTEND_HMR_HOST:-}',
+      FRONTEND_HMR_PROTOCOL: '${FRONTEND_HMR_PROTOCOL:-}',
+      FRONTEND_HMR_CLIENT_PORT: '${FRONTEND_HMR_CLIENT_PORT:-}',
     },
     out_file:    '${DEV_DIR}/vite.log',
     error_file:  '${DEV_DIR}/vite.log',
@@ -50,15 +58,21 @@ EOF
 
     pm2 start "${DEV_DIR}/ecosystem.config.js"
 
-    # Vite picks its own port — parse it from the "Local:" log line.
+    # Require Vite's own announcement so an unrelated listener cannot satisfy
+    # readiness when a strict configured port is already occupied.
     vite_port=$(timeout 30 tail -F "${DEV_DIR}/vite.log" \
       | grep -m1 -oP '(?<=localhost:)\d+') || true
     if [[ -z "${vite_port:-}" || ! "$vite_port" =~ ^[0-9]+$ ]]; then
       fail "Vite did not announce a port within 30s — see ${DEV_DIR}/vite.log"
       exit 1
     fi
+    if [[ -n "${FRONTEND_PORT:-}" && "$vite_port" != "$FRONTEND_PORT" ]]; then
+      fail "Vite did not bind configured port ${FRONTEND_PORT} — see ${DEV_DIR}/vite.log"
+      exit 1
+    fi
     echo "$vite_port" > "${FRONTEND_PORT_FILE}"
-    export FRONTEND_PORT="$vite_port"
+    FRONTEND_PORT="$vite_port"
+    export FRONTEND_PORT
 
     # TCP readiness only — /healthz is an ee-specific shared-package route.
     wait_for_port "$FRONTEND_PORT" localhost 30 "Vite dev server"

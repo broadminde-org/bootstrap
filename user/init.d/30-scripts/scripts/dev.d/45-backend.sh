@@ -34,7 +34,11 @@ case "${1:-up}" in
     )
     backend_pid=$(cat "${DEV_DIR}/backend.pid" 2>/dev/null || echo "")
 
-    wait_for_healthz "$BACKEND_PORT" "$backend_pid" 60 "Backend" "${DEV_HEALTH_PATH:-/healthz}"
+    if ! wait_for_healthz "$BACKEND_PORT" "$backend_pid" 60 "Backend" "${DEV_HEALTH_PATH:-/healthz}"; then
+      fail "Custom backend startup failed — see ${DEV_DIR}/backend.log"
+      kill_pid "${DEV_DIR}/backend.pid" "failed backend"
+      exit 1
+    fi
     ;;
 
   down)

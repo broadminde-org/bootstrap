@@ -33,28 +33,30 @@ DEVD_DIR="${SCRIPT_DIR}/dev.d"
 
 PROJECT_DIR="$PWD"
 
+if [[ -f "$PROJECT_DIR/.env" ]]; then
+  set -a; source "$PROJECT_DIR/.env"; set +a
+fi
+
+# Frontend dir: frontend/ by default; .env may override (e.g. FRONTEND_DIR=ui).
+# Normalize before root detection so absolute overrides are honored.
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
+[[ "$FRONTEND_DIR" != /* ]] && FRONTEND_DIR="$PROJECT_DIR/$FRONTEND_DIR"
+
 if [[ ! -f "$PROJECT_DIR/docker-compose.yml" \
    && ! -f "$PROJECT_DIR/.air.toml" \
    && ! -f "$PROJECT_DIR/backend/.air.toml" \
    && ! -f "$PROJECT_DIR/pyproject.toml" \
    && ! -f "$PROJECT_DIR/backend/pyproject.toml" \
-   && ! -f "$PROJECT_DIR/frontend/package.json" ]]; then
+   && ! -f "$FRONTEND_DIR/package.json" \
+   && -z "${DEV_BACKEND_CMD:-}" ]]; then
   echo "Error: not a project root: $PROJECT_DIR" >&2
-  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml, backend/pyproject.toml, frontend/package.json)" >&2
+  echo "  (looked for docker-compose.yml, .air.toml, backend/.air.toml, pyproject.toml, backend/pyproject.toml, $FRONTEND_DIR/package.json)" >&2
   exit 1
 fi
 
 DETECTED_APP="$(basename "$PROJECT_DIR")"
 DEV_DIR="$PROJECT_DIR/.dev"
 mkdir -p "$DEV_DIR"
-
-if [[ -f "$PROJECT_DIR/.env" ]]; then
-  set -a; source "$PROJECT_DIR/.env"; set +a
-fi
-
-# Frontend dir: frontend/ by default; .env may override (e.g. FRONTEND_DIR=ui).
-FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
-[[ "$FRONTEND_DIR" != /* ]] && FRONTEND_DIR="$PROJECT_DIR/$FRONTEND_DIR"
 
 # Auto-port contract
 export LISTEN_ADDR="${LISTEN_ADDR:-:0}"
@@ -74,8 +76,26 @@ elif [[ "$LISTEN_ADDR" != ":0" ]]; then
 else
   BACKEND_PORT="(auto)"
 fi
-FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+FRONTEND_PORT="${FRONTEND_PORT:-}"
 FRONTEND_DEV_HOST="${FRONTEND_DEV_HOST:-::}"
+
+if [[ -n "${DEV_CADDY_HOST_PREFIX:-}" && -z "${FRONTEND_HMR_HOST:-}" ]]; then
+  caddy_config="$HOME/infra/caddy/central.json"
+  if [[ ! -f "$caddy_config" ]]; then
+    echo "Error: DEV_CADDY_HOST_PREFIX requires $caddy_config" >&2; exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "Error: DEV_CADDY_HOST_PREFIX requires jq" >&2; exit 1
+  fi
+  if ! base_domain="$(jq -er '.base_domain | strings | select(length > 0)' "$caddy_config" 2>/dev/null)"; then
+    echo "Error: missing or invalid base_domain in $caddy_config" >&2; exit 1
+  fi
+  FRONTEND_HMR_HOST="${DEV_CADDY_HOST_PREFIX}.${base_domain}"
+fi
+if [[ -n "${FRONTEND_HMR_HOST:-}" && ( ${#FRONTEND_HMR_HOST} -gt 253 || ! "$FRONTEND_HMR_HOST" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(\.([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$ ) ]]; then
+  echo "Error: invalid FRONTEND_HMR_HOST hostname" >&2; exit 1
+fi
+export FRONTEND_HMR_HOST FRONTEND_HMR_PROTOCOL FRONTEND_HMR_CLIENT_PORT
 
 # Per-project pm2 daemon isolation
 export PM2_HOME="${PM2_HOME:-$DEV_DIR/pm2}"

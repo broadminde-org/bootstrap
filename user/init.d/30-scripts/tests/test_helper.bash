@@ -63,6 +63,13 @@ EOF
   printf '%s\n' "$dir"
 }
 
+mk_nested_node_repo() {
+  local root="$1" node_dir="${2:-frontend}" check="${3:-true}" build="${4:-true}" e2e="${5:-true}"
+  mkdir -p "$root/$node_dir"
+  printf '{"name":"fixture-node","private":true,"scripts":{"check":"%s","build":"%s","test:e2e":"%s"}}\n' \
+    "$check" "$build" "$e2e" > "$root/$node_dir/package.json"
+}
+
 # mk_python_repo — minimal pyproject; callers should skip ruff/pytest via
 # CI_TEST_SKIP unless those checks are under test.
 mk_python_repo() {

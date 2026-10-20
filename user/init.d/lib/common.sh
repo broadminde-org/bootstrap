@@ -46,38 +46,72 @@ export CGO_ENABLED="${CGO_ENABLED:-0}"
 #   - If dest file exists and differs from source: copy it in (update).
 #   - If dest file exists and is identical: skip.
 # Files in dest that are not in src are left untouched — user-installed
-# extras survive re-runs.
+# extras survive re-runs. Destination-only executables are reported for
+# manual review; symlinks are never traversed and __pycache__ is ignored.
 sync_dir_preserve() {
   local src="$1"
   local dst="$2"
 
+  if [[ -L "$src" || ! -d "$src" ]]; then
+    echo "    sync_dir_preserve: required source $src not found" >&2
+    return 1
+  fi
+  if [[ -L "$dst" ]]; then
+    echo "    sync_dir_preserve: refusing symlink destination $dst" >&2
+    return 1
+  fi
   mkdir -p "$dst"
 
-  if [[ ! -d "$src" ]]; then
-    echo "    sync_dir_preserve: source $src not found, skipping"
-    return 0
-  fi
-
-  local added=0 updated=0 skipped=0
-  local item rel_path
+  local added=0 updated=0 skipped=0 unsafe=0
+  local item rel_path dst_path mode parent path_part current
+  local -a _parts=()
+  declare -A managed_paths=()
 
   while IFS= read -r -d '' item; do
-    rel_path="${item#$src/}"
-    local dst_path="$dst/$rel_path"
+    rel_path="${item#"$src"/}"
+    managed_paths["$rel_path"]=1
+    dst_path="$dst/$rel_path"
+
+    # Do not copy through a symlink at any destination path component.
+    current="$dst"
+    IFS='/' read -ra _parts <<< "$rel_path"
+    for path_part in "${_parts[@]}"; do
+      current="$current/$path_part"
+      if [[ -L "$current" ]]; then
+        echo "    sync_dir_preserve: skipping unsafe symlink $current" >&2
+        ((unsafe++)) || true
+        break
+      fi
+    done
+    [[ -L "$current" ]] && continue
 
     if [[ -f "$item" ]]; then
+      if [[ -x "$item" ]]; then mode=0755; else mode=0644; fi
       if [[ ! -f "$dst_path" ]]; then
-        mkdir -p "$(dirname "$dst_path")"
+        parent="$(dirname "$dst_path")"
+        mkdir -p "$parent"
         cp "$item" "$dst_path"
+        chmod "$mode" "$dst_path"
         ((added++)) || true
       elif ! cmp -s "$item" "$dst_path"; then
         cp "$item" "$dst_path"
+        chmod "$mode" "$dst_path"
         ((updated++)) || true
       else
+        chmod "$mode" "$dst_path"
         ((skipped++)) || true
       fi
     fi
   done < <(find "$src" -type f -print0)
 
-  echo "    sync_dir_preserve $dst: ${added} added, ${updated} updated, ${skipped} unchanged"
+  local extra
+  while IFS= read -r -d '' extra; do
+    rel_path="${extra#"$dst"/}"
+    if [[ -z "${managed_paths[$rel_path]+x}" ]]; then
+      echo "    sync_dir_preserve: unmanaged destination executable: ${rel_path}" >&2
+    fi
+  done < <(find "$dst" -type d -name __pycache__ -prune -o -type f -perm /111 -print0)
+
+  echo "    sync_dir_preserve $dst: ${added} added, ${updated} updated, ${skipped} unchanged, ${unsafe} unsafe symlink(s) skipped"
+  (( unsafe == 0 ))
 }

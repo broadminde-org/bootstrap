@@ -9,8 +9,18 @@ setup() {
   local dir
   dir="$(mktemp -d "$BATS_TEST_TMPDIR/empty.XXXXXX")"
   run_ci_test "$dir"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output"; false; }
   [[ "$output" == *"nothing to test"* ]]
+}
+
+@test "ci-test resolves modules when invoked through a symlink" {
+  local bin
+  bin="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$bin"
+  ln -s "$_CI_TEST_SCRIPT" "$bin/ci-test"
+  run env TMPDIR="$BATS_TEST_TMPDIR" "$bin/ci-test" --help
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output"; false; }
+  [[ "$output" == *"Usage: ci-test [--e2e] [--fail-fast]"* ]]
 }
 
 @test "go fixture pass: '== go:' banner, 'PASS all checks', exit 0" {
@@ -76,4 +86,73 @@ setup() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"== go:"* ]]
   [[ "$output" != *"== node:"* ]]
+}
+
+@test "configured nested Node directory runs required check and build beside root Go" {
+  local repo
+  repo="$(mk_go_repo PASS)"
+  mk_nested_node_repo "$repo" frontend
+  CI_TEST_GO_DIR=. CI_TEST_NODE_DIR=frontend CI_TEST_SKIP=lint,gosec,vulncheck run_ci_test "$repo"
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output"; false; }
+  [[ "$output" == *"== go:"* ]]
+  [[ "$output" == *"PASS check"* ]]
+  [[ "$output" == *"PASS build"* ]]
+}
+
+@test "configured ui Node directory is honored" {
+  local repo
+  repo="$(mk_node_repo)"
+  mk_nested_node_repo "$repo" ui
+  CI_TEST_NODE_DIR=ui run_ci_test "$repo"
+  [ "$status" -eq 0 ] || { printf '%s\n' "$output"; false; }
+  [[ "$output" == *"PASS check"* ]]
+  [[ "$output" == *"PASS build"* ]]
+}
+
+@test "missing configured Node directory fails clearly" {
+  local repo
+  repo="$(mk_node_repo)"
+  CI_TEST_NODE_DIR=frontend run_ci_test "$repo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Configured Node directory or package.json is missing:"*frontend* ]]
+}
+
+@test "configured Node check failure fails the family" {
+  local repo
+  repo="$(mk_node_repo)"
+  mk_nested_node_repo "$repo" frontend false true true
+  CI_TEST_NODE_DIR=frontend run_ci_test "$repo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL check"* ]]
+}
+
+@test "configured Node build failure fails the family" {
+  local repo
+  repo="$(mk_node_repo)"
+  mk_nested_node_repo "$repo" frontend true false true
+  CI_TEST_NODE_DIR=frontend run_ci_test "$repo"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"FAIL build"* ]]
+}
+
+@test "configured E2E script runs only when --e2e is supplied" {
+  local repo
+  repo="$(mk_node_repo)"
+  mk_nested_node_repo "$repo" frontend true true "touch e2e-ran"
+  CI_TEST_NODE_DIR=frontend run_ci_test "$repo"
+  [ "$status" -eq 0 ]
+  [ ! -f "$repo/frontend/e2e-ran" ]
+  CI_TEST_NODE_DIR=frontend run_ci_test "$repo" --e2e
+  [ "$status" -eq 0 ]
+  [ -f "$repo/frontend/e2e-ran" ]
+  [[ "$output" == *"PASS e2e"* ]]
+}
+
+@test "configured E2E script missing under --e2e fails instead of skipping" {
+  local repo
+  repo="$(mk_node_repo)"
+  printf '{"name":"fixture-node","scripts":{"check":"true","build":"true"}}\n' > "$repo/package.json"
+  CI_TEST_NODE_DIR=. run_ci_test "$repo" --e2e
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Required Node E2E script \"test:e2e\" is missing in "* ]]
 }

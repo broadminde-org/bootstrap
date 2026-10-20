@@ -31,6 +31,12 @@ if [[ -f "${BUILD_HOOK_PROJECT_DIR}/backend/go.mod" ]]; then
   gen_dir="${BUILD_HOOK_PROJECT_DIR}/backend"
 elif [[ -f "${BUILD_HOOK_PROJECT_DIR}/go.mod" ]]; then
   gen_dir="${BUILD_HOOK_PROJECT_DIR}"
+else
+  append_log '```'
+  append_log "**Go Generate: SKIPPED** — no Go module found"
+  append_log ""
+  step_event "step_skip" "$STEP_NAME" "$STEP_LABEL" "" "no Go module found"
+  exit 0
 fi
 
 _gen_rc=0
@@ -49,9 +55,16 @@ if [[ $_gen_rc -eq 0 ]]; then
   step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed"
 else
   append_log '```'
-  warn "[${BUILD_HOOK_APP}] go generate failed (generated code may be stale)"
-  append_log ""
-  append_log "**Go Generate: FAILED** (continuing)"
   elapsed=$(( $(date +%s%3N) - start_ms ))
-  step_event "step_ok" "$STEP_NAME" "$STEP_LABEL" "$elapsed" "go generate failed"
+  if [[ "${BUILD_HOOK_GENERATE_STRICT:-false}" == "true" ]]; then
+    fail "[${BUILD_HOOK_APP}] go generate failed"
+    append_log "**Go Generate: FAILED**"
+    append_log ""
+    step_event "step_fail" "$STEP_NAME" "$STEP_LABEL" "$elapsed" "go generate failed"
+    exit 1
+  fi
+  warn "[${BUILD_HOOK_APP}] go generate failed (generated code may be stale)"
+  append_log "**Go Generate: WARNING** — failed; continuing"
+  append_log ""
+  step_event "step_warn" "$STEP_NAME" "$STEP_LABEL" "$elapsed" "go generate failed"
 fi

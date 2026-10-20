@@ -31,6 +31,7 @@ DO_BUILD=false
 DO_PULL=false
 FORCE_RECREATE=false
 DRY_RUN=false
+DELETE_VOLUMES=false
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,17 +111,23 @@ find_compose_file() {
   return 1
 }
 
-# Compose args for normal operations: primary file + dev override + requested profiles.
-# Profiles are driven by STACK_PROFILES in the project's .env.
-# --profile tunnel is appended when --tunnel is passed.
-get_compose_args() {
+# Build Compose args as an array; never serialize shell words into a string.
+COMPOSE_ARGS=()
+COMPOSE_DOWN_ARGS=()
+COMPOSE_ORPHAN_ARGS=()
+COMPOSE_IMAGES_ARGS=()
+COMPOSE_SERVICES=()
+PASSTHROUGH_ARGS=()
+EXPLICIT_PROJECT_NAME=""
+COMPOSE_PROJECT_ARGS=()
+
+build_compose_args() {
   local app_dir="$1"
   local base_file
   base_file=$(find_compose_file "$app_dir") || return 1
-
-  local args="-f ${base_file}"
+  local files=("-f" "$base_file") profiles=()
   if [[ "$DEV_MODE" == "true" && -f "${app_dir}/docker-compose.dev.yml" ]]; then
-    args="${args} -f ${app_dir}/docker-compose.dev.yml"
+    files+=("-f" "${app_dir}/docker-compose.dev.yml")
   fi
 
   # Read STACK_PROFILES from project .env (single-line grep — avoids overwriting env vars).
@@ -131,10 +138,17 @@ get_compose_args() {
   fi
 
   if [[ -n "$stack_profiles" ]]; then
-    IFS=',' read -ra _profiles <<< "$stack_profiles"
-    for p in "${_profiles[@]}"; do
-      p="${p// /}"
-      [[ -n "$p" ]] && args="${args} --profile ${p}"
+    local -a configured_profiles
+    IFS=',' read -ra configured_profiles <<< "$stack_profiles"
+    for p in "${configured_profiles[@]}"; do
+      # Trim surrounding whitespace only; quoted profile names may contain spaces.
+      p="${p#"${p%%[![:space:]]*}"}"
+      p="${p%"${p##*[![:space:]]}"}"
+      # Strip one layer of surrounding quotes if present.
+      if [[ "$p" == \"*\" || "$p" == \'*\' ]]; then
+        p="${p:1:${#p}-2}"
+      fi
+      [[ -n "$p" ]] && profiles+=(--profile "$p")
     done
   fi
 
@@ -144,58 +158,69 @@ get_compose_args() {
     tunnel_token=$(grep -E '^TUNNEL_TOKEN=' "${app_dir}/.env.tunnel" \
       | tail -1 | cut -d= -f2- | sed 's/#.*//' | xargs 2>/dev/null || true)
     if [[ -n "$tunnel_token" ]]; then
-      args="${args} --profile tunnel"
+      profiles+=(--profile tunnel)
     fi
   fi
 
   # Explicit --tunnel flag override.
   if [[ "$TUNNEL_MODE" == "true" ]]; then
-    args="${args} --profile tunnel"
+    profiles+=(--profile tunnel)
   fi
 
-  echo "$args"
-}
-
-# List every profile defined in the compose file(s). Used on `down` and
-# `up --remove-orphans` so all profile-gated services are in scope.
-get_all_profiles() {
-  local app_dir="$1"
-  local base_file
-  base_file=$(find_compose_file "$app_dir") || return 1
-  local files=("-f" "$base_file")
-  if [[ "$DEV_MODE" == "true" && -f "${app_dir}/docker-compose.dev.yml" ]]; then
-    files+=("-f" "${app_dir}/docker-compose.dev.yml")
+  COMPOSE_ARGS=("${COMPOSE_PROJECT_ARGS[@]}" "${files[@]}" "${profiles[@]}")
+  local profile_output service_output p
+  if ! profile_output=$(docker compose "${COMPOSE_PROJECT_ARGS[@]}" "${files[@]}" config --profiles 2>/dev/null); then
+    fail "Could not resolve Compose profiles"
+    return 1
   fi
-  docker compose "${files[@]}" config --profiles 2>/dev/null | sort -u
-}
-
-# Compose args for `down`: same -f files as get_compose_args, but enables
-# ALL profiles so nothing is left behind.
-get_compose_down_args() {
-  local app_dir="$1"
-  local base_file
-  base_file=$(find_compose_file "$app_dir") || return 1
-  local args="-f ${base_file}"
-  if [[ "$DEV_MODE" == "true" && -f "${app_dir}/docker-compose.dev.yml" ]]; then
-    args="${args} -f ${app_dir}/docker-compose.dev.yml"
+  if ! service_output=$(docker compose "${COMPOSE_PROJECT_ARGS[@]}" "${files[@]}" "${profiles[@]}" config --services 2>/dev/null); then
+    fail "Could not resolve Compose services"
+    return 1
   fi
-  local profile
-  while IFS= read -r profile; do
-    [[ -n "$profile" ]] && args="${args} --profile ${profile}"
-  done < <(get_all_profiles "$app_dir")
-  echo "$args"
+
+  local -a discovered_profiles=() all_profile_args=()
+  while IFS= read -r p; do
+    [[ -n "$p" ]] && discovered_profiles+=("$p")
+  done <<< "$(printf '%s\n' "$profile_output" | sort -u)"
+  for p in "${discovered_profiles[@]}"; do
+    [[ -n "$p" ]] && all_profile_args+=(--profile "$p")
+  done
+  COMPOSE_DOWN_ARGS=("${COMPOSE_PROJECT_ARGS[@]}" "${files[@]}" "${all_profile_args[@]}")
+  COMPOSE_ORPHAN_ARGS=("${COMPOSE_DOWN_ARGS[@]}")
+  COMPOSE_IMAGES_ARGS=("${COMPOSE_DOWN_ARGS[@]}")
+  COMPOSE_SERVICES=()
+  while IFS= read -r p; do
+    [[ -n "$p" ]] && COMPOSE_SERVICES+=("$p")
+  done <<< "$service_output"
 }
 
-# Compose args for `pull` and `update --remove-orphans`: all files + all profiles.
-get_compose_images_args()       { get_compose_down_args "$@"; }
-get_compose_orphan_safe_args()  { get_compose_down_args "$@"; }
-
-# Compute services to start for the caller-requested profile set.
-get_start_services() {
-  local app_dir="$1"
-  local start_args
-  start_args=$(get_compose_args "$app_dir") || return 1
-  docker compose ${start_args} config --services 2>/dev/null | tr '\n' ' '
+# Resolve all profiles before cleanup so profile-gated services remain in scope.
+# Resolve exactly the project name Compose uses, including top-level name and
+# Compose's directory fallback. Explicit wrapper -p has highest precedence.
+resolve_project_name() {
+  if [[ -n "$EXPLICIT_PROJECT_NAME" ]]; then
+    PROJECT_NAME="$EXPLICIT_PROJECT_NAME"
+  elif [[ -n "${COMPOSE_PROJECT_NAME:-}" ]]; then
+    PROJECT_NAME="$COMPOSE_PROJECT_NAME"
+  else
+    local configured_name="" config_json=""
+    if ! command -v jq >/dev/null 2>&1; then
+      warn "jq not found; cannot inspect Compose project name."
+      warn "Falling back to directory name '$(basename "$PROJECT_DIR")' for project identity."
+    elif config_json=$(docker compose "${COMPOSE_ARGS[@]}" config --format json 2>/dev/null); then
+      configured_name=$(printf '%s' "$config_json" | jq -r '.name // empty')
+      if [[ -n "$configured_name" ]]; then
+        PROJECT_NAME="$configured_name"
+      else
+        # Compose itself falls back to the directory name; no warning needed.
+        PROJECT_NAME="$(basename "$PROJECT_DIR")"
+      fi
+    else
+      warn "Could not resolve Compose configuration to determine the project name."
+      warn "Falling back to directory name '$(basename "$PROJECT_DIR")' for project identity."
+      PROJECT_NAME="$(basename "$PROJECT_DIR")"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -203,35 +228,14 @@ get_start_services() {
 # ---------------------------------------------------------------------------
 
 show_status() {
-  local compose_args
-  compose_args=$(get_compose_args "$PROJECT_DIR") || {
-    warn "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
-
   log "Stack status for ${PROJECT_NAME}:"
   echo ""
-  docker compose ${compose_args} ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+  docker compose "${COMPOSE_ARGS[@]}" ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}" "${PASSTHROUGH_ARGS[@]}"
 
   run_hook "status"
 }
 
 stack_up() {
-  local compose_args orphan_args start_services
-
-  compose_args=$(get_compose_args "$PROJECT_DIR") || {
-    fail "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
-  orphan_args=$(get_compose_orphan_safe_args "$PROJECT_DIR") || {
-    fail "Failed to enumerate compose profiles in ${PROJECT_DIR}"
-    return 1
-  }
-  start_services=$(get_start_services "$PROJECT_DIR") || {
-    fail "Failed to enumerate compose services in ${PROJECT_DIR}"
-    return 1
-  }
-
   if [[ "$DEV_MODE" == "true" ]]; then
     log "Starting DEV stack for ${PROJECT_NAME} (no auth, no SSL)..."
   else
@@ -243,7 +247,7 @@ stack_up() {
   # Use orphan_args (every profile enabled) for --remove-orphans so
   # profile-gated services (e.g. cloudflared/tunnel) are not reaped.
   # Limit what starts to start_services (caller-requested profiles only).
-  if docker compose ${orphan_args} up -d --remove-orphans ${start_services}; then
+  if docker compose "${COMPOSE_ORPHAN_ARGS[@]}" up -d --remove-orphans "${COMPOSE_SERVICES[@]}" "${PASSTHROUGH_ARGS[@]}"; then
     ok "Stack started"
   else
     fail "Failed to start stack"
@@ -253,7 +257,7 @@ stack_up() {
   log "Waiting for services to be healthy..."
   local retries=30 healthy=false
   while [[ $retries -gt 0 ]]; do
-    if docker compose ${compose_args} ps | grep -q "(healthy)\|Up"; then
+    if docker compose "${COMPOSE_ARGS[@]}" ps | grep -q "(healthy)\|Up"; then
       healthy=true
       break
     fi
@@ -272,12 +276,6 @@ stack_up() {
 
 stack_down() {
   local delete_volumes="${1:-false}"
-  local compose_args
-
-  compose_args=$(get_compose_down_args "$PROJECT_DIR") || {
-    warn "No compose file found in ${PROJECT_DIR}"
-    return 0
-  }
 
   if [[ "$delete_volumes" == "true" ]]; then
     echo ""
@@ -291,7 +289,7 @@ stack_down() {
     fi
     log "Stopping stack for ${PROJECT_NAME} and deleting volumes..."
     run_hook "pre-teardown"
-    if docker compose ${compose_args} down -v --remove-orphans; then
+    if docker compose "${COMPOSE_DOWN_ARGS[@]}" down -v --remove-orphans "${PASSTHROUGH_ARGS[@]}"; then
       ok "Stack stopped and volumes deleted"
       run_hook "post-teardown"
     else
@@ -301,7 +299,7 @@ stack_down() {
   else
     log "Stopping stack for ${PROJECT_NAME}..."
     run_hook "pre-down"
-    if docker compose ${compose_args} down --remove-orphans; then
+    if docker compose "${COMPOSE_DOWN_ARGS[@]}" down --remove-orphans "${PASSTHROUGH_ARGS[@]}"; then
       ok "Stack stopped"
       run_hook "post-down"
     else
@@ -321,12 +319,6 @@ stack_down() {
 
 stack_logs() {
   local service="${1:-}"
-  local compose_args
-
-  compose_args=$(get_compose_args "$PROJECT_DIR") || {
-    fail "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
 
   local hook_pid=""
   local hook_script="${PROJECT_DIR}/scripts/stack-hooks/logs"
@@ -338,24 +330,17 @@ stack_logs() {
   fi
 
   if [[ -n "$service" ]]; then
-    docker compose ${compose_args} logs -f "$service"
+    docker compose "${COMPOSE_ARGS[@]}" logs -f "$service" "${PASSTHROUGH_ARGS[@]}"
   else
-    docker compose ${compose_args} logs -f
+    docker compose "${COMPOSE_ARGS[@]}" logs -f "${PASSTHROUGH_ARGS[@]}"
   fi
 }
 
 stack_build() {
-  local compose_args
-
-  compose_args=$(get_compose_args "$PROJECT_DIR") || {
-    fail "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
-
   log "Building stack images for ${PROJECT_NAME}..."
   run_hook "pre-build"
 
-  if docker compose ${compose_args} build; then
+  if docker compose "${COMPOSE_ARGS[@]}" build "${PASSTHROUGH_ARGS[@]}"; then
     ok "Images built"
     run_hook "post-build"
   else
@@ -365,16 +350,10 @@ stack_build() {
 }
 
 stack_pull() {
-  local compose_args
-  compose_args=$(get_compose_images_args "$PROJECT_DIR") || {
-    fail "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
-
   log "Pulling latest images for ${PROJECT_NAME}..."
 
   local images
-  images=$(docker compose ${compose_args} config --images 2>/dev/null | sort -u || true)
+  images=$(docker compose "${COMPOSE_IMAGES_ARGS[@]}" config --images 2>/dev/null | sort -u || true)
 
   if [[ -z "$images" ]]; then
     warn "No images found to pull"
@@ -410,19 +389,7 @@ stack_pull() {
 # Chainable with --build (runs `build` command first) or --pull (pulls first).
 # --force recreates all services. --dry-run previews without applying changes.
 stack_update() {
-  local compose_args orphan_args start_services
-  compose_args=$(get_compose_args "$PROJECT_DIR") || {
-    fail "No compose file found in ${PROJECT_DIR}"
-    return 1
-  }
-  orphan_args=$(get_compose_orphan_safe_args "$PROJECT_DIR") || {
-    fail "Failed to enumerate compose profiles in ${PROJECT_DIR}"
-    return 1
-  }
-  start_services=$(get_start_services "$PROJECT_DIR") || {
-    fail "Failed to enumerate compose services in ${PROJECT_DIR}"
-    return 1
-  }
+  local -a compose_args=("${COMPOSE_ARGS[@]}") orphan_args=("${COMPOSE_ORPHAN_ARGS[@]}") start_services=("${COMPOSE_SERVICES[@]}")
 
   # Optional: build first (looks for `build` on PATH, then <repo>/scripts/build)
   if [[ "$DO_BUILD" == "true" ]]; then
@@ -447,12 +414,10 @@ stack_update() {
   # Optional: pull first
   if [[ "$DO_PULL" == "true" ]]; then
     log "Pulling images before update..."
-    run_hook "pre-pull"
     if ! stack_pull; then
       fail "Pull failed; aborting update"
       return 1
     fi
-    run_hook "post-pull"
   fi
 
   run_hook "pre-update"
@@ -465,7 +430,7 @@ stack_update() {
 
   local stale_count=0
   local services_json
-  services_json=$(docker compose ${compose_args} config --format json 2>/dev/null || echo "{}")
+  services_json=$(docker compose "${compose_args[@]}" config --format json 2>/dev/null || echo "{}")
 
   local services
   services=$(echo "$services_json" | jq -r '.services | keys[]' 2>/dev/null)
@@ -477,7 +442,7 @@ stack_update() {
     local image running_cid running_id available_id version_label build_label version_display status
     image=$(echo "$services_json" | jq -r --arg s "$svc" '.services[$s].image // empty' 2>/dev/null)
 
-    running_cid=$(docker compose ${compose_args} ps -q "$svc" 2>/dev/null | head -1)
+    running_cid=$(docker compose "${compose_args[@]}" ps -q "$svc" 2>/dev/null | head -1)
     if [[ -n "$running_cid" ]]; then
       running_id=$(docker inspect --format '{{.Image}}' "$running_cid" 2>/dev/null | sed 's|^sha256:||' | cut -c1-12)
     else
@@ -523,7 +488,7 @@ stack_update() {
 
   if [[ "$FORCE_RECREATE" == "true" ]]; then
     log "Forcing recreate of all services..."
-    if ! docker compose ${orphan_args} up -d --force-recreate --remove-orphans ${start_services}; then
+    if ! docker compose "${orphan_args[@]}" up -d --force-recreate --remove-orphans "${start_services[@]}" "${PASSTHROUGH_ARGS[@]}"; then
       fail "Stack update failed"
       return 1
     fi
@@ -532,7 +497,7 @@ stack_update() {
     return 0
   else
     log "Recreating stale services..."
-    if ! docker compose ${orphan_args} up -d --remove-orphans ${start_services}; then
+    if ! docker compose "${orphan_args[@]}" up -d --remove-orphans "${start_services[@]}" "${PASSTHROUGH_ARGS[@]}"; then
       fail "Stack update failed"
       return 1
     fi
@@ -541,7 +506,7 @@ stack_update() {
   ok "Stack updated"
   echo ""
   log "Post-update state:"
-  docker compose ${compose_args} ps --format "table {{.Name}}\t{{.Status}}\t{{.Image}}"
+  docker compose "${compose_args[@]}" ps --format "table {{.Name}}\t{{.Status}}\t{{.Image}}" "${PASSTHROUGH_ARGS[@]}"
 
   run_hook "stack-update"
 }
@@ -561,6 +526,13 @@ while [[ $# -gt 0 ]]; do
     --pull-first)     DO_PULL=true;        shift ;;
     --force)          FORCE_RECREATE=true; shift ;;
     --dry-run)        DRY_RUN=true;        shift ;;
+    -p|--project-name)
+      [[ $# -ge 2 ]] || { fail "$1 requires a project name"; exit 1; }
+      [[ -n "$2" ]] || { fail "$1 requires a non-empty project name"; exit 1; }
+      EXPLICIT_PROJECT_NAME="$2"
+      shift 2
+      ;;
+    --project-name=*) EXPLICIT_PROJECT_NAME="${1#*=}"; shift ;;
     --help|-h)
       cat <<'EOF'
 Usage: stack [options] <command> [args]
@@ -568,6 +540,8 @@ Usage: stack [options] <command> [args]
 Options:
   --dev          Use docker-compose.dev.yml (no auth, local dev mode)
   --tunnel       Also start the Cloudflare tunnel service (profile: tunnel)
+  -p, --project-name NAME
+                 Override the effective Compose project name
 
 Commands:
   up             Start the Docker Compose stack
@@ -580,6 +554,7 @@ Commands:
                         --force (recreate all) | --dry-run (preview only)
   ps             Show running containers
   status         Show stack status (default)
+  config [FLAGS] Inspect effective Compose configuration and pass FLAGS through
 
 Hooks (place executables in <project-root>/scripts/stack-hooks/):
   pre-up, post-up, pre-down, post-down, pre-teardown, post-teardown,
@@ -600,7 +575,7 @@ Examples:
 EOF
       exit 0
       ;;
-    up|down|logs|log|build|pull|update|ps|status)
+    up|down|logs|log|build|pull|update|ps|status|config)
       cmd="$1"
       shift
       # Capture optional argument for logs/down
@@ -609,11 +584,20 @@ EOF
         shift
       fi
       ;;
+    -v|--volumes)
+      # Wrapper-owned flag for `down` (volume deletion requires confirmation).
+      if [[ "$cmd" == "down" ]]; then DELETE_VOLUMES=true; shift; continue; fi
+      if [[ -n "$cmd" ]]; then PASSTHROUGH_ARGS+=("$1"); shift; continue; fi
+      fail "Unknown option: $1"
+      exit 1
+      ;;
     --*)
+      if [[ -n "$cmd" ]]; then PASSTHROUGH_ARGS+=("$1"); shift; continue; fi
       fail "Unknown option: $1"
       exit 1
       ;;
     *)
+      if [[ -n "$cmd" ]]; then PASSTHROUGH_ARGS+=("$1"); shift; continue; fi
       fail "Unknown argument: $1"
       echo "Run 'stack --help' for usage."
       exit 1
@@ -622,6 +606,16 @@ EOF
 done
 
 cmd="${cmd:-status}"
+
+COMPOSE_PROJECT_ARGS=()
+if [[ -n "$EXPLICIT_PROJECT_NAME" ]]; then
+  COMPOSE_PROJECT_ARGS=(-p "$EXPLICIT_PROJECT_NAME")
+fi
+if ! build_compose_args "$PROJECT_DIR"; then
+  fail "No compose file found in ${PROJECT_DIR}"
+  exit 1
+fi
+resolve_project_name
 
 # ---------------------------------------------------------------------------
 # Print version banner if VERSION file exists at project root
@@ -645,15 +639,10 @@ case "$cmd" in
     stack_up
     ;;
   down)
-    delete_volumes=false
     if [[ "${next_arg:-}" == "-v" || "${next_arg:-}" == "--volumes" ]]; then
-      delete_volumes=true
+      DELETE_VOLUMES=true
     fi
-    for arg in "$@"; do
-      [[ "$arg" == "-v" || "$arg" == "--volumes" ]] && delete_volumes=true
-    done
-    stack_down "$delete_volumes"
-    shift $# || true
+    stack_down "$DELETE_VOLUMES"
     ;;
   logs|log)
     stack_logs "${next_arg:-}"
@@ -673,6 +662,9 @@ case "$cmd" in
     ;;
   ps|status)
     show_status
+    ;;
+  config)
+    docker compose "${COMPOSE_ARGS[@]}" config "${PASSTHROUGH_ARGS[@]}"
     ;;
   *)
     fail "Unknown command: $cmd"

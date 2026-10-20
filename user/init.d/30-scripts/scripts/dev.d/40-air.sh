@@ -6,6 +6,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 case "${1:-up}" in
   up)
+    if has_custom_backend; then
+      log_skip "DEV_BACKEND_CMD takes precedence over Air"
+      exit 0
+    fi
     if ! has_air; then
       log_skip "No .air.toml found"
       exit 0
@@ -50,6 +54,9 @@ case "${1:-up}" in
       ok "Backend bound to auto-assigned :${BACKEND_PORT}"
     else
       export BACKEND_PORT="${LISTEN_ADDR##*:}"
+      # Record the pinned port so `dev` status and `down` resolve it the
+      # same way as the auto-port path.
+      echo "$BACKEND_PORT" > "${BACKEND_PORT_FILE}"
     fi
 
     wait_for_healthz "$BACKEND_PORT" "$go_pid" 60 "Go backend" "${DEV_HEALTH_PATH:-/healthz}"

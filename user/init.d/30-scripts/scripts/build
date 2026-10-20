@@ -58,9 +58,14 @@ Subcommands:
                      across apps and clean left it alone).
 
 Environment:
-  IMAGE_REGISTRY     Registry prefix for image tags/pushes (env or .env)
+  IMAGE_REGISTRY     Registry prefix for image tags/pushes (env or .env;
+                     explicit env wins over .env for all IMAGE_* vars)
   IMAGE_TAG          Default tag when --tag is not given (default: latest)
   IMAGE_NAME         App/image name override (default: project dir basename)
+  IMAGE_ALIAS_TAGS   Optional comma-delimited Docker aliases (default: none)
+  BUILD_SWAG_*       Optional Swagger settings; BUILD_SWAG_REQUIRED_PATHS
+                     uses comma-delimited exact JSON path keys
+  BUILD_GENERATE_STRICT  Make Swagger and go generate failures fatal
   EE_RESULTS_KEEP    How many build-results/<ts> dirs to keep (default: 10,
                      0 disables pruning)
 
@@ -89,14 +94,34 @@ done
 
 PROJECT_DIR="$PWD"
 
+# Project-local env is trusted Bash, matching shared dev and preserving
+# existing IMAGE_* configuration while enabling FRONTEND_DIR detection.
+# Explicit caller environment wins over .env for the IMAGE_* family so a
+# throwaway-registry test can override IMAGE_REGISTRY without editing .env.
+declare -A _IMAGE_ENV_OVERRIDES=()
+for _image_var in IMAGE_REGISTRY IMAGE_NAME IMAGE_TAG IMAGE_ALIAS_TAGS; do
+  if [[ -n "${!_image_var+x}" ]]; then
+    _IMAGE_ENV_OVERRIDES[$_image_var]="${!_image_var}"
+  fi
+done
+if [[ -f "$PROJECT_DIR/.env" ]]; then
+  set -a; source "$PROJECT_DIR/.env"; set +a
+fi
+for _image_var in "${!_IMAGE_ENV_OVERRIDES[@]}"; do
+  printf -v "$_image_var" '%s' "${_IMAGE_ENV_OVERRIDES[$_image_var]}"
+done
+unset _IMAGE_ENV_OVERRIDES _image_var
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
+if [[ "$FRONTEND_DIR" != /* ]]; then FRONTEND_DIR="$PROJECT_DIR/$FRONTEND_DIR"; fi
+
 if [[ ! -f "$PROJECT_DIR/Dockerfile" \
-   && ! -f "$PROJECT_DIR/frontend/package.json" \
+   && ! -f "$FRONTEND_DIR/package.json" \
    && ! -f "$PROJECT_DIR/backend/main.go" \
    && ! -f "$PROJECT_DIR/main.go" \
    && ! -f "$PROJECT_DIR/go.mod" \
    && ! -f "$PROJECT_DIR/backend/go.mod" ]]; then
   echo "Error: not a project root: $PROJECT_DIR" >&2
-  echo "  (looked for Dockerfile, frontend/package.json, backend/main.go, main.go, go.mod, backend/go.mod)" >&2
+  echo "  (looked for Dockerfile, ${FRONTEND_DIR}/package.json, backend/main.go, main.go, go.mod, backend/go.mod)" >&2
   exit 1
 fi
 
@@ -113,10 +138,7 @@ source "${SCRIPT_DIR}/lib/retention.sh"
 # orchestrator and steps share one definition (ee defined them twice).
 source "${BUILDD_DIR}/common.sh"
 
-# Project-local env (IMAGE_REGISTRY, IMAGE_TAG defaults, etc.)
-if [[ -f "$PROJECT_DIR/.env" ]]; then
-  set -a; source "$PROJECT_DIR/.env"; set +a
-fi
+export FRONTEND_DIR
 
 MODE="build"
 DRY_RUN=false
@@ -182,10 +204,10 @@ clean_path() {
 
 clean_project() {
   log "[${DETECTED_APP}] Cleaning build artifacts..."
-  clean_path "$PROJECT_DIR/frontend/build"
-  clean_path "$PROJECT_DIR/frontend/dist"
-  clean_path "$PROJECT_DIR/frontend/.svelte-kit"
-  clean_path "$PROJECT_DIR/frontend/node_modules/.vite"
+  clean_path "$FRONTEND_DIR/build"
+  clean_path "$FRONTEND_DIR/dist"
+  clean_path "$FRONTEND_DIR/.svelte-kit"
+  clean_path "$FRONTEND_DIR/node_modules/.vite"
   clean_path "$PROJECT_DIR/backend/static"
   clean_path "$PROJECT_DIR/static"
   clean_path "$PROJECT_DIR/build-results"
@@ -199,6 +221,31 @@ if [[ "$MODE" == "clean" ]]; then
   clean_project
   exit 0
 fi
+
+# Validate aliases before any build or push can occur.
+declare -a IMAGE_ALIAS_TAG_LIST=()
+if [[ -n "${IMAGE_ALIAS_TAGS:-}" ]]; then
+  if [[ "$IMAGE_ALIAS_TAGS" == ,* || "$IMAGE_ALIAS_TAGS" == *, || "$IMAGE_ALIAS_TAGS" == *,,* || "$IMAGE_ALIAS_TAGS" == *$'\n'* ]]; then
+    echo "Invalid empty or multiline IMAGE_ALIAS_TAGS value" >&2
+    exit 1
+  fi
+  IFS=',' read -r -a _raw_image_alias_tags <<< "$IMAGE_ALIAS_TAGS"
+  declare -A _seen_image_alias_tags=()
+  for _alias in "${_raw_image_alias_tags[@]}"; do
+    _alias="${_alias#"${_alias%%[![:space:]]*}"}"
+    _alias="${_alias%"${_alias##*[![:space:]]}"}"
+    if [[ ! "$_alias" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+      echo "Invalid Docker alias tag: ${_alias:-<empty>}" >&2
+      exit 1
+    fi
+    if [[ -z "${_seen_image_alias_tags[$_alias]+x}" ]]; then
+      IMAGE_ALIAS_TAG_LIST+=("$_alias")
+      _seen_image_alias_tags[$_alias]=1
+    fi
+  done
+fi
+IMAGE_ALIAS_TAGS="$(IFS=,; printf '%s' "${IMAGE_ALIAS_TAG_LIST[*]}")"
+export IMAGE_ALIAS_TAGS
 
 # ===========================================================================
 # Build subcommand — runner over build.d/
@@ -233,7 +280,7 @@ build_project() {
 
   log "${app} v${semver} build ${build_num} (${git_sha})${dirty_suffix:+ [dirty]}"
 
-  local frontend_dir="${app_dir}/frontend"
+  local frontend_dir="$FRONTEND_DIR"
   local dist_dir="${DIST_DIR}"
   local static_dir="${app_dir}/static"
   if [[ -d "${app_dir}/backend" && -f "${app_dir}/backend/main.go" ]]; then
@@ -255,6 +302,15 @@ build_project() {
   export BUILD_HOOK_VERSION_FULL="$version_full"
   export BUILD_HOOK_REGISTRY="$REGISTRY"
   export BUILD_HOOK_IMAGE_TAG="$IMAGE_TAG"
+  export BUILD_HOOK_IMAGE_ALIAS_TAGS="$IMAGE_ALIAS_TAGS"
+  export BUILD_HOOK_GENERATE_STRICT="${BUILD_GENERATE_STRICT:-false}"
+  export BUILD_HOOK_SWAG_VERSION="${BUILD_SWAG_VERSION:-}"
+  export BUILD_HOOK_SWAG_DIR="${BUILD_SWAG_DIR:-backend}"
+  export BUILD_HOOK_SWAG_MAIN="${BUILD_SWAG_MAIN:-main.go}"
+  export BUILD_HOOK_SWAG_OUTPUT="${BUILD_SWAG_OUTPUT:-docs/swagger}"
+  export BUILD_HOOK_SWAG_PARSE_DEPENDENCY="${BUILD_SWAG_PARSE_DEPENDENCY:-true}"
+  export BUILD_HOOK_SWAG_PARSE_INTERNAL="${BUILD_SWAG_PARSE_INTERNAL:-true}"
+  export BUILD_HOOK_SWAG_REQUIRED_PATHS="${BUILD_SWAG_REQUIRED_PATHS:-}"
   # true when --tag was passed; 40-docker then drops the version/semver tag
   # family (CI sha tags shouldn't emit junk v0.0.0* tags).
   export BUILD_HOOK_IMAGE_TAG_EXPLICIT="$IMAGE_TAG_EXPLICIT"
@@ -312,6 +368,7 @@ EOF
   local errors=""
   local frontend_failed=false
   local binary_failed=false
+  local generation_failed=false
 
   # Determine which steps to run based on flags (ee's 05-caddy and
   # 35-connectors steps were dropped in the generalization)
@@ -376,6 +433,21 @@ EOF
       continue
     fi
 
+    if $generation_failed && [[ "$step_name" == "30-binary" || "$step_name" == "40-docker" ]]; then
+      local generation_step_label="${step_name/30-binary/Go Binary Build}"
+      generation_step_label="${generation_step_label/40-docker/Docker Image Build}"
+      {
+        echo "### ${generation_step_label}"
+        echo ""
+        echo "**${generation_step_label}: SKIPPED** — strict generation failed"
+        echo ""
+      } >> "$log_file"
+      local generation_skip_ts
+      generation_skip_ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      echo "{\"ts\":\"${generation_skip_ts}\",\"event\":\"step_skip\",\"step\":\"${step_name}\",\"label\":\"${generation_step_label}\",\"reason\":\"strict generation failed\"}" >> "$STEP_EVENTS_LOG"
+      continue
+    fi
+
     # Run the step
     if bash "$step_file"; then
       :
@@ -386,6 +458,9 @@ EOF
       elif [[ "$step_name" == "30-binary" ]]; then
         binary_failed=true
         errors="${errors}30-binary failed; "
+      elif [[ "$step_name" == "15-swag" || "$step_name" == "20-go-generate" ]]; then
+        generation_failed=true
+        errors="${errors}${step_name} failed; "
       else
         errors="${errors}${step_name} failed; "
       fi

@@ -3,7 +3,8 @@
 #
 # Generalized from the ee monorepo's infra/mcp/build.d/40-docker/run.sh:
 # inline Dockerfile detection (no MCP_ROOT detector), build context is the
-# project root. Tags <app>:{tag,version_tag,semver_tag} plus a
+# project root. Tags <app>:{tag,version_tag,semver_tag} plus optional
+# comma-delimited IMAGE_ALIAS_TAGS from the built primary image, and a
 # registry-prefixed set when IMAGE_REGISTRY is non-empty; pushes all three
 # registry tags when push is enabled. When IMAGE_TAG_EXPLICIT=true (the
 # orchestrator sets this when --tag was given), the version/semver tags are
@@ -86,6 +87,39 @@ fi
 
 if [[ $_docker_rc -eq 0 ]]; then
 
+  declare -a alias_tags=()
+  if [[ -n "${BUILD_HOOK_IMAGE_ALIAS_TAGS:-}" ]]; then
+    IFS=',' read -r -a _configured_alias_tags <<< "$BUILD_HOOK_IMAGE_ALIAS_TAGS"
+    for alias_tag in "${_configured_alias_tags[@]}"; do
+      # The primary and version refs already exist; don't push them again.
+      if [[ "$alias_tag" == "$image_tag" || ( "$_version_tags" == true && ( "$alias_tag" == "$version_tag" || "$alias_tag" == "$semver_tag" ) ) ]]; then
+        continue
+      fi
+      alias_tags+=("$alias_tag")
+    done
+  fi
+  for alias_tag in "${alias_tags[@]}"; do
+    _tag_rc=0
+    if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then
+      docker tag "${app}:${image_tag}" "${app}:${alias_tag}" 2>&1 | tee -a "$log_file" || _tag_rc=$?
+      if [[ -n "$registry" && $_tag_rc -eq 0 ]]; then
+        docker tag "${registry}/${app}:${image_tag}" "${registry}/${app}:${alias_tag}" 2>&1 | tee -a "$log_file" || _tag_rc=$?
+      fi
+    else
+      docker tag "${app}:${image_tag}" "${app}:${alias_tag}" >> "$log_file" 2>&1 || _tag_rc=$?
+      if [[ -n "$registry" && $_tag_rc -eq 0 ]]; then
+        docker tag "${registry}/${app}:${image_tag}" "${registry}/${app}:${alias_tag}" >> "$log_file" 2>&1 || _tag_rc=$?
+      fi
+    fi
+    if [[ $_tag_rc -ne 0 ]]; then
+      fail "[${app}] Failed to create Docker alias ${alias_tag}"
+      append_log "**Docker Image: FAILED** — alias tagging failed for ${alias_tag}"
+      elapsed=$(( $(date +%s%3N) - start_ms ))
+      step_event "step_fail" "$STEP_NAME" "$STEP_LABEL" "$elapsed" "alias tagging failed: ${alias_tag}"
+      exit 1
+    fi
+  done
+
   append_log '```'
   ok "[${app}] Image built: ${app}:${image_tag}"
   append_log ""
@@ -103,6 +137,9 @@ if [[ $_docker_rc -eq 0 ]]; then
     if $_version_tags; then
       push_tags+=( "${registry}/${app}:${version_tag}" "${registry}/${app}:${semver_tag}" )
     fi
+    for alias_tag in "${alias_tags[@]}"; do
+      push_tags+=("${registry}/${app}:${alias_tag}")
+    done
     for push_tag in "${push_tags[@]}"; do
       if ! $push_ok; then break; fi
       if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then

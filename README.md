@@ -174,8 +174,8 @@ Credentials are intentionally split by blast radius:
 |---|---|---|---|
 | Operator `gh` auth | gh credential store | gh defaults | Human issue/PR/API workflows |
 | Per-repo deploy keys | `~/.ssh/` | read-only | Source fetches for shared repos |
-| `BROADMINDE_PACKAGES_TOKEN` | `~/.config/gh/broadminde-packages.token` → `~/.npmrc` | `read:packages` | npm/GHCR package pulls |
-| `BROADMINDE_PACKAGES_TOKEN` on publish hosts | `~/.config/gh/broadminde-packages.token` → `~/.npmrc` | `read:packages`, `write:packages` | npm/GHCR package pushes |
+| `BROADMINDE_PACKAGES_TOKEN` | `~/.config/gh/broadminde-packages.token` → `~/.npmrc` and, on Docker hosts, `~/.docker/config.json` | `read:packages` | npm package access and private GHCR image pulls |
+| `BROADMINDE_PACKAGES_TOKEN` on publish hosts | Same token file and client configs | `read:packages`, `write:packages` | Publish npm packages and GHCR images |
 | `BROADMINDE_SOURCE_RW_TOKEN` | `~/.config/gh/broadminde-source-rw.token` | `repo`, `workflow` | CI/source updates, pushes, issues, and PRs |
 
 The classic PATs live in dedicated mode-0600 files under `~/.config/gh/`,
@@ -212,11 +212,14 @@ Useful follow-ups:
 
 ## Configuration (`bootstrap.conf.yml`)
 
-`bootstrap.conf.yml` is a single file with five sections: `capabilities:` (which
+`bootstrap.conf.yml` is a single file with sections: `capabilities:` (which
 provisioning steps run), `versions:` (which toolchain versions to install),
 `skills:` (which agent targets receive npx-installed skills), `caddy:`
-(wildcard zone `base_domain` and `wildcards` labels), and `github:` (host
-credential role for the access walk).
+(wildcard zone `base_domain` and `wildcards` labels), `github:` (host
+credential role for the access walk), and `portal:` (the central-Caddy Portal
+mode, `dev` or `image`). The Caddy discovery file publishes the effective
+`base_domain` and `portal_mode` so app repositories consume one runtime
+contract instead of parsing bootstrap configuration.
 
 ### Capability flags
 
@@ -252,6 +255,48 @@ same way: each runner selects the file and exports it as
 that export — so root-tier gating and user-tier steps (e.g. 60-caddy's
 `public` check) never evaluate different capability sets.
 
+### Shared project script configuration
+
+Shared `dev` and `build` source project-root `.env` files as trusted Bash, so
+custom command values can use shell syntax. Docker Compose uses dotenv
+interpolation semantics, not Bash. Values shared with Compose should use the
+portable dotenv subset; do not assume Bash expansion or command substitution
+works in Compose. The `stack` wrapper should not add a third incompatible
+parser. Never log secrets or place secret values in reports or other result
+artifacts.
+
+All shared-script variables added or standardized by the script consolidation
+are listed here. Unset values preserve the prior behavior. Examples show
+project-local `.env` values, not repository defaults:
+
+| Variable | Default and behavior | Example |
+|---|---|---|
+| `FRONTEND_DEV_HOST` | `::`; dual-stack Vite bind default (pre-existing behavior) | `127.0.0.1` |
+| `FRONTEND_PORT` | Unset; auto-parse and export Vite's selected port. A configured value is passed as a strict port. | `5173` |
+| `FRONTEND_HMR_HOST` | Unset; leaves project HMR behavior unchanged | `portal.dev.example.net` |
+| `FRONTEND_HMR_PROTOCOL` | Unset; leaves project HMR behavior unchanged | `wss` |
+| `FRONTEND_HMR_CLIENT_PORT` | Unset; leaves project HMR behavior unchanged | `443` |
+| `DEV_CADDY_HOST_PREFIX` | Unset; does not inspect central Caddy config; when set derives an HMR host if none is explicit | `portal.dev` |
+| `CI_TEST_GO_DIR` | `.`; root-level Go detection | `backend` |
+| `CI_TEST_NODE_DIR` | `.`; root-level Node detection | `frontend` |
+| `CI_TEST_PYTHON_DIR` | `.`; root-level Python detection | `python` |
+| `CI_TEST_NODE_CHECK_SCRIPT` | `check`; required when Node directory/script configuration is enabled, otherwise prior detection applies | `lint` |
+| `CI_TEST_NODE_BUILD_SCRIPT` | `build`; required when Node directory/script configuration is enabled, otherwise prior optional-build behavior applies | `build:ci` |
+| `CI_TEST_NODE_E2E_SCRIPT` | `test:e2e`; configured E2E script is required with `--e2e`, while unconfigured projects retain the root-level optional step | `test:browser` |
+| `BUILD_SWAG_VERSION` | Unset; use the pre-existing Swagger executable resolution | `v1.16.4` |
+| `BUILD_SWAG_DIR` | `backend`; Swagger working directory | `api` |
+| `BUILD_SWAG_MAIN` | `main.go`; Swagger entry point | `cmd/server.go` |
+| `BUILD_SWAG_OUTPUT` | `docs/swagger`; generated output directory | `api/openapi` |
+| `BUILD_SWAG_PARSE_DEPENDENCY` | `true`; preserves existing dependency parsing | `false` |
+| `BUILD_SWAG_PARSE_INTERNAL` | `true`; preserves existing internal parsing | `false` |
+| `BUILD_SWAG_REQUIRED_PATHS` | Empty; no required path validation. Multiple exact paths are comma-separated. | `/api/health,/api/config` |
+| `BUILD_GENERATE_STRICT` | `false`; preserves compatibility behavior for generation failures | `true` |
+| `IMAGE_ALIAS_TAGS` | Empty; no alias tags. Multiple Docker tags are comma-separated. | `main,stable` |
+
+`stack config` displays the effective Compose configuration using the wrapper's
+resolved files and profiles, and forwards Compose config flags. Its output can
+contain interpolated secrets; keep it out of logs and result artifacts.
+
 Capabilities gate **provisioning, not runtime state**: disabling one stops its
 steps from running but never undeploys anything already installed (e.g.
 `caddy: false` leaves a running central Caddy holding 80/443 — see
@@ -273,21 +318,27 @@ time, or pin an exact version string.
 
 ### GitHub credential role
 
-The `github:` section is read by `bootstrap-access` when the `dev` capability
-is enabled. It declares host credential breadth — no init.d step is gated on
+The `github:` section is read by `bootstrap-access`. Development hosts
+configure package access automatically; Docker-only hosts can opt in to private
+GHCR pull access. It declares host credential breadth — no init.d step is gated on
 it, and flipping a key never mints a token by itself; the walk validates (or
 re-collects) the stored classic PATs to match.
 
 ```yaml
 github:
+  packages_read: false  # true on Docker hosts that pull private GHCR images
   packages_write: false  # true on publish hosts → PAT gains write:packages
   source_rw: false       # true on push/PR hosts → collects repo,workflow PAT
 ```
 
-Both keys default to `false` when unlisted, so a dev host with no `github:`
-section gets read-only package access and no source RW token. Set
-`packages_write: true` before running `github-access setup --ci`; to widen an
-existing host, flip the key and re-run `~/scripts/bootstrap-access`.
+`packages_read` and `packages_write` default to `false` when unlisted. A dev
+host gets package access automatically; a Docker-only host must set
+`packages_read: true` to configure private GHCR pulls. Set `packages_write: true`
+on publish hosts to require `write:packages`; Docker hosts also configure GHCR
+auth and dev hosts configure npm auth. To widen an existing host, change the
+role and re-run `~/scripts/bootstrap-access`. Docker credentials are stored in
+`~/.docker/config.json` with mode 0600 (unless Docker uses an external credential
+helper).
 
 ### Example configurations
 
