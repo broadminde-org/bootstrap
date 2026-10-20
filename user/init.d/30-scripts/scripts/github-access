@@ -35,24 +35,24 @@ usage() {
   cat <<'EOF'
 Usage: github-access [command] [options]
 
-Interactive GitHub access setup for this host.
+GitHub access operations for this host. Setup and provisioning operations
+require the bootstrap checkout; `auth`, `clear`, and `status` work without it.
 
 Commands:
-  setup [--ci]       Authenticate gh, configure deploy keys, package auth,
-                     and optionally source RW automation credentials
+  setup [--ci]       Bootstrap-only: configure deploy keys and credentials
   auth              Authenticate gh only
-  deploy-keys       Register/verify the Broadminde read-only deploy keys
-  packages [--write] Configure the GitHub Packages token and npm auth
-  npm               Alias for packages
-  source-rw         Configure the optional source read/write automation PAT
-  clear packages    Remove the packages token (file, legacy .env, ~/.npmrc)
+  deploy-keys       Bootstrap-only: register/verify the Broadminde deploy keys
+  packages [--write] Bootstrap-only: configure enabled dev/docker package auth
+  npm               Alias for packages (bootstrap-only)
+  source-rw         Bootstrap-only: configure the source read/write PAT
+  clear packages    Remove the packages token and managed npm registry lines
   clear source-rw   Remove the source RW token (file and legacy .env)
   clear --all       Remove both tokens
   status            Show the current GitHub/bootstrap access status
   help              Show this help
 
 Environment:
-  BOOTSTRAP_ROOT   Bootstrap checkout containing user/init.sh
+  BOOTSTRAP_ROOT   Bootstrap checkout required for setup/reprovision commands
                    (default: derived from the source checkout, else ~/bootstrap)
 
 Token files (mode 0600; the bootstrap .env is never a token store):
@@ -62,6 +62,8 @@ Token files (mode 0600; the bootstrap .env is never a token store):
 Notes:
   - Run as the deploy user, never with sudo.
   - Package tokens need read:packages; add write:packages on publish hosts.
+  - Docker hosts store GHCR auth in ~/.docker/config.json (mode 0600);
+    clear does not log out Docker (the login may belong to another operator).
   - Source RW tokens need repo and workflow.
   - gh cannot mint a separate PAT; this helper validates and stores tokens
     created through GitHub's token UI.
@@ -99,8 +101,8 @@ CURRENT_TOKEN_SOURCE=""
 
 require_bootstrap() {
   if [[ ! -x "$USER_INIT" ]]; then
-    fail "Bootstrap user runner not found or not executable: $USER_INIT"
-    echo "  Set BOOTSTRAP_ROOT=/path/to/bootstrap and retry." >&2
+    fail "This setup command requires the bootstrap checkout; runner not found: $USER_INIT"
+    echo "  Restore the checkout or set BOOTSTRAP_ROOT=/path/to/bootstrap. 'auth', 'clear', and 'status' do not require it." >&2
     exit 1
   fi
 }
@@ -130,6 +132,33 @@ require_dev_capability() {
     fail "The dev capability is disabled in $config_file."
     echo "  Set capabilities.dev: true to configure Broadminde private access." >&2
     exit 1
+  fi
+}
+
+require_packages_capability() {
+  require_bootstrap
+
+  local conf_sh="$BOOTSTRAP_ROOT/init.d/lib/conf.sh"
+  if [[ ! -f "$conf_sh" ]]; then
+    fail "Bootstrap conf library not found: $conf_sh"
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  . "$conf_sh"
+
+  local config_file=""
+  if ! config_file="$(resolve_conf_file)"; then
+    fail "No bootstrap config found; the package-access role is disabled."
+    echo "  Create bootstrap.conf.yml from example.bootstrap.conf.yml first." >&2
+    exit 1
+  fi
+
+  export BOOTSTRAP_CONFIG_FILE="$config_file"
+  load_conf "$config_file"
+
+  if ! cap_enabled dev && ! cap_enabled docker; then
+    fail "GitHub Packages access requires the dev or docker capability."
+    return 1
   fi
 }
 
@@ -482,7 +511,7 @@ configure_packages() {
     shift
   done
 
-  require_dev_capability
+  require_packages_capability
 
   if ! current="$(current_token_value "$PACKAGES_TOKEN_VAR" "$PACKAGES_TOKEN_FILE")"; then
     current=""
@@ -499,7 +528,7 @@ configure_packages() {
         ok "Stored $PACKAGES_TOKEN_VAR in $PACKAGES_TOKEN_FILE"
       fi
       migrate_legacy_env_token "$PACKAGES_TOKEN_VAR" "$PACKAGES_TOKEN_FILE"
-      run_user_step 98-npm-shared
+      configure_package_clients "$current"
       ok "GitHub Packages auth configured"
       return 0
     fi
@@ -522,15 +551,58 @@ configure_packages() {
   write_token_file "$PACKAGES_TOKEN_FILE" "$token"
   ok "Stored $PACKAGES_TOKEN_VAR in $PACKAGES_TOKEN_FILE"
   migrate_legacy_env_token "$PACKAGES_TOKEN_VAR" "$PACKAGES_TOKEN_FILE"
-  run_user_step 98-npm-shared
+  configure_package_clients "$token"
 
   ok "GitHub Packages auth configured"
+}
+
+configure_ghcr() {
+  local token="$1"
+  local username=""
+  local docker_config="${DOCKER_CONFIG:-$HOME/.docker}"
+  local original_umask
+
+  require_command docker
+
+  if ! username="$(GH_TOKEN="$token" gh api user --jq .login 2>/dev/null)" || [[ -z "$username" ]]; then
+    fail "Could not determine the GitHub account for GHCR authentication."
+    return 1
+  fi
+
+  mkdir -p "$docker_config"
+  chmod 700 "$docker_config"
+  original_umask="$(umask)"
+  umask 077
+  if ! printf '%s' "$token" | DOCKER_CONFIG="$docker_config" \
+    docker login ghcr.io --username "$username" --password-stdin; then
+    umask "$original_umask"
+    fail "Docker could not authenticate to ghcr.io."
+    return 1
+  fi
+  umask "$original_umask"
+
+  if [[ -f "$docker_config/config.json" ]]; then
+    chmod 600 "$docker_config/config.json"
+  fi
+  ok "GHCR authentication configured in $docker_config"
+}
+
+configure_package_clients() {
+  local token="$1"
+
+  if cap_enabled docker; then
+    configure_ghcr "$token"
+  fi
+  if cap_enabled dev; then
+    run_user_step 98-npm-shared
+  fi
 }
 
 configure_source_rw() {
   local current=""
   local token=""
 
+  require_bootstrap
   require_command gh
 
   current="$(current_token_value "$SOURCE_RW_TOKEN_VAR" "$SOURCE_RW_TOKEN_FILE" || true)"
@@ -589,7 +661,7 @@ status_token() {
   # Warn about a lingering legacy .env entry even when the token file (or an
   # environment override) already supplies the credential.
   if file_env_value "$ENV_FILE" "$name" >/dev/null; then
-    warn "  legacy: $label still in $ENV_FILE — rerun 'github-access' to migrate"
+    warn "  legacy: $label still in $ENV_FILE — rerun its setup command to migrate"
   fi
 }
 
@@ -604,7 +676,7 @@ show_status() {
   fi
 
   echo ""
-  log "Bootstrap checkout"
+  log "Bootstrap checkout (required only for setup/reprovision)"
   echo "  root: $BOOTSTRAP_ROOT"
   if [[ -x "$USER_INIT" ]]; then
     echo "  user runner: $USER_INIT"
@@ -626,7 +698,8 @@ show_status() {
   for path in \
     "$HOME/.ssh/go-shared-read" \
     "$HOME/.ssh/frontend-shared-read" \
-    "$HOME/.npmrc"; do
+    "$HOME/.npmrc" \
+    "${DOCKER_CONFIG:-$HOME/.docker}/config.json"; do
     if [[ -f "$path" ]]; then
       printf '  present: %s (mode %s)\n' "$path" "$(stat -c %a "$path")"
     else
@@ -661,16 +734,15 @@ clear_packages() {
     removed=true
   fi
 
-  # 98-npm-shared writes exactly two managed lines to ~/.npmrc, preserving
+  # 98-npm-shared writes exactly two managed keys to ~/.npmrc, preserving
   # any other user config. Remove only those lines; drop the file when
   # nothing else remains.
   local npmrc="$HOME/.npmrc"
-  local registry_key='@broadminde-org:registry='
-  local auth_key='//npm.pkg.github.com/:_authToken='
-  if [[ -f "$npmrc" ]] && { grep -qF "$registry_key" "$npmrc" || grep -qF "$auth_key" "$npmrc"; }; then
+  local managed_keys='^(@broadminde-org:registry=|//npm\.pkg\.github\.com/:_authToken=)'
+  if [[ -f "$npmrc" ]] && grep -qE "$managed_keys" "$npmrc"; then
     local tmp
     tmp="$(mktemp "$HOME/.npmrc.XXXXXX")"
-    grep -vF -e "$registry_key" -e "$auth_key" "$npmrc" > "$tmp" || true
+    grep -vE "$managed_keys" "$npmrc" > "$tmp" || true
     if [[ -s "$tmp" ]]; then
       chmod 600 "$tmp"
       mv -f "$tmp" "$npmrc"
@@ -686,7 +758,8 @@ clear_packages() {
     ok "No packages credentials stored; nothing to clear"
     return 0
   fi
-  warn "user/init.sh 98-npm-shared will skip npm auth until a new token is stored (github-access packages)."
+  warn "Managed npm auth is removed; Docker GHCR auth is left unchanged because its owner cannot be determined."
+  warn "Package setup requires the bootstrap checkout (github-access packages)."
 }
 
 clear_source_rw() {
@@ -817,4 +890,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

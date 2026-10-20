@@ -17,20 +17,20 @@ capability that needs credentials:
 
   - gh login (required by the dev capability);
   - dev: read-only go-shared and frontend-shared deploy keys via the GitHub
-    API, the GitHub Packages token (validated, stored in
-    ~/.config/gh/broadminde-packages.token, and written to ~/.npmrc by
-    user/init.d/98-npm-shared; hosts whose conf sets
-    github.packages_write: true get write:packages for publishing), and —
-    when the conf sets github.source_rw: true — the separate source RW
-    token (repo, workflow), stored in ~/.config/gh/broadminde-source-rw.token;
+    API, package auth in ~/.npmrc, and — when the conf sets
+    github.source_rw: true — the separate source RW token (repo, workflow),
+    stored in ~/.config/gh/broadminde-source-rw.token;
+  - docker: optional private GHCR access when github.packages_read or
+    github.packages_write is true; package auth is stored in
+    ~/.docker/config.json for pulls (and publishing when write is enabled);
   - caddy: the ACME account email for ~/infra/caddy/.env, plus acme-dns
     registration when the conf declares wildcard zones.
 
-Capabilities without interactive credentials (docker, kvm, public) are
-reported and skipped. Re-running is safe: every stage verifies current state
-before prompting.
+Docker hosts without a private GHCR role, plus kvm and public, need no
+interactive credentials. Re-running is safe: every stage verifies current
+state before prompting.
 
-Do not run the helper with sudo: gh credentials, SSH keys, npm auth, and
+Do not run the helper with sudo: gh credentials, SSH keys, npm/Docker auth, and
 PAT files are stored for the user who runs it. Tokens never live in the
 bootstrap checkout (docs/adr/0001-github-pat-storage.md).
 
