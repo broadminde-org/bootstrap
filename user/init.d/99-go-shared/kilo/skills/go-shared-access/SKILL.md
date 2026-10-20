@@ -56,7 +56,7 @@ git ls-remote git@github-go-shared:broadminde-org/go-shared.git HEAD
 
 ## Full spec
 
-`~/go-shared/ACCESS-MODEL.md` — access decision, key lifecycle, rotation,
+`references/access-model.md` — access decision, key lifecycle, rotation,
 and revocation.
 
 ## Key facts
