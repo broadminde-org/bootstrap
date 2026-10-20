@@ -76,7 +76,11 @@ echo "Kilo home dir: $KILO_HOME"
 echo "=== Deploying from _config/kilo/ to ~/.config/kilo/ ==="
 
 for dir in agents commands rules; do
-  sync_dir_preserve "$SRC_CONFIG/$dir" "$KILO_CONFIG/$dir"
+  if [[ -d "$SRC_CONFIG/$dir" ]]; then
+    sync_dir_preserve "$SRC_CONFIG/$dir" "$KILO_CONFIG/$dir"
+  else
+    echo "  skipped $dir/ (not found in skeleton)"
+  fi
 done
 
 # ---------------------------------------------------------------------------
@@ -142,7 +146,11 @@ fi
 
 echo "=== Deploying from _kilo/ to ~/.kilo/ ==="
 
-sync_dir_preserve "$SRC_KILO/skills" "$KILO_HOME/skills"
+if [[ -d "$SRC_KILO/skills" ]]; then
+  sync_dir_preserve "$SRC_KILO/skills" "$KILO_HOME/skills"
+else
+  echo "  skipped skills/ (not found in skeleton)"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

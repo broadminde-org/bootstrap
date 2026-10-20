@@ -19,11 +19,10 @@ logging, pidfile, port allocation, and health gating.
 
 ## TL;DR
 
-1. Copy the canonical template from the bootstrap checkout into the project
-   (on this host the checkout is `~/bootstrap`):
+1. Copy the installed canonical template into the project:
 
    ```bash
-   cp ~/bootstrap/user/init.d/30-scripts/templates/air.toml.template .air.toml
+   cp ~/.kilo/skills/air/assets/air.toml.template .air.toml
    # template assumes the Go module is in backend/; if it's at the repo root,
    # edit cmd to "go build -buildvcs=false -o .dev/tmp/<app> ."
    ```
@@ -82,9 +81,9 @@ With a pinned port (`LISTEN_ADDR=:8090`) the port file is not required, but
 
 ## Canonical .air.toml template
 
-The template source of truth is
-`bootstrap/user/init.d/30-scripts/templates/air.toml.template`. Key decisions
-it encodes:
+The template is installed at
+`~/.kilo/skills/air/assets/air.toml.template` from the canonical provisioning
+source. Key decisions it encodes:
 
 - `tmp_dir = ".dev/tmp"` — keeps air state inside the gitignored `.dev/` dir
   that `dev` already owns.
