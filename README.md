@@ -304,9 +304,10 @@ steps from running but never undeploys anything already installed (e.g.
 
 ### Version pins
 
-The `versions:` section sets the toolchain version for each user-tier tool.
+The `versions:` section sets the toolchain and central Caddy version.
 Set a tool to `"latest"` to auto-resolve the newest stable release at install
-time, or pin an exact version string.
+time, or pin an exact version string. Caddy defaults to `"latest"` when omitted;
+its resolved version is saved in `~/infra/caddy/.env` for subsequent Compose runs.
 
 | Tool | Env var | Description |
 |---|---|---|
@@ -315,6 +316,7 @@ time, or pin an exact version string.
 | `kilo` | `KILO_VERSION` | Kilo CLI binary |
 | `go` | `EE_GO_VERSION` | Go toolchain |
 | `node` | `EE_NODE_VERSION` | Node.js (via nvm) |
+| `caddy` | `CADDY_VERSION` | Central Caddy builder, binary, and runtime (exact version or `"latest"`) |
 
 ### GitHub credential role
 

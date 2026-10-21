@@ -63,10 +63,10 @@ capabilities:
 #   "1.26.4"   install exactly this version (fully-specified pin)
 #
 # Partial resolution (major or major.minor) is supported for go and node.
-# uv, kilo, and python accept "latest" or a fully-specified version.
+# uv, kilo, python, and caddy accept "latest" or a fully-specified version.
 # Omit a tool (or delete the versions: section) to default to "latest".
 #
-# Supported tools: uv, python, kilo, go, node
+# Supported tools: uv, python, kilo, go, node, caddy
 
 versions:
   uv: "latest"
@@ -74,6 +74,7 @@ versions:
   kilo: "latest"
   go: "latest"
   node: "latest"
+  caddy: "2.11.7"
 
 # ── Agent skills ─────────────────────────────────────────────────────────────
 # Space-separated npx skills agent targets. Supported targets are defined by

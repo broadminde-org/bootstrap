@@ -87,7 +87,7 @@ Current capability map (verify against `*/.requires` files before editing):
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled`; the local backend agent runs as the deploy user via a user systemd unit provisioned by the ci repo's `init.d/20-agent-local` |
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
-node — `"latest"`, `"24"`, `"1.26"`, or `"1.26.4"`), `skills:` (npx skills
+node, caddy — `"latest"` or exact versions; partial versions for go/node), `skills:` (npx skills
 agent targets), `caddy:` (wildcard zone config), `github:` (host credential
 role for the access walk), and `portal:` (`mode: dev | image`, published to
 `central.json` for app deployment steps).

@@ -85,7 +85,7 @@ introducing a different DNS provider requires reworking the merge logic.
 Run once per host:
 
 ```bash
-~/infra/caddy/bin/acmedns-register
+acmedns-register
 ```
 
 It registers with `auth.acme-dns.io`, writes `acmedns.json`, and prints the
@@ -218,8 +218,11 @@ caddy-route register myapp ./myapp.caddy
 
 ### Upgrade Caddy version
 
-Edit `~/infra/caddy/Dockerfile` and bump `CADDY_VERSION` (and plugin pins),
-then re-run the user-tier step:
+Set `versions.caddy` in the active bootstrap config to an exact version (or
+`"latest"` to resolve the newest stable release on each run), then re-run the
+user-tier step. If omitted, the version defaults to `"latest"`. The step
+updates the builder, compiled binary, and runtime together; review plugin
+compatibility before upgrading.
 
 ```bash
 ./user/init.sh 60-caddy

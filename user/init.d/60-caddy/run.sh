@@ -82,6 +82,33 @@ if [[ ! -f "$STACK_DIR/.env" ]]; then
   echo ""
 fi
 
+# Resolve the host pin once for all three build inputs (builder, binary, runtime).
+# An omitted pin defaults to the latest stable GitHub release; a pinned version
+# needs no network lookup. Compose also reads this value from the live .env so
+# an operator's later `docker compose up -d` uses the same version.
+CADDY_VERSION="$(get_pinned_version caddy)"
+if [[ "$CADDY_VERSION" == latest ]]; then
+  CADDY_VERSION="$(curl -fsSL --retry 3 --max-time 15 \
+    https://api.github.com/repos/caddyserver/caddy/releases/latest | jq -er '.tag_name | sub("^v"; "")')" || {
+    echo "ERROR: could not resolve the latest stable Caddy release" >&2
+    exit 1
+  }
+fi
+if [[ ! "$CADDY_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: versions.caddy must be 'latest' or an exact version (for example 2.11.7)" >&2
+  exit 1
+fi
+export CADDY_VERSION
+echo "Caddy version: $CADDY_VERSION"
+
+if grep -q '^CADDY_VERSION=' "$STACK_DIR/.env"; then
+  if ! grep -Fxq "CADDY_VERSION=$CADDY_VERSION" "$STACK_DIR/.env"; then
+    sed -i "s/^CADDY_VERSION=.*/CADDY_VERSION=$CADDY_VERSION/" "$STACK_DIR/.env"
+  fi
+else
+  printf '\nCADDY_VERSION=%s\n' "$CADDY_VERSION" >> "$STACK_DIR/.env"
+fi
+
 # ---------------------------------------------------------------------------
 # Step 2: CrowdSec bouncer key generation (when public cap is on and key is
 # empty). cscli runs through passwordless sudo (root-tier 30-passwordless-sudo
@@ -188,6 +215,14 @@ sync_file "$SRC_DIR/bin/caddy-route"      "$STACK_DIR/bin/caddy-route"       075
 sync_file "$SRC_DIR/bin/acmedns-register" "$STACK_DIR/bin/acmedns-register"  0755 config_changed
 sync_file "$SRC_DIR/.dockerignore"        "$STACK_DIR/.dockerignore"
 
+# Record the signature only after a successful build. This also retries a
+# failed build on the next run, even if the Dockerfile/.env already synced.
+image_signature="$(printf '%s\n%s\n' "$CADDY_VERSION" "$(sha256sum "$STACK_DIR/Dockerfile" | cut -d' ' -f1)" | sha256sum | cut -d' ' -f1)"
+if [[ ! -f "$STACK_DIR/.last-built-image.sha256" ]] ||
+   [[ "$(< "$STACK_DIR/.last-built-image.sha256")" != "$image_signature" ]]; then
+  image_changed=1
+fi
+
 # acmedns.json: seed as empty object if absent (compose volume mount needs a file).
 if [[ ! -f "$STACK_DIR/acmedns.json" ]]; then
   echo '{}' > "$STACK_DIR/acmedns.json"
@@ -195,19 +230,19 @@ if [[ ! -f "$STACK_DIR/acmedns.json" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: ~/.local/bin/caddy-route symlink.
+# Step 6: Expose Caddy commands in ~/.local/bin.
 # ---------------------------------------------------------------------------
 
 mkdir -p "$HOME/.local/bin"
 
-# ln -sfn unconditionally: `[[ ! -L … ]]` passes on a broken/stale
-# symlink and would leave it pointing at an old stack location.
-if [[ "$(readlink "$HOME/.local/bin/caddy-route" 2>/dev/null || true)" == "$STACK_DIR/bin/caddy-route" ]]; then
-  :
-else
-  ln -sfn "$STACK_DIR/bin/caddy-route" "$HOME/.local/bin/caddy-route"
-  echo "Symlinked ~/.local/bin/caddy-route"
-fi
+# ln -sfn unconditionally when the target differs: `[[ ! -L … ]]` passes on
+# a broken/stale symlink and would leave it pointing at an old stack location.
+for command in caddy-route acmedns-register; do
+  if [[ "$(readlink "$HOME/.local/bin/$command" 2>/dev/null || true)" != "$STACK_DIR/bin/$command" ]]; then
+    ln -sfn "$STACK_DIR/bin/$command" "$HOME/.local/bin/$command"
+    echo "Symlinked ~/.local/bin/$command"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Step 7: Render Caddyfile.
@@ -450,8 +485,9 @@ wait_healthy() {
 }
 
 if [[ "$image_changed" -eq 1 ]]; then
-  echo "Dockerfile changed — rebuilding image …"
+  echo "Caddy version or Dockerfile changed — rebuilding image …"
   compose build
+  printf '%s\n' "$image_signature" > "$STACK_DIR/.last-built-image.sha256"
 
   # Wipe autosave + push hash so the next start replays the global config
   # from --config (never a stale --resume) and reconcile pushes exactly once.
