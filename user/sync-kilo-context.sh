@@ -13,6 +13,7 @@ set -euo pipefail
 # their owning step instead of the 37-kilo-settings skeleton:
 #
 #   ~/.kilo/skills/air/            ->  init.d/30-scripts/kilo/skills/air/
+#   ~/.kilo/skills/image-build/    ->  init.d/30-scripts/kilo/skills/image-build/
 #   ~/.kilo/skills/central-caddy/  ->  init.d/60-caddy/kilo/skills/central-caddy/
 #
 # The two destination directories match Kilo's global installation
@@ -139,6 +140,7 @@ route_skill() {
 }
 
 route_skill air 30-scripts
+route_skill image-build 30-scripts
 route_skill central-caddy 60-caddy
 route_skill frontend-shared-access 98-npm-shared
 
