@@ -151,7 +151,8 @@ agents, commands, and rules update through `sync_dir_preserve`, so the
 privilege-escalation policy reaches existing hosts while destination-only
 context survives. `kilo.json` remains create-once and receives a diff when its
 managed source changes. For `kilo.jsonc`, a focused migration helper recognizes
-the root instructions property and one anchored `permission.bash` object, then
+the root instructions property and a `permission.bash` object with at most one
+`"*": "allow"` anchor (anchor-less allowlists are migrated too), then
 adds only the managed instructions glob and missing privilege denials. It
 preserves unrelated permissions, comments, indexing settings, formatting, and
 local customization; atomically installs a same-directory candidate; validates

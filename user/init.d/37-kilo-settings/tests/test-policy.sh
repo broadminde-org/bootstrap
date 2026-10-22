@@ -96,7 +96,16 @@ rm -f "$HOME/.config/kilo/kilo.jsonc"
 "$MIGRATOR" "$CONFIG" "$HOME/.config/kilo/kilo.jsonc" >/dev/null
 cmp -s "$CONFIG" "$HOME/.config/kilo/kilo.jsonc" || fail "first installation did not copy the source"
 
-for fixture in incompatible-instructions.jsonc managed-allow.jsonc duplicate-managed.jsonc missing-bash.jsonc ambiguous-bash.jsonc; do
+# An anchor-less allowlist (common on existing hosts) migrates safely: the
+# denials are inserted at the top of the bash object and existing entries and
+# $schema URLs containing // survive.
+run_success_case no-anchor.jsonc
+require_literal "$HOME/.config/kilo/kilo.jsonc" '"curl *": "allow"'
+require_literal "$HOME/.config/kilo/kilo.jsonc" '"systemctl status *": "deny"'
+# shellcheck disable=SC2016
+require_literal "$HOME/.config/kilo/kilo.jsonc" '"$schema": "https://app.kilo.ai/config.json"'
+
+for fixture in incompatible-instructions.jsonc managed-allow.jsonc duplicate-managed.jsonc missing-bash.jsonc ambiguous-bash.jsonc two-anchors.jsonc; do
   run_conflict_case "$fixture"
 done
 

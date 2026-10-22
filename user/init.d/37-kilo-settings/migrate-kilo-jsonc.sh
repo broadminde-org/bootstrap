@@ -18,7 +18,7 @@ manual_merge() {
   local command
   echo "Error: cannot safely migrate $live_config: $1" >&2
   echo "Manual merge required: add \"instructions\": [\"$rules_glob\"] at the root," >&2
-  echo "and add these entries to the single permission.bash object containing \"*\": \"allow\":" >&2
+  echo "and add these entries to the single permission.bash object:" >&2
   if [[ -f "$command_file" ]]; then
     while IFS= read -r command; do
       [[ -n "$command" && "$command" != \#* ]] || continue
@@ -177,14 +177,38 @@ for my $i ($bash_start + 1 .. $bash_end - 1) {
     fail_migration("managed key '$key' is '$value', not 'deny'") unless $value eq 'deny';
   }
 }
-fail_migration("expected exactly one \"*\": \"allow\" anchor in permission.bash") unless @anchors == 1;
+# Zero or one anchor is recognizable; more than one is ambiguous. An
+# anchor-less allowlist is common on existing hosts and is safe to migrate:
+# adding denials only ever restricts, never loosens.
+fail_migration("ambiguous \"*\": \"allow\" anchors in permission.bash") if @anchors > 1;
 
 my @missing = grep { !$seen{$_} } map { ($_, "$_ *") } @commands;
 my @output = @lines;
 if (@missing) {
-  my ($indent) = $lines[$anchors[0]] =~ /^(\s*)/;
+  my ($insert_at, $indent);
+  if (@anchors == 1) {
+    $insert_at = $anchors[0] + 1;
+    ($indent) = $lines[$anchors[0]] =~ /^(\s*)/;
+  } else {
+    # No anchor: insert at the top of the bash object, matching the indent of
+    # its first entry (or the bash key's indent plus two spaces when empty).
+    my $first;
+    for my $i ($bash_start + 1 .. $bash_end - 1) {
+      next unless $lines[$i] =~ /\S/;
+      $first = $i;
+      last;
+    }
+    if (defined $first) {
+      $insert_at = $first;
+      ($indent) = $lines[$first] =~ /^(\s*)/;
+    } else {
+      $insert_at = $bash_end;
+      ($indent) = $lines[$bash_start] =~ /^(\s*)/;
+      $indent .= '  ';
+    }
+  }
   my @insert = map { $indent . '"' . $_ . "\": \"deny\",\n" } @missing;
-  splice @output, $anchors[0] + 1, 0, @insert;
+  splice @output, $insert_at, 0, @insert;
 }
 if ($add_instructions) {
   splice @output, 1, 0, "  \"instructions\": [\"~/.config/kilo/rules/*.md\"],\n";
