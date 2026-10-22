@@ -3,10 +3,12 @@
 The host's central Caddy reverse proxy is provisioned by the repository's
 `user/init.d/60-caddy` step to `~/infra/caddy/` (deploy-user owned — the step runs
 as the deploy user in the user tier). On a provisioned host this source step is
-normally `~/bootstrap/user/init.d/60-caddy`. The step provisions, renders, and
-builds but **never starts the
-container** — you bring it up explicitly (see Container lifecycle). App stacks
-register Caddyfile snippets and get TLS/routing automatically.
+normally `~/bootstrap/user/init.d/60-caddy`. The step provisions, renders,
+builds, and **starts the container itself** — refusing only when ports 80/443
+are held by another service — then **verifies wildcard readiness**: for every
+configured zone it confirms the `_acme-challenge` CNAME delegation resolves and
+the certificate has been issued, failing loudly when either is missing. App
+stacks register Caddyfile snippets and get TLS/routing automatically.
 
 ## Snippet contract
 
@@ -90,6 +92,9 @@ acmedns-register
 
 It registers with `auth.acme-dns.io`, writes `acmedns.json`, and prints the
 `_acme-challenge` CNAMEs you must add to DNS for each delegated name.
+(`user/init.d/60-caddy` runs the registrar automatically when the credential
+is missing, and re-prints the outstanding CNAME delegation on every run
+while wildcards are configured.)
 
 ```bash
 # Restart Caddy after creating acmedns.json (the DNS provider reads it at init):
@@ -104,6 +109,8 @@ _acme-challenge.<label>.<base_domain>  CNAME  <uuid>.auth.acme-dns.io
 ```
 
 For the `host` label, the CNAME is `_acme-challenge.<hostname>.<base_domain>`.
+For the `*` (apex) label, the CNAME is `_acme-challenge.<base_domain>` — one
+delegation covers both the apex and wildcard names in that cert.
 Acme-dns holds max 2 TXT records per account — stagger first issuance if errors
 appear (the wildcard zone render prints each `*.zone` it writes; certificates
 provision internally within a few minutes).
@@ -119,9 +126,12 @@ caddy:
 ```
 
 - **`base_domain`** — zone apex. A label `L` serves `*.L.base_domain`; the
-  special label `host` serves `*.<hostname>.base_domain`.
+  special label `host` serves `*.<hostname>.base_domain`; the special label
+  `*` serves `base_domain` AND `*.base_domain` in a single cert/site block
+  (rendered as `apex-wildcard.caddy`).
 - **`wildcards`** — space-separated DNS labels matching
-  `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`. Empty string = no zone snippets.
+  `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, plus the special labels `*` and `host`.
+  Empty string = no zone snippets.
 - **Creds gate**: rendering activates only after `acmedns.json` holds a real
   acme-dns account. The render step prints a NOTE naming `bin/acmedns-register`
   as remediation when the gate blocks.
@@ -151,14 +161,13 @@ and is not renewed.
 
 ## Port conflicts
 
-The step **never starts a stopped container**, so running it on a host whose
-80/443 are already held (e.g. a legacy per-stack caddy) is safe: it
-provisions and builds, prints a warning naming the listeners, and stops
-short of starting. The conflict then matters only when YOU start it —
-`docker compose up -d` will fail loudly until the old service is stopped or
-the ports are remapped via `~/infra/caddy/compose.override.yaml` (replacing
-the base ports needs the `!override` tag; plain extra publishes/mounts merge
-additively without one):
+The step starts the container itself, so running it on a host whose 80/443
+are already held (e.g. a legacy per-stack caddy) **fails loudly**: it
+provisions and builds, names the listeners holding the ports, and exits
+without starting. Stop the old service — or remap ports via
+`~/infra/caddy/compose.override.yaml` (replacing the base ports needs the
+`!override` tag; plain extra publishes/mounts merge additively without one) —
+then re-run the step:
 
 ```yaml
 services:
@@ -170,18 +179,23 @@ services:
 
 ## Container lifecycle
 
-- **Start**: `cd ~/infra/caddy && docker compose up -d` — always an explicit
-  operator action; the provisioning step never starts a stopped container.
-  When the container is already running, re-running the step applies updates
-  in place (rebuild + recreate on change) and replays routes.d.
-- **Stop**: `cd ~/infra/caddy && docker compose stop` — stays down across
-  step re-runs and reboots until started again.
+- **Start**: the provisioning step starts the container itself
+  (`docker compose up -d`), unless ports 80/443 are held by another service —
+  then it fails without starting. When the container is already running,
+  re-running the step applies updates in place (rebuild + recreate on change)
+  and replays routes.d.
+- **Stop**: `cd ~/infra/caddy && docker compose stop` — the next step re-run
+  will bring it back up (stop it again if it should stay down).
 - **Restart**: safe — Caddy resumes its autosaved configuration; `routes.d/` remains
   the source of truth and `caddy-route reconcile` can replay it if needed.
-- **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, replays routes.d
-  when running; otherwise start it yourself and run `caddy-route reconcile`)
-- **Logs**: `docker logs caddy --tail 50` or read `~/infra/caddy/logs/access.log`
-  (JSON, rotated 100MB×5)
+- **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, restarts the
+  container, replays routes.d)
+- **Runtime logs**: `docker compose logs -f caddy` (startup, TLS, certificate,
+  and configuration diagnostics are written to Docker stdout).
+- **Access logs**: site blocks must opt into Caddy's site-level `log` directive;
+  when configured, write them to `~/infra/caddy/logs/access.log` (JSON,
+  rotated 100MB×5). The global `log` block is not an access-log enablement
+  switch.
 
 Always invoke compose **from the live dir** (or with
 `docker compose --project-directory ~/infra/caddy`) — an explicit

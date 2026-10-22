@@ -114,9 +114,18 @@ install_go() {
   echo "Downloading ${URL}..."
   curl -fsSL --retry 3 -o "${HOME}/.cache/${TARBALL}" "$URL"
 
-  # Verify against go.dev's published SHA256 before extracting.
-  echo "Verifying SHA256 (${URL}.sha256)..."
-  expected_sha="$(curl -fsSL --retry 3 "${URL}.sha256")"
+  # Verify against go.dev's published SHA256 before extracting. The
+  # historical "<url>.sha256" endpoint now returns an HTML redirect page
+  # instead of a bare checksum, so the authoritative source is the
+  # downloads JSON API, which carries a sha256 per file.
+  echo "Verifying SHA256 (go.dev/dl JSON API)..."
+  expected_sha="$(curl -fsSL --retry 3 "https://go.dev/dl/?mode=json&include=all" \
+    | jq -r --arg f "$TARBALL" '.[].files[]? | select(.filename == $f) | .sha256' \
+    | head -1)"
+  if [[ -z "$expected_sha" ]]; then
+    echo "ERROR: no published SHA256 found for ${TARBALL} on go.dev" >&2
+    exit 1
+  fi
   echo "${expected_sha}  ${HOME}/.cache/${TARBALL}" | sha256sum -c -
 
   GO_INSTALL_DIR="${HOME}/.local/go"

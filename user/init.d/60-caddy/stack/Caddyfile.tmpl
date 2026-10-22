@@ -5,11 +5,11 @@
 	email ${ACME_EMAIL}
 	acme_ca https://acme-v02.api.letsencrypt.org/directory
 	log {
-		output file /data/logs/access.log {
-			roll_size 100mb
-			roll_keep 5
-		}
-		format json
+		# Keep Caddy startup, TLS, certificate, and configuration diagnostics
+		# visible through `docker compose logs`.
+		output stdout
+		format console
+		level INFO
 	}
 $CROWDSEC_SECTION
 }

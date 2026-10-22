@@ -78,7 +78,7 @@ pins default to `latest`.
 | `docker` | `init.d/50-docker`, `init.d/55-lazydocker`, `user/init.d/60-caddy` |
 | `caddy` | `user/init.d/60-caddy` (also requires `docker`) |
 | `kvm` | `init.d/57-kvm` |
-| `dev` | `init.d/06-playwright-deps`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
+| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled` (local agent runs as deploy user via ci repo) |
 
@@ -126,15 +126,15 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `12-bashrc` | Adds the managed PATH block to `~/.bashrc` for non-login interactive shells. |
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
-| `25-go` | Installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
+| `25-go` | Requires `dev`; installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
 | `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`, preserving user customizations. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
-| `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; never starts a stopped stack. |
-| `97-gh-auth-instructions` | Points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
+| `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; starts the stack (refusing on port conflicts) and verifies wildcard cert readiness. |
+| `97-gh-auth-instructions` | Requires `dev`; points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
 | `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when a packages token is present. |
 | `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, registers them through `gh api` when authenticated and authorized, manages known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 

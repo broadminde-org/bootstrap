@@ -47,9 +47,9 @@ caddy-route list                           # see what's running
 ```
 
 Snippets are plain Caddyfile site blocks (no global options — ACME email,
-logging, CrowdSec, and Admin API are owned centrally). Start the provisioned
-stack explicitly with `cd ~/infra/caddy && docker compose up -d`; the
-provisioning step never starts a stopped container. Caddy resumes its autosaved
+logging, CrowdSec, and Admin API are owned centrally). The provisioning step
+starts the stack itself (refusing only when ports 80/443 are held by another
+service) and verifies wildcard cert readiness. Caddy resumes its autosaved
 configuration across restarts, while `routes.d/` remains the source of truth
 and `caddy-route reconcile` replays it when needed.
 
@@ -143,8 +143,10 @@ each one that needs interactive credentials:
   the conf's `github:` section: `packages_write: true` collects
   `write:packages` on publish hosts, `source_rw: true` collects the source RW
   PAT — the walk reads the conf instead of asking per run.
-- **caddy** — the ACME account email for `~/infra/caddy/.env`, plus acme-dns
-  account registration when `caddy.wildcards` declares zone labels (prints the
+- **caddy** — verifies the ACME account email in `~/infra/caddy/.env` (set
+  non-interactively from `caddy.acme_email` in the conf by 60-caddy; the walk
+  is the fallback when the conf leaves it empty), plus acme-dns account
+  registration when `caddy.wildcards` declares zone labels (prints the
   `_acme-challenge` CNAMEs to add to DNS).
 
 `docker`, `kvm`, and `public` need no interactive credentials (the CrowdSec
@@ -232,7 +234,7 @@ capabilities is disabled.
 | `caddy` | user-tier 60-caddy | `true` |
 | `docker` | 50-docker, 55-lazydocker | `true` |
 | `kvm` | 57-kvm | `false` |
-| `dev` | 06-playwright-deps, user-tier 98-npm-shared + 99-go-shared | `false` |
+| `dev` | 06-playwright-deps, user-tier 25-go, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
 | `woodpecker` | RETIRED — 45-woodpecker-local.disabled (local agent runs as deploy user via ci repo) | `false` |
 
@@ -437,7 +439,7 @@ bootstrap/
 │   │   ├── 12-bashrc/                # ~/.local/bin + ~/.kilo/bin PATH block in ~/.bashrc
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
 │   │   ├── 20-python/                # installs uv + uv-managed Python
-│   │   ├── 25-go/                    # installs Go toolchain + dev tools
+│   │   ├── 25-go/                    # installs Go toolchain + dev tools (dev-gated)
 │   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
@@ -445,7 +447,7 @@ bootstrap/
 │   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
-│   │   ├── 97-gh-auth-instructions/  # points operators to the interactive ~/scripts/github-access helper
+│   │   ├── 97-gh-auth-instructions/  # points operators to the interactive ~/scripts/github-access helper (dev-gated)
 │   │   ├── 98-npm-shared/            # configures GitHub Packages npm auth
 │   │   │   ├── .requires             # dev
 │   │   │   └── kilo/skills/          # frontend-shared-access agent skill

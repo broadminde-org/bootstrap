@@ -6,11 +6,12 @@
 #
 # Installs to ~/infra/caddy (everything deploy-user owned — this step runs
 # AS the deploy user), syncs the stack files, renders the Caddyfile
-# template, and builds the custom Docker image. It NEVER starts a stopped
-# container — bringing up the host's edge is an explicit operator action
-# (`cd ~/infra/caddy && docker compose up -d`). When the container is
-# already running, an update is applied in place (recreate on change) and
-# routes.d replayed. Idempotent: safe to re-run.
+# template, and builds the custom Docker image. It then brings the stack up
+# itself (`docker compose up -d`) — refusing only when ports 80/443 are held
+# by something else — and verifies readiness: for every configured wildcard
+# zone it confirms the _acme-challenge CNAME delegation resolves and the
+# wildcard certificate has actually been issued into Caddy's storage.
+# Idempotent: safe to re-run.
 #
 # Also deploys the central-caddy agent skill (kilo/skills/ →
 # ~/.kilo/skills/). The skill lives with this step — not in
@@ -51,11 +52,21 @@ install -m 0644 "$guide" "$HOME/infra/caddy/docs/central-caddy.md"
 # Preflight — docker daemon access, compose, jq, curl, envsubst.
 # ---------------------------------------------------------------------------
 
-for cmd in docker jq curl envsubst; do
+# host (dnsutils, root-tier 05-packages) resolves the _acme-challenge CNAMEs
+# in the readiness check at the end of this step.
+for cmd in docker jq curl envsubst host; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found" >&2; exit 1; }
 done
 
 if ! docker info >/dev/null 2>&1; then
+  # Stale login session: the user is in the docker group but this shell
+  # predates the usermod (50-docker). Re-exec the step under `sg docker`
+  # so it picks up the group without requiring a logout/login cycle.
+  if id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
+    echo "session lacks the docker group — re-executing under 'sg docker'..."
+    # shellcheck disable=SC2046
+    exec sg docker -c "$(printf '%q ' "$0" "$@")"
+  fi
   echo "ERROR: cannot reach the docker daemon — is $USER in the docker group?" >&2
   echo "       (root tier 50-docker adds it; log out and back in to pick it up)" >&2
   exit 1
@@ -78,8 +89,27 @@ if [[ ! -f "$STACK_DIR/.env" ]]; then
   echo "Seeding $STACK_DIR/.env from .env.example …"
   mkdir -p "$STACK_DIR"
   install -m 0600 "$SRC_DIR/.env.example" "$STACK_DIR/.env"
-  echo "ACTION REQUIRED: edit $STACK_DIR/.env and fill ACME_EMAIL"
-  echo ""
+fi
+
+# ACME_EMAIL comes from caddy.acme_email in bootstrap.conf.yml. Sync it into
+# .env (compare-before-write, like CADDY_VERSION) so a conf value fully
+# provisions cert issuance non-interactively. An empty conf value leaves any
+# existing .env value alone; ~/scripts/bootstrap-access remains the
+# interactive fallback for collecting it.
+acme_email="$(get_caddy_conf acme_email "")"
+if [[ -n "$acme_email" ]]; then
+  if grep -q '^ACME_EMAIL=' "$STACK_DIR/.env"; then
+    if ! grep -Fxq "ACME_EMAIL=$acme_email" "$STACK_DIR/.env"; then
+      sed -i "s|^ACME_EMAIL=.*|ACME_EMAIL=$acme_email|" "$STACK_DIR/.env"
+      echo "ACME_EMAIL updated from bootstrap.conf.yml"
+    fi
+  else
+    printf '\nACME_EMAIL=%s\n' "$acme_email" >> "$STACK_DIR/.env"
+    echo "ACME_EMAIL written from bootstrap.conf.yml"
+  fi
+elif grep -q '^ACME_EMAIL=$' "$STACK_DIR/.env" 2>/dev/null; then
+  echo "ACTION REQUIRED: ACME_EMAIL is empty — set caddy.acme_email in bootstrap.conf.yml"
+  echo "                 or run ~/scripts/bootstrap-access to collect it interactively."
 fi
 
 # Resolve the host pin once for all three build inputs (builder, binary, runtime).
@@ -303,6 +333,12 @@ fi
 
 wildcards="$(get_caddy_conf wildcards "")"
 
+# Populated by this step for every active wildcard zone; consumed by the
+# readiness verification at the end of this script. Declared at script scope
+# (not inside the render block) so the check runs even on a no-change run.
+zone_fqdns=()
+zone_site_addresses=()
+
 if [[ -z "$wildcards" ]]; then
   echo "NOTE: caddy.wildcards is empty or unset — no wildcard zones configured."
   echo "       Set wildcards labels in bootstrap.conf.yml to generate wildcard certs,"
@@ -313,34 +349,52 @@ else
   if [[ -z "$base_domain" ]]; then
     echo "NOTE: caddy.base_domain is empty or unset — skipping wildcard zone rendering."
     echo "       Set base_domain in bootstrap.conf.yml to define the zone apex."
-  elif [[ ! -f "$STACK_DIR/acmedns.json" ]] || ! jq -e '. | keys | length > 0' "$STACK_DIR/acmedns.json" >/dev/null 2>&1; then
-    echo "NOTE: acmedns.json is missing or empty — skipping wildcard zone rendering."
-    echo "       Run bin/acmedns-register to create a real acme-dns account, then re-run this step."
-  else
+  elif [[ ! -f "$STACK_DIR/acmedns.json" ]] || ! jq -e 'has("fulldomain")' "$STACK_DIR/acmedns.json" >/dev/null 2>&1; then
+    # No real acme-dns credential yet (missing file or the `{}` placeholder
+    # seeded for the compose mount) — register one in-step so a single run
+    # of 60-caddy fully provisions the wildcard zones. acmedns-register is
+    # idempotent and prints the _acme-challenge CNAMEs to delegate.
+    echo "acmedns.json has no credential — running acmedns-register …"
+    "$STACK_DIR/bin/acmedns-register"
+  fi
+
+  if jq -e 'has("fulldomain")' "$STACK_DIR/acmedns.json" >/dev/null 2>&1; then
     active_labels=()
     invalid_labels=0
     # read -ra (not `for x in $wildcards`): an unquoted expansion would
     # pathname-expand glob chars in the config value against the CWD.
     read -ra wildcard_labels <<< "$wildcards"
     for label in "${wildcard_labels[@]}"; do
-      if [[ ! "$label" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
-        echo "WARNING: ignoring invalid wildcard label '$label' — must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?\$" >&2
-        invalid_labels=1
-        continue
-      fi
-      if [[ "$label" == "host" ]]; then
-        zone_fqdn="$(hostname).$base_domain"
+      if [[ "$label" == "*" ]]; then
+        # Apex zone: cert for <base_domain> AND *.<base_domain> in one block.
+        # The file label "apex" keeps the routes.d filename glob-safe.
+        zone_fqdn="$base_domain"
+        site_addresses="$base_domain, *.$base_domain"
+        file_label="apex"
       else
-        zone_fqdn="$label.$base_domain"
+        if [[ ! "$label" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+          echo "WARNING: ignoring invalid wildcard label '$label' — must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?\$ or the special labels '*' or 'host'" >&2
+          invalid_labels=1
+          continue
+        fi
+        if [[ "$label" == "host" ]]; then
+          zone_fqdn="$(hostname).$base_domain"
+        else
+          zone_fqdn="$label.$base_domain"
+        fi
+        site_addresses="*.$zone_fqdn"
+        file_label="$label"
       fi
-      active_labels+=("$label")
-      dest="$STACK_DIR/routes.d/${label}-wildcard.caddy"
+      active_labels+=("$file_label")
+      zone_fqdns+=("$zone_fqdn")
+      zone_site_addresses+=("$site_addresses")
+      dest="$STACK_DIR/routes.d/${file_label}-wildcard.caddy"
       # shellcheck disable=SC2016  # envsubst takes a literal variable-name list
-      rendered="$(ZONE_FQDN="$zone_fqdn" envsubst '$ZONE_FQDN' < "$SRC_DIR/wildcard.caddy.tmpl")"
+      rendered="$(ZONE_FQDN="$zone_fqdn" SITE_ADDRESSES="$site_addresses" envsubst '$ZONE_FQDN $SITE_ADDRESSES' < "$SRC_DIR/wildcard.caddy.tmpl")"
       if [[ ! -f "$dest" ]] || [[ "$(cat "$dest")" != "$rendered" ]]; then
         echo "$rendered" > "$dest"
         chmod 0644 "$dest"
-        echo "Rendered wildcard zone: *.$zone_fqdn"
+        echo "Rendered wildcard zone: $site_addresses"
         config_changed=1
       fi
     done
@@ -366,6 +420,10 @@ else
         fi
       done
     fi
+
+    # DNS delegation status is reported by the readiness verification at the
+    # end of this script — not here — so a re-run reports actual state
+    # (resolving / cert issued) instead of blindly repeating the CNAME list.
   fi
 fi
 
@@ -448,17 +506,18 @@ central_json() {
       },
       "status": {
         "running": $running,
-        "lifecycle_note": "provisioning step never starts a stopped container — explicit docker compose up -d required"
+        "lifecycle_note": "provisioning step starts the container itself (refusing only on port conflicts) and verifies wildcard cert readiness"
       }
     }' > "$STACK_DIR/central.json"
 }
 
 # ---------------------------------------------------------------------------
-# Step 8: Rebuild policy (on change); apply only when already running. This
-# step NEVER starts a stopped container — bringing up the host's edge is an
-# explicit operator action (`docker compose up -d` in the live dir). When the
-# container IS running, the operator already opted in: an update is applied
-# in place and routes.d replayed.
+# Step 8: Rebuild policy (on change); start or apply. This step brings the
+# stack up itself: a stopped container is started (`compose up -d`) UNLESS
+# ports 80/443 are held by another service — stomping an existing listener
+# is the one thing this step never does. When the container was already
+# running, an update is applied in place (rebuild + recreate on change) and
+# routes.d replayed.
 #
 # Image changes rebuild; compose (service) changes recreate; config-only
 # changes hot-reload through the admin API — never a build or recreate, so
@@ -498,11 +557,28 @@ if [[ "$image_changed" -eq 1 ]]; then
 fi
 
 # Sample running state only AFTER any build, which can take minutes: an
-# operator may have stopped (or started) caddy mid-run, and this step must
-# NEVER start a stopped container. was_running also gates every apply path
-# and the post-condition checks below.
+# operator may have stopped (or started) caddy mid-run. was_running gates
+# the apply path below; a stopped container is started by this step.
 was_running=0
 docker ps -q --filter 'name=^caddy$' 2>/dev/null | grep -q . && was_running=1
+
+if [[ "$was_running" -eq 0 ]]; then
+  # Refuse to start only when something else already holds the edge ports —
+  # better to fail here than to have compose grab ports that don't belong
+  # to the central stack.
+  if port_conflicts="$(ss -tlnH '( sport = :80 or sport = :443 )' 2>/dev/null)" && [[ -n "$port_conflicts" ]]; then
+    echo "" >&2
+    echo "ERROR: ports 80/443 are currently in use by another service:" >&2
+    ss -tlnpH '( sport = :80 or sport = :443 )' >&2 2>/dev/null || echo "$port_conflicts" >&2
+    echo "Resolve the conflict (or remap ports via $STACK_DIR/compose.override.yaml)," >&2
+    echo "then re-run this step." >&2
+    exit 1
+  fi
+  echo "Starting caddy (docker compose up -d) …"
+  compose up -d
+  wait_healthy
+  was_running=1
+fi
 
 if [[ "$was_running" -eq 1 ]]; then
   if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 ]]; then
@@ -530,22 +606,6 @@ if [[ "$was_running" -eq 1 ]]; then
   # Always reconcile a running stack. The command hash-skips /load when
   # converged, while recomputing routes repairs a previous interrupted run.
   "$STACK_DIR/bin/caddy-route" reconcile
-else
-  echo ""
-  echo "Caddy is provisioned but NOT started — this step never starts it automatically."
-  if port_conflicts="$(ss -tlnH '( sport = :80 or sport = :443 )' 2>/dev/null)" && [[ -n "$port_conflicts" ]]; then
-    echo ""
-    echo "WARNING: ports 80/443 are currently in use by another service:" >&2
-    ss -tlnpH '( sport = :80 or sport = :443 )' >&2 2>/dev/null || echo "$port_conflicts" >&2
-    echo "Resolve the conflict (or remap ports via $STACK_DIR/compose.override.yaml) before starting." >&2
-  fi
-  echo ""
-  echo "To bring it up:"
-  echo "  cd $STACK_DIR && docker compose up -d"
-  if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]]; then
-    echo "Config changed since it last ran — after starting, replay routes once:"
-    echo "  caddy-route reconcile"
-  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -600,6 +660,74 @@ if [[ "$was_running" -eq 1 && ( "$image_changed" -eq 1 || "$compose_changed" -eq
     echo "  PASS: caddy-route list works"
   else
     echo "  WARNING: caddy-route list failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 9.7: Wildcard readiness verification. For every configured zone the
+# step CONFIRMS — rather than instructs — that (a) the _acme-challenge CNAME
+# delegation resolves, and (b) the certificate has actually been issued into
+# Caddy's storage. Any zone that fails is reported with the exact CNAME to
+# add, and the step exits non-zero: an edge that can't hand out its wildcard
+# certs is not provisioned.
+# ---------------------------------------------------------------------------
+
+if [[ "${#zone_fqdns[@]}" -gt 0 ]]; then
+  echo ""
+  echo "=== Wildcard readiness ==="
+
+  # Caddy storage layout: /data/caddy/certificates/<issuer>/<name>/{cert,key,json}
+  # with `*` sanitized to `wildcard_`. Directory presence == cert material.
+  cert_issued() { # cert_issued <site-address>
+    local name="${1/#\*/wildcard_}"
+    docker exec caddy sh -c \
+      "ls -d /data/caddy/certificates/*/$name >/dev/null 2>&1"
+  }
+
+  fulldomain="$(jq -r '.fulldomain' "$STACK_DIR/acmedns.json")"
+  readiness_failed=0
+
+  for zi in "${!zone_fqdns[@]}"; do
+    zone="${zone_fqdns[$zi]}"
+    addresses="${zone_site_addresses[$zi]}"
+
+    # (a) Delegation must resolve. `host -t CNAME` exits non-zero on NXDOMAIN
+    # or no-record; grep the target so a WRONG CNAME also fails loudly.
+    if host -t CNAME "_acme-challenge.$zone" 2>/dev/null | grep -q "$fulldomain"; then
+      echo "  PASS: _acme-challenge.$zone delegated to acme-dns"
+    else
+      echo "  FAIL: _acme-challenge.$zone is NOT delegated"
+      echo "        add at your DNS provider:"
+      echo "          _acme-challenge.$zone  CNAME  $fulldomain"
+      echo "        then re-run this step (certmagic's retry backoff would otherwise"
+      echo "        delay issuance for a while even after the record exists)."
+      readiness_failed=1
+      continue
+    fi
+
+    # (b) With delegation in place, issuance takes seconds after start/load.
+    # Poll up to 90s per address before declaring failure.
+    for address in ${addresses//,/ }; do
+      issued=0
+      for _i in $(seq 1 18); do
+        cert_issued "$address" && { issued=1; break; }
+        sleep 5
+      done
+      if [[ "$issued" -eq 1 ]]; then
+        echo "  PASS: certificate issued for $address"
+      else
+        echo "  FAIL: no certificate for $address after 90s" >&2
+        echo "        inspect issuance with: docker logs caddy --tail 50" >&2
+        [[ -z "$ACME_EMAIL" ]] && echo "        NOTE: ACME_EMAIL is empty — issuance cannot succeed" >&2
+        readiness_failed=1
+      fi
+    done
+  done
+
+  if [[ "$readiness_failed" -eq 1 ]]; then
+    echo "" >&2
+    echo "ERROR: edge is up but one or more wildcard zones are not ready." >&2
+    exit 1
   fi
 fi
 

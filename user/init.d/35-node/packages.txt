@@ -24,5 +24,3 @@ pm2
 # Open agent skills ecosystem (npx skills)
 skills
 
-# MCP — Model Context Protocol tools (npx mcp)
-mcp

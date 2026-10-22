@@ -25,7 +25,8 @@
 #           Required for hosts that run VMs.
 #
 #   dev     Development-node tooling. Gates 06-playwright-deps (browser
-#           automation test dependencies) and user/98-npm-shared +
+#           automation test dependencies), user/25-go (Go toolchain),
+#           user/97-gh-auth-instructions, and user/98-npm-shared +
 #           user/99-go-shared (read-only access to Broadminde shared
 #           repositories and packages — Go modules, frontend source/package
 #           paths; deploy keys can be registered through gh by the interactive
@@ -88,19 +89,29 @@ skills:
 #
 #   base_domain  Zone apex (e.g. "example.com"). A label L serves *.L.<base_domain>.
 #                The special label "host" serves *.<hostname>.<base_domain>.
+#                The special label "*" serves the apex itself: <base_domain>
+#                AND *.<base_domain> in a single cert/site block.
 #
 #   wildcards    Space-separated DNS labels to render as wildcard zone
-#                snippets. Each label must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$.
+#                snippets. Each label must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$,
+#                plus the special labels "*" and "host".
 #                Wildcard rendering activates only after acmedns.json holds a
 #                real acme-dns account (registered via bin/acmedns-register).
 #                Set wildcards: "" (empty) to render no zone snippets.
 #
+#   acme_email   ACME account email for certificate issuance (expiry and
+#                revocation notices). user/init.d/60-caddy writes it into
+#                ~/infra/caddy/.env (ACME_EMAIL); leave empty to collect it
+#                interactively via ~/scripts/bootstrap-access instead.
+#
 #   Example:  base_domain: example.com
-#             wildcards: "dev host"
+#             wildcards: "* dev host"
+#             acme_email: ops@example.com
 
 caddy:
   base_domain: example.com
   wildcards: ""
+  acme_email: ""
 
 # Portal deployment mode. `dev` registers the host's Vite dev server with
 # central Caddy; `image` deploys the published portal container image.

@@ -61,7 +61,8 @@ capabilities:
   docker: true      # 50-docker, 55-lazydocker
   caddy: true       # user/60-caddy (also requires docker → .requires lists both)
   kvm: false        # 57-kvm
-  dev: false        # 06-playwright-deps + user/98-npm-shared, user/99-go-shared
+  dev: false        # 06-playwright-deps + user/25-go, user/97-gh-auth-instructions,
+                    # user/98-npm-shared, user/99-go-shared
   public: false     # 54-crowdsec (internet-facing hosts only)
 ```
 
@@ -82,13 +83,14 @@ Current capability map (verify against `*/.requires` files before editing):
 | `docker` | `init.d/50-docker`, `init.d/55-lazydocker`, `user/init.d/60-caddy` |
 | `caddy` | `user/init.d/60-caddy` (with `docker`) |
 | `kvm` | `init.d/57-kvm` |
-| `dev` | `init.d/06-playwright-deps`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
+| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec` |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled`; the local backend agent runs as the deploy user via a user systemd unit provisioned by the ci repo's `init.d/20-agent-local` |
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
 node, caddy — `"latest"` or exact versions; partial versions for go/node), `skills:` (npx skills
-agent targets), `caddy:` (wildcard zone config), `github:` (host credential
+agent targets), `caddy:` (wildcard zone config + `acme_email` for the ACME
+account, written to `~/infra/caddy/.env` by user/60-caddy), `github:` (host credential
 role for the access walk), and `portal:` (`mode: dev | image`, published to
 `central.json` for app deployment steps).
 See `example.bootstrap.conf.yml` for the annotated template.
