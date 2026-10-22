@@ -32,7 +32,8 @@
 #   kilo.jsonc — instructions glob (rules/) plus permissions
 #
 # ~/.config/kilo/rules/ is loaded globally by the instructions glob in
-# kilo.jsonc. Keep this set small: rules are present in every agent context.
+# kilo.jsonc. It includes the no-privilege-escalation policy for chat LLM
+# sessions. Keep this set small: rules are present in every agent context.
 #
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
@@ -110,6 +111,10 @@ for cfg in kilo.json kilo.jsonc; do
     diff -u "$cfg_dst" "$cfg_src" || true
     echo ""
     echo "  Review the diff above and merge changes into $cfg_dst manually."
+    if [[ "$cfg" == "kilo.jsonc" ]]; then
+      echo "  Security note: preserve the privilege-escalation deny entries from the skeleton."
+      echo "  Validate the merged configuration with: kilo config check"
+    fi
     echo "  This warning will appear on every re-run until the files match."
   else
     echo "  $cfg unchanged"
@@ -159,6 +164,7 @@ fi
 echo ""
 echo "37-kilo-settings: context set deployed."
 echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
+echo "  LLM privilege:     rules/privilege-escalation.md (manual handoff required)"
 echo "  ~/.kilo/:         skills/"
 echo "  Bootstrap:        $BOOTSTRAP_ROOT/.kilocodeignore"
 echo "  Playwright MCP:   npx @playwright/mcp (needs node/npx from 35-node)"

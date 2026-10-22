@@ -20,11 +20,18 @@
       "blkdiscard *": "deny",
 
       // Privilege escalation and account changes.
+      "sudo": "deny",
       "sudo *": "deny",
+      "sudoedit": "deny",
       "sudoedit *": "deny",
+      "su": "deny",
       "su *": "deny",
+      "runuser": "deny",
       "runuser *": "deny",
+      "doas": "deny",
       "doas *": "deny",
+      "pkexec": "deny",
+      "pkexec *": "deny",
       "useradd *": "deny",
       "userdel *": "deny",
       "usermod *": "deny",

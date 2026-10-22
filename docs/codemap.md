@@ -44,6 +44,11 @@ flowchart TD
 | Shared config | `init.d/lib/conf.sh` | sources `../init.d/lib/conf.sh` through user `lib/common.sh` |
 | Root-only dependencies | apt, system accounts, Docker, sshd, ufw, fail2ban, CrowdSec | nvm/Node, uv/Python, Go, npm, Kilo, user config |
 
+This table describes provisioning ownership, not authority granted to an LLM.
+Chat LLM sessions do not execute privilege escalation. Root-tier commands are
+manual operator actions; agents provide exact commands and verification steps
+when elevated work is required.
+
 ## Pipeline Flow
 
 ```mermaid
@@ -130,7 +135,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
-| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`, preserving user customizations. |
+| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`. Its managed `privilege-escalation` policy requires manual operator handoff for elevated work; direct command denials are defense in depth. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; starts the stack (refusing on port conflicts) and verifies wildcard cert readiness. |
@@ -140,6 +145,15 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 
 **User-tier step count: 15** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
 60, 97, 98, 99).
+
+Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
+agents, commands, and rules update through `sync_dir_preserve`, so the
+privilege-escalation policy reaches existing hosts while destination-only
+context survives. `kilo.json` and `kilo.jsonc` are create-once files: a
+customized live file receives a diff and manual-merge warning rather than an
+automatic overwrite. The semantic policy covers indirect escalation; command
+denials in JSONC block common direct invocations but are not a complete
+security sandbox.
 
 ## Version Pins and Shared Access
 

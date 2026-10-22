@@ -12,6 +12,12 @@ Privilege separation is strict and enforced: the root runner refuses non-root,
 the user runner refuses root. A step that needs root belongs in `init.d/`;
 a step that touches `$HOME` belongs in `user/init.d/`. Never mix.
 
+Chat LLM sessions must never execute privilege escalation, including `sudo`
+or an equivalent direct or indirect mechanism. Root-tier commands in this
+document are manual operator commands. When root access is required, give the
+user exact commands to run, their working directory, expected result, and
+non-privileged verification steps where possible.
+
 ## Step format (`init.d/`)
 
 ```
@@ -192,8 +198,9 @@ a missing/non-numeric `--from` operand.
 
 ## Testing
 
-No automated test suite — verify by running steps on a disposable VM.
-Every step must be safe to re-run. Test both selectors:
+No general automated test suite exists; individual steps may carry focused
+static checks. Verify provisioning behavior on a disposable VM. Every step
+must be safe to re-run. The operator manually tests both selectors:
 
 ```bash
 sudo ./init.sh 50-docker     # single step

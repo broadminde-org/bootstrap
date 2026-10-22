@@ -51,6 +51,28 @@ if [[ ! -d "$SRC_CONFIG" ]]; then
   exit 1
 fi
 
+# Refuse to mirror a live context that would remove the repository's global
+# privilege boundary. Deployment updates rules automatically, but kilo.jsonc
+# remains a manual merge on existing hosts.
+policy_file="$SRC_CONFIG/rules/privilege-escalation.md"
+config_file="$SRC_CONFIG/kilo.jsonc"
+if [[ ! -f "$policy_file" ]]; then
+  echo "Error: required live policy $policy_file not found; run step 37 and reload Kilo before syncing." >&2
+  exit 1
+fi
+if [[ ! -f "$config_file" ]]; then
+  echo "Error: required live config $config_file not found." >&2
+  exit 1
+fi
+
+for command in sudo sudoedit su runuser doas pkexec; do
+  if ! grep -Fq "\"$command\": \"deny\"" "$config_file" ||
+     ! grep -Fq "\"$command *\": \"deny\"" "$config_file"; then
+    echo "Error: $config_file is missing the required $command deny entries; merge the step 37 skeleton manually before syncing." >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$DST_CONFIG"
 
 echo "=== Syncing from ~/.config/kilo/ to _config/kilo/ ==="

@@ -446,7 +446,7 @@ bootstrap/
 │   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
-│   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
+│   │   ├── 37-kilo-settings/         # deploys Kilo context, permissions, and global LLM safety rules
 │   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
@@ -479,6 +479,14 @@ bootstrap/
   root. All steps operate on `$HOME` and need no privilege
   escalation.
 
+The provisioning privilege model does not grant privilege escalation to chat
+LLM sessions. Chat LLM sessions never execute privilege escalation, even for
+an approved change. Root-tier commands are run manually by the operator; an
+agent must instead provide the exact commands, execution context, expected
+result, and non-privileged verification steps where possible. Step
+`37-kilo-settings` deploys this as an always-on global Kilo rule, with direct
+command denials as defense in depth.
+
 ### Idempotency
 
 Every step in both tiers is designed to be safe to re-run:
@@ -496,6 +504,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
+- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. The global privilege rule therefore reaches existing hosts. `kilo.json` and `kilo.jsonc` are copied only when absent; customized files receive a diff and must be merged manually so accumulated permissions are preserved.
 
 ---
 
