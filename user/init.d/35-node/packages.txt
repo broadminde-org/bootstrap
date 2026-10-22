@@ -23,4 +23,3 @@ pm2
 
 # Open agent skills ecosystem (npx skills)
 skills
-

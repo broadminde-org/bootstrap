@@ -61,13 +61,14 @@ if ! docker info >/dev/null 2>&1; then
   # Stale login session: the user is in the docker group but this shell
   # predates the usermod (50-docker). Re-exec the step under `sg docker`
   # so it picks up the group without requiring a logout/login cycle.
-  if id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
+  if ! id -nG | tr ' ' '\n' | grep -qx docker \
+     && id -nG "$USER" | tr ' ' '\n' | grep -qx docker; then
     echo "session lacks the docker group — re-executing under 'sg docker'..."
     # shellcheck disable=SC2046
     exec sg docker -c "$(printf '%q ' "$0" "$@")"
   fi
-  echo "ERROR: cannot reach the docker daemon — is $USER in the docker group?" >&2
-  echo "       (root tier 50-docker adds it; log out and back in to pick it up)" >&2
+  echo "ERROR: cannot reach the docker daemon — check that it is running and $USER has access." >&2
+  echo "       (root tier 50-docker adds the group; log out and back in if membership is missing)" >&2
   exit 1
 fi
 
@@ -461,7 +462,7 @@ central_json() {
     '{
       "version": 2,
       "hostname": $hostname,
-         "available": $running,
+      "available": ($running == 1),
       "base_domain": $base_domain,
       "wildcards": ($wildcards | split(" ") | map(select(length > 0))),
       "portal_mode": $portal_mode,
@@ -502,8 +503,8 @@ central_json() {
         "description": "Route registration and deregistration, runtime and access logs, health checks, TLS/DNS/backend troubleshooting, and teardown"
       },
       "status": {
-         "running": $running,
-         "ready": $running,
+        "running": ($running == 1),
+        "ready": ($running == 1),
          "lifecycle_note": "provisioning verifies live admin config and wildcard HTTPS before publishing readiness"
       }
     }' > "$STACK_DIR/central.json"
@@ -735,11 +736,11 @@ fi
 
 if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ]] \
    || [[ ! -f "$STACK_DIR/central.json" ]] \
-   || [[ "$(jq -r '.status.running' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]] \
+   || [[ "$(jq -r 'if .status.running == true then 1 else 0 end' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]] \
    || [[ "$(jq -r '.base_domain // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_caddy_conf base_domain "")" ]] \
    || [[ "$(jq -r '.portal_mode // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_portal_conf mode dev)" ]] \
-    || [[ "$(jq -r '.status.ready // false' "$STACK_DIR/central.json" 2>/dev/null)" != "true" ]] \
-    || [[ "$(jq -r '.version // 0' "$STACK_DIR/central.json" 2>/dev/null)" != "2" ]]; then
+   || [[ "$(jq -r '.status.ready // false' "$STACK_DIR/central.json" 2>/dev/null)" != "true" ]] \
+   || [[ "$(jq -r '.version // 0' "$STACK_DIR/central.json" 2>/dev/null)" != "2" ]]; then
   central_json "$was_running"
 fi
 

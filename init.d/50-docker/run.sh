@@ -257,8 +257,9 @@ if [[ -z "$started" ]]; then
   echo 'ERROR: Docker has no active daemon start time; configuration is unverified.' >&2
   exit 1
 fi
-started_epoch="$(date -d "$started" +%s)"
-if (( $(stat -c %Y "$DAEMON_JSON") >= started_epoch || $(stat -c %Y "$OVERRIDE_FILE") >= started_epoch )); then
+started_ns="$(date -d "$started" +%s%N)"
+if (( $(date -d "$(stat -c %y "$DAEMON_JSON")" +%s%N) > started_ns \
+   || $(date -d "$(stat -c %y "$OVERRIDE_FILE")" +%s%N) > started_ns )); then
   if [[ -n "$(docker ps -q)" ]]; then
     echo 'ERROR: Docker config is newer than the running daemon; live containers prevent an automatic restart.' >&2
     echo '       Arrange a maintenance window, restart Docker, then rerun step 50.' >&2

@@ -77,12 +77,11 @@ systemctl is-active --quiet fail2ban && f2b_was_active=1
 # abort the step (set -e + pipefail), so guard on the file's presence.
 pre_jail_hash=""
 [[ -f "$JAIL_LOCAL" ]] && pre_jail_hash="$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)"
-pre_filter_hash=""
-for filter in caddy-auth netbird-installer; do
+pre_filter_hash="$(for filter in caddy-auth netbird-installer; do
   if [[ -f "$FILTER_DIR/$filter.conf" ]]; then
-    pre_filter_hash+="$(sha256sum "$FILTER_DIR/$filter.conf")"
+    sha256sum "$FILTER_DIR/$filter.conf"
   fi
-done
+done)"
 
 cat > "$JAIL_LOCAL" <<JAIL_EOF
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
