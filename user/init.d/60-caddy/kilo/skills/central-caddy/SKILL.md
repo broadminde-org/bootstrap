@@ -3,11 +3,12 @@ name: central-caddy
 description: >-
   Create and register Caddy reverse-proxy snippets for apps on this host's
   central Caddy instance. USE FOR: onboarding an app to central Caddy,
-  writing a .caddy snippet, registering a route with caddy-route, reverse
-  proxying through Caddy, adding a subdomain for an app, serving an app
-  behind Caddy, Caddyfile snippet creation. DO NOT USE FOR: operating the
-  Caddy server itself (see references/operator-guide.md), non-Caddy
-  reverse proxies, or Caddy on hosts without the central stack.
+  writing a .caddy snippet, registering or deregistering routes with
+  caddy-route, viewing runtime or access logs, checking route health, and
+  troubleshooting Caddy 404/502 responses, TLS, DNS, or backend connectivity.
+  DO NOT USE FOR: provisioning or upgrading the host-level Caddy stack,
+  destructive stack maintenance, non-Caddy reverse proxies, or Caddy on hosts
+  without the central stack. See references/operator-guide.md for operations.
 ---
 
 # Central Caddy — App Onboarding
@@ -203,7 +204,57 @@ Deregister on teardown: `caddy-route deregister myapp`
 caddy-route list                    # registered routes vs live config
 docker logs caddy --tail 50         # container logs
 dig +short myapp.dev.broadminde.org # DNS resolution
+curl -v https://myapp.dev.broadminde.org/
+
+# Bypass public DNS/CDN while preserving SNI and certificate validation:
+curl --resolve myapp.dev.broadminde.org:443:127.0.0.1 \
+  https://myapp.dev.broadminde.org/
+
+# Preferred edge-network backend check from Caddy's network namespace:
+docker exec caddy curl -fsS http://myapp:3000/healthz
 ```
+
+## Logs
+
+```bash
+docker logs caddy --tail 100         # recent runtime/TLS/configuration logs
+docker logs caddy --since 30m        # runtime logs for a time window
+docker logs -f caddy                 # follow runtime logs
+tail -f ~/infra/caddy/logs/access.log
+jq 'select(.request.host == "myapp.dev.broadminde.org")' \
+  ~/infra/caddy/logs/access.log
+```
+
+Access logs exist only when the site block includes the `log` directive. Runtime
+logs always go to container stdout. Do not print logs into reports without first
+checking them for credentials, query parameters, or other sensitive values.
+
+## Deregistration
+
+```bash
+caddy-route list
+caddy-route deregister myapp
+caddy-route list
+```
+
+Deregistration removes `routes.d/myapp.caddy` and immediately reconciles the
+live config. If reconcile fails, `caddy-route` restores the file and retries the
+previous configuration. Deregister during app teardown before removing its
+backend, then verify that the hostname no longer reaches the app.
+
+## Troubleshooting
+
+| Symptom | First checks |
+|---|---|
+| Route missing | Run `caddy-route list`; inspect `~/infra/caddy/routes.d/` |
+| 404 | Confirm the requested hostname, route listing, and live config |
+| 502 | Run the upstream check from inside `caddy`; verify port and `edge` membership |
+| TLS failure | Check DNS, then `docker logs caddy --tail 100` |
+| Caddy unavailable | Run `docker inspect caddy`, then inspect runtime logs |
+| Disk/live mismatch | Run `caddy-route reconcile`, then `caddy-route list` |
+
+Use `references/operator-guide.md` for exact live-config commands, access-log
+setup, container lifecycle, wildcard DNS, CrowdSec, and deeper diagnostics.
 
 ## References
 

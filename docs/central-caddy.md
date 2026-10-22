@@ -54,6 +54,23 @@ caddy-route reconcile                     # manual replay (run.sh does this auto
 - **Rollback**: if reconcile fails after copy, the just-added file is removed and
   merge is re-run to restore the prior state.
 
+### Remove an app route
+
+Inspect the registry before and after removal:
+
+```bash
+caddy-route list
+caddy-route deregister myapp
+caddy-route list
+```
+
+Deregistration removes `~/infra/caddy/routes.d/myapp.caddy`, immediately
+reconciles the live configuration, and reports `Not registered` when the file is
+already absent. If reconciliation fails, the command restores the route file and
+attempts to restore the previous live configuration. During application
+teardown, deregister before removing the backend where practical, then verify
+that the hostname no longer reaches the application.
+
 ## Backend reachability
 
 1. **Preferred — `edge` network**: add `networks: { edge: { external: true, name: edge } }`
@@ -197,6 +214,39 @@ services:
   rotated 100MB×5). The global `log` block is not an access-log enablement
   switch.
 
+Useful log commands:
+
+```bash
+docker logs caddy --tail 100
+docker logs caddy --since 30m
+docker logs -f caddy
+tail -f ~/infra/caddy/logs/access.log
+
+# Filter JSON access logs by hostname or error status.
+jq 'select(.request.host == "myapp.example.com")' ~/infra/caddy/logs/access.log
+jq 'select(.status >= 500)' ~/infra/caddy/logs/access.log
+```
+
+Runtime logs are always available through Docker. The access-log file exists
+only when at least one site snippet enables `log`. Treat both log streams as
+potentially sensitive: URLs, query strings, and headers may contain secrets, so
+do not copy unreviewed logs into reports or issue trackers.
+
+A conventional site-level access-log block is:
+
+```caddyfile
+myapp.example.com {
+	log {
+		output file /data/logs/access.log {
+			roll_size 100mb
+			roll_keep 5
+		}
+		format json
+	}
+	reverse_proxy myapp:3000
+}
+```
+
 Always invoke compose **from the live dir** (or with
 `docker compose --project-directory ~/infra/caddy`) — an explicit
 `-f ~/infra/caddy/compose.yaml` suppresses `compose.override.yaml` discovery
@@ -254,6 +304,43 @@ docker exec caddy curl --unix-socket /run/caddy-admin.sock http://localhost/conf
 # Check cert status:
 docker exec caddy curl --unix-socket /run/caddy-admin.sock http://localhost/config/apps/tls/certificates | jq .
 ```
+
+### Verify a route end to end
+
+```bash
+# Public DNS, TLS, and routing:
+curl -v https://myapp.example.com/
+
+# Test this host directly while preserving hostname, SNI, and TLS validation:
+curl --resolve myapp.example.com:443:127.0.0.1 https://myapp.example.com/
+
+# Preferred edge-network upstream, from Caddy's network namespace:
+docker exec caddy curl -fsS http://myapp:3000/healthz
+
+# Confirm the application is attached to the edge network:
+docker inspect myapp --format '{{json .NetworkSettings.Networks}}' | jq .
+```
+
+For a host-published upstream, replace the backend check with
+`docker exec caddy curl -fsS http://host.docker.internal:<port>/healthz`.
+Use an application endpoint that exists when `/healthz` is not provided.
+
+### Troubleshooting routes
+
+| Symptom | Checks and likely cause |
+|---|---|
+| Route absent from disk | Run `caddy-route list`; confirm the expected file exists in `~/infra/caddy/routes.d/`; register it again if appropriate |
+| Route on disk but not live | Run `caddy-route reconcile`, then `caddy-route list`; inspect runtime logs if reconcile fails |
+| HTTP 404 | Confirm the request hostname exactly matches the site address; inspect the live config and test with `curl --resolve` |
+| HTTP 502 | Test the upstream from inside Caddy; verify the container name, port, health, and `edge` network membership |
+| Host upstream unreachable | Ensure the service binds to `0.0.0.0`, not only `127.0.0.1`; test `host.docker.internal:<port>` from Caddy |
+| TLS or certificate failure | Verify A/AAAA/CNAME records, inspect `docker logs caddy --tail 100`, then inspect certificate configuration |
+| Caddy unavailable | Run `docker inspect caddy --format '{{json .State}}' \| jq .`, then inspect runtime logs and port conflicts |
+
+`caddy-route list` compares the disk registry with live server names, but an
+empty live section can also mean that the Admin API was unreachable. Confirm
+container health and query the live config directly before concluding that no
+servers are loaded.
 
 ### Fallback: standalone import
 

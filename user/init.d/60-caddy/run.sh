@@ -499,7 +499,7 @@ central_json() {
       },
       "documentation": {
         "path": $docs,
-        "description": "Full operator guide with snippet examples, TLS modes, day-2 ops"
+        "description": "Route registration and deregistration, runtime and access logs, health checks, TLS/DNS/backend troubleshooting, and teardown"
       },
       "status": {
          "running": $running,
