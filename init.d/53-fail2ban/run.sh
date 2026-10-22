@@ -6,7 +6,7 @@
 #
 # Sets up three jails:
 #
-#   sshd            — monitors /var/log/auth.log for brute-force SSH
+#   sshd            — monitors the systemd journal for brute-force SSH
 #                     login attempts. Bans via ufw. Active from first run.
 #
 #   caddy-auth      — monitors Caddy's JSON access log for repeated
@@ -59,7 +59,7 @@ echo "=== 53-fail2ban: installing fail2ban ==="
 # Step 1: Install fail2ban.
 # ---------------------------------------------------------------------------
 
-apt-get install -y fail2ban
+apt-get install -y fail2ban python3-systemd
 
 # ---------------------------------------------------------------------------
 # Step 2: Write jail.local.
@@ -95,7 +95,7 @@ banaction = ufw
 [sshd]
 enabled  = true
 port     = 22
-logpath  = /var/log/auth.log
+backend  = systemd
 maxretry = 5
 
 [caddy-auth]
@@ -204,6 +204,15 @@ echo "=== Post-condition assertions ==="
 
 systemctl is-active fail2ban || { echo "ERROR: fail2ban not active" >&2; exit 1; }
 echo "  PASS: fail2ban is active"
+
+# systemd can report active before fail2ban has opened its control socket.
+for ((attempt=0; attempt<10; attempt++)); do
+  if fail2ban-client ping >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+fail2ban-client ping >/dev/null || { echo 'ERROR: fail2ban control socket not ready' >&2; exit 1; }
 
 fail2ban-client status sshd >/dev/null || { echo 'ERROR: sshd jail not active' >&2; exit 1; }
 if [[ "$caddy_jails_enabled" == true ]]; then
