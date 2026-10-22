@@ -18,12 +18,16 @@
 # LEGACY_CADDY_LOG may be overridden in the environment (used by tests).
 
 LEGACY_CADDY_LOG="${LEGACY_CADDY_LOG:-/home/stack/netbird-docker/logs/caddy/access.log}"
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/user.sh"
 
 resolve_caddy_log() {
   local __out="$1"
   local central=""
-  if [[ -n "${SUDO_USER:-}" ]]; then
-    central="$(getent passwd "$SUDO_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
+  resolve_deploy_user
+  if [[ -n "$DEPLOY_USER" ]]; then
+    require_deploy_user
+    central="$(getent passwd "$DEPLOY_USER" | cut -d: -f6)/infra/caddy/logs/access.log"
   fi
 
   local resolved

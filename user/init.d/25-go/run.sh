@@ -172,6 +172,12 @@ export PATH
   # Ensure .profile exists
   [ -f "$HOME/.profile" ] || : > "$HOME/.profile"
 
+  # Leave an already-current profile untouched, including its mtime.
+  if [[ "$(sed -n '\|^# --- Go environment (managed by user/init.d/25-go/run.sh) ---$|,\|^# --- End Go environment ---$|p' "$HOME/.profile")" == "$go_block" ]]; then
+    echo "Go environment block already current. Skipping."
+    return 0
+  fi
+
   # 1. Delete any prior marker-bounded block
   sed -i '/^# --- Go environment ---$/,/^# --- End Go environment ---$/d' "$HOME/.profile"
   sed -i '\|^# --- Go environment (managed by |,\|^# --- End Go environment ---$|d' "$HOME/.profile"

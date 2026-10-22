@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/user.sh"
+require_deploy_user
 
 # 54-crowdsec — Install CrowdSec LAPI and the firewall bouncer on the host.
 #
@@ -74,6 +76,11 @@ CADDY_ACQUIS_DROPIN=caddy-central.yaml
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/caddy-log.sh"
 resolve_caddy_log RESOLVED_CADDY_LOG
+
+if ! command -v ufw >/dev/null 2>&1 || ! ufw status | grep -q 'Status: active'; then
+  echo 'ERROR: CrowdSec requires active UFW; run 52-ufw first.' >&2
+  exit 1
+fi
 
 echo "=== 54-crowdsec: adding CrowdSec apt repository ==="
 
@@ -179,9 +186,6 @@ if command -v ufw >/dev/null 2>&1; then
   else
     echo "ufw: LAPI rule already present — skipping"
   fi
-  if ! ufw status 2>/dev/null | grep -q 'Status: active'; then
-    echo "WARNING: ufw is installed but NOT active — LAPI binds 0.0.0.0:8080 with no firewall filter (run 52-ufw to stage and enable ufw)" >&2
-  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -277,10 +281,8 @@ if ! getent group crowdsec >/dev/null 2>&1; then
   echo "Created crowdsec system group"
 fi
 
-if [[ -n "${SUDO_USER:-}" ]]; then
-  usermod -aG crowdsec "$SUDO_USER"
-  echo "Added $SUDO_USER to the crowdsec group (config/log read access)"
-fi
+usermod -aG crowdsec "$DEPLOY_USER"
+echo "Added $DEPLOY_USER to the crowdsec group (config/log read access)"
 
 # Make config + credentials group-readable for diagnostics. chown/chmod are
 # idempotent. This is deliberately NOT sufficient for cscli management

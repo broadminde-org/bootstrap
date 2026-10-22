@@ -54,7 +54,7 @@ resolve_latest_uv() {
     echo "       or check connectivity to api.github.com." >&2
     exit 1
   fi
-  echo "$tag"
+  echo "${tag#v}"
 }
 
 resolve_latest_python() {
@@ -116,7 +116,7 @@ else
   current_uv=""
 fi
 
-if [[ -n "$current_uv" && "$current_uv" == "$EE_UV_VERSION" ]]; then
+if [[ -n "$current_uv" && "$current_uv" == "${EE_UV_VERSION#v}" ]]; then
   echo "uv ${EE_UV_VERSION} already installed; skipping."
 else
   echo "Installing uv ${EE_UV_VERSION} (current: ${current_uv:-none})..."
@@ -125,7 +125,7 @@ else
   uv_tmp="$(mktemp -d "$CACHE_HOME/uv-install.XXXXXX")"
   trap 'rm -rf "$uv_tmp"' EXIT
   curl -fsSL --retry 3 \
-    "https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION}/uv-installer.sh" \
+    "https://github.com/astral-sh/uv/releases/download/v${EE_UV_VERSION#v}/uv-installer.sh" \
     -o "$uv_tmp/uv-installer.sh"
   sh "$uv_tmp/uv-installer.sh" --no-modify-path
 

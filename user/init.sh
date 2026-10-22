@@ -120,6 +120,7 @@ if [[ -n "$CAPS_CONFIG" ]]; then
   export BOOTSTRAP_CONFIG_FILE="$CAPS_CONFIG"
 fi
 
+validate_capabilities "$CAPS_CONFIG"
 load_conf "$CAPS_CONFIG"
 
 # ---------------------------------------------------------------------------
@@ -154,6 +155,8 @@ if [[ ${#steps_by_num[@]} -eq 0 ]]; then
   echo "No scripts found in init.d/ — nothing to do."
   exit 0
 fi
+
+validate_step_requirements "${steps_by_num[@]}" "$SCRIPT_DIR"/../init.d/[0-9]*
 
 # ---------------------------------------------------------------------------
 # Run steps in numeric order

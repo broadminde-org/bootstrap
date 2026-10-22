@@ -226,8 +226,10 @@ contract instead of parsing bootstrap configuration.
 ### Capability flags
 
 Each step in `init.d/` may declare required capabilities via a `.requires` file;
-steps without one always run. A step is skipped when **any** of its required
-capabilities is disabled.
+steps without one always run. A step is skipped when its selecting capability
+is disabled. For multiple entries, list prerequisites first and the selecting
+feature last (e.g. `docker`, then `caddy`): enabling the feature without its
+prerequisites fails before any step runs.
 
 | Capability | Steps gated | Default |
 |---|---|---|
@@ -244,11 +246,12 @@ Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 per-step gating applies (e.g. 60-caddy requires `docker` + `caddy`).
 
 Capabilities are an allowlist: a capability is enabled only when it is listed
-and set to `true`. Unlisted capabilities are disabled — a typo'd key or a
-newly introduced capability can never silently activate. Host confs should
-list every capability explicitly (the example conf does). If
-`bootstrap.conf.yml` is missing entirely, every capability is treated as
-disabled and versions default to `"latest"`.
+and set to `true`. Unlisted capabilities are disabled; host confs can omit
+disabled features. `example.bootstrap.conf.yml` defines the valid names. Both
+runners reject missing configs or `capabilities:` blocks, unknown/duplicate
+names, malformed entries, and unknown active `.requires` names before running
+any steps. Other sections (`versions`, `skills`, `caddy`, `github`, `portal`)
+remain optional and retain their existing defaults.
 
 A hostname-specific override (`<hostname>.conf.yml` in the repo root) takes
 precedence over `bootstrap.conf.yml` when present. Both tiers resolve it the
@@ -422,7 +425,7 @@ bootstrap/
 │   ├── 45-woodpecker-local.disabled/ # RETIRED: local agent runs as deploy user via ci/init.d/20-agent-local
 │   ├── 50-docker/                    # installs Docker CE + Compose plugin, merges daemon.json
 │   ├── 51-ssh-hardening/             # PermitRootLogin no via 00-bootstrap-*.conf drop-ins; sshd -t + effective-value assertions
-│   ├── 52-ufw/                       # ufw install + rule staging + gated auto-enable (MGMT_SSH_CIDR from .env)
+│   ├── 52-ufw/                       # ufw install + default-deny, public SSH allow, auto-enable
 │   ├── 53-fail2ban/                  # fail2ban with sshd + Caddy jails
 │   ├── 54-crowdsec/                  # CrowdSec LAPI + iptables bouncer (vendored apt repo setup)
 │   ├── 55-lazydocker/                # drops lazydocker into the deploy user's ~/.local/bin/

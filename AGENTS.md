@@ -42,8 +42,8 @@ Rules:
   **non-interactive**. Root-tier steps source `../lib/common.sh` (enforces
   root + apt non-interactive); user-tier steps source `../lib/common.sh`
   (enforces non-root + loads config + exports version pins).
-- Fail loudly: non-zero exit on error. The runner collects failures and
-  reports them by name at the end.
+- Fail loudly: non-zero exit on error. The root runner stops at the first
+  failed step; the user runner collects failures and reports them at the end.
 
 ## `.requires` and `bootstrap.conf.yml`
 
@@ -53,6 +53,9 @@ capability stops its steps from running but never uninstalls anything.
 - A step with **no `.requires`** always runs.
 - A step with `.requires` (one capability name per line, `#` comments and
   blank lines OK) runs only when **every** listed capability is `true`.
+  For multiple entries, put prerequisites first and the selecting feature
+  last (`docker`, then `caddy`); an enabled feature with a missing prerequisite
+  fails preflight.
 - Capabilities are defined in the `capabilities:` section of the conf file:
 
 ```yaml
@@ -66,11 +69,11 @@ capabilities:
   public: false     # 54-crowdsec (internet-facing hosts only)
 ```
 
-- **Unlisted capabilities are disabled** (allowlist gating: a capability is
-  enabled only when listed and set `true`, so a typo'd key or a newly
-  introduced capability can never silently activate). Host confs should list
-  every capability explicitly — `example.bootstrap.conf.yml` does. A missing
-  conf file also disables everything, and versions default to `"latest"`.
+- **Unlisted capabilities are disabled** (allowlist gating). Host confs may
+  omit disabled features; `example.bootstrap.conf.yml` is the canonical list of
+  valid names. Both runners fail before any step on a missing config or
+  `capabilities:` block, malformed/unknown/duplicate capability entries, or
+  unknown active `.requires` names. Other config sections remain optional.
 - Config resolution: `<hostname>.conf.yml` (repo root) takes precedence over
   `bootstrap.conf.yml`. Both runners resolve the file the same way and export
   it as `BOOTSTRAP_CONFIG_FILE`, so step subshells that re-source `conf.sh`

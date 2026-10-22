@@ -56,8 +56,10 @@ fulldomain="$(echo "$resp" | jq -r '.fulldomain')"
 # ---------------------------------------------------------------------------
 
 mkdir -p "$(dirname "$CRED_FILE")"
-echo "$resp" | jq -c --arg url "$ACME_DNS_URL" '. + {server_url: $url}' > "$CRED_FILE"
-chmod 600 "$CRED_FILE"
+tmp_cred="$(mktemp "$STACK_DIR/.acmedns.json.XXXXXX")"
+trap 'rm -f "$tmp_cred"' EXIT
+echo "$resp" | jq -c --arg url "$ACME_DNS_URL" '. + {server_url: $url}' > "$tmp_cred"
+mv -f "$tmp_cred" "$CRED_FILE"
 echo "Saved: $CRED_FILE"
 
 # ---------------------------------------------------------------------------

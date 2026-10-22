@@ -26,10 +26,8 @@
 #              override, then whichever of the central (~/infra/caddy) or
 #              legacy (netbird-docker) log is the live one — when both
 #              exist, the fresher mtime wins — then the central path as
-#              the default for new hosts. fail2ban tolerates a missing
-#              log path at startup — it emits a warning but does NOT
-#              hard-fail. A changed jail.local triggers a reload when
-#              fail2ban is already running.
+#              the default for new hosts. Log-dependent jails remain
+#              disabled until a readable log exists.
 #
 # Run as root (sudo ./init.sh 53-fail2ban).
 
@@ -44,6 +42,16 @@ FILTER_DIR=/etc/fail2ban/filter.d
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/caddy-log.sh"
 resolve_caddy_log CADDY_LOG
+
+if ! command -v ufw >/dev/null 2>&1 || ! ufw status | grep -q 'Status: active'; then
+  echo 'ERROR: fail2ban requires active UFW; run 52-ufw first.' >&2
+  exit 1
+fi
+
+caddy_jails_enabled=false
+if [[ -f "$CADDY_LOG" && -r "$CADDY_LOG" ]]; then
+  caddy_jails_enabled=true
+fi
 
 echo "=== 53-fail2ban: installing fail2ban ==="
 
@@ -69,6 +77,12 @@ systemctl is-active --quiet fail2ban && f2b_was_active=1
 # abort the step (set -e + pipefail), so guard on the file's presence.
 pre_jail_hash=""
 [[ -f "$JAIL_LOCAL" ]] && pre_jail_hash="$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)"
+pre_filter_hash=""
+for filter in caddy-auth netbird-installer; do
+  if [[ -f "$FILTER_DIR/$filter.conf" ]]; then
+    pre_filter_hash+="$(sha256sum "$FILTER_DIR/$filter.conf")"
+  fi
+done
 
 cat > "$JAIL_LOCAL" <<JAIL_EOF
 # Managed by bootstrap/init.d/53-fail2ban. Do not edit by hand.
@@ -85,7 +99,7 @@ logpath  = /var/log/auth.log
 maxretry = 5
 
 [caddy-auth]
-enabled  = true
+enabled  = $caddy_jails_enabled
 port     = 443
 filter   = caddy-auth
 logpath  = $CADDY_LOG
@@ -93,7 +107,7 @@ maxretry = 10
 findtime = 5m
 
 [netbird-installer]
-enabled  = true
+enabled  = $caddy_jails_enabled
 port     = 443
 filter   = netbird-installer
 logpath  = $CADDY_LOG
@@ -170,18 +184,14 @@ echo ""
 echo "=== 53-fail2ban: enabling and starting service ==="
 systemctl enable --now fail2ban
 
-# banaction = ufw — an inactive firewall means bans are silently no-ops.
-if command -v ufw >/dev/null 2>&1 && ! ufw status 2>/dev/null | grep -q 'Status: active'; then
-  echo "WARNING: ufw is installed but NOT active — banaction=ufw will not block anything." >&2
-  echo "         52-ufw stages and enables ufw; run it (sudo ./init.sh 52-ufw)." >&2
-fi
-
 # Reload when jail.local changed on an already-running daemon (e.g. the
 # Caddy log path flipped legacy→central during the migration) — otherwise
 # the jails keep tailing the stale path silently until an unrelated restart.
+post_filter_hash="$(sha256sum "$FILTER_DIR/caddy-auth.conf" "$FILTER_DIR/netbird-installer.conf")"
 if [[ "$f2b_was_active" -eq 1 ]] \
-  && [[ "$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)" != "$pre_jail_hash" ]]; then
-  echo "jail.local changed — reloading fail2ban"
+  && { [[ "$(sha256sum "$JAIL_LOCAL" | cut -d' ' -f1)" != "$pre_jail_hash" ]] \
+    || [[ "$post_filter_hash" != "$pre_filter_hash" ]]; }; then
+  echo "fail2ban configuration changed — reloading fail2ban"
   fail2ban-client reload
 fi
 
@@ -195,7 +205,11 @@ echo "=== Post-condition assertions ==="
 systemctl is-active fail2ban || { echo "ERROR: fail2ban not active" >&2; exit 1; }
 echo "  PASS: fail2ban is active"
 
-fail2ban-client status | grep -q "sshd" || echo "WARNING: sshd jail not yet listed (may need a moment to initialise)"
+fail2ban-client status sshd >/dev/null || { echo 'ERROR: sshd jail not active' >&2; exit 1; }
+if [[ "$caddy_jails_enabled" == true ]]; then
+  fail2ban-client status caddy-auth >/dev/null
+  fail2ban-client status netbird-installer >/dev/null
+fi
 
 # ---------------------------------------------------------------------------
 # Step 7: Log-format dependency note.

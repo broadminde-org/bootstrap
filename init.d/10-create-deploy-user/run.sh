@@ -42,7 +42,7 @@ BOOTSTRAP_SSH_PUBKEY="${BOOTSTRAP_SSH_PUBKEY:-$(env_file_value BOOTSTRAP_SSH_PUB
 
 # Skip creation only when a real non-root human invoked sudo and no
 # different deploy user was requested — that account IS the deploy user.
-if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" && "${SUDO_USER}" != "${BOOTSTRAP_USER}" ]]; then
+if [[ -z "$BOOTSTRAP_USER" && -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
   echo "==> Running via sudo from '${SUDO_USER}' — that account is the deploy user; skipping creation."
   exit 0
 fi
@@ -71,18 +71,6 @@ if [[ "$BOOTSTRAP_USER" == "root" ]]; then
   exit 1
 fi
 
-if [[ -z "${BOOTSTRAP_PASSWORD:-}" && -z "${BOOTSTRAP_SSH_PUBKEY:-}" && -t 0 ]]; then
-  read -r -s -p "Password for ${BOOTSTRAP_USER} (leave blank for key-only): " BOOTSTRAP_PASSWORD
-  echo
-fi
-
-if [[ -z "${BOOTSTRAP_PASSWORD:-}" && -z "${BOOTSTRAP_SSH_PUBKEY:-}" ]]; then
-  echo "ERROR: provide BOOTSTRAP_PASSWORD or BOOTSTRAP_SSH_PUBKEY (env or .env)." >&2
-  echo "       The deploy user needs at least one working login path before" >&2
-  echo "       51-ssh-hardening disables root login." >&2
-  exit 1
-fi
-
 if id "$BOOTSTRAP_USER" >/dev/null 2>&1; then
   uid="$(id -u "$BOOTSTRAP_USER")"
   # A pre-existing UID < 1000 account is a system account (bootstrap
@@ -94,6 +82,36 @@ if id "$BOOTSTRAP_USER" >/dev/null 2>&1; then
     echo "       deploy user. Choose a different BOOTSTRAP_USER." >&2
     exit 1
   fi
+  existing_user=1
+else
+  existing_user=0
+fi
+
+# Existing accounts with an enrolled key or set password do not need their
+# bootstrap credentials retained in .env merely to make reruns possible.
+if [[ -z "$BOOTSTRAP_PASSWORD" && -z "$BOOTSTRAP_SSH_PUBKEY" ]]; then
+  existing_login=0
+  if (( existing_user )); then
+    deploy_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
+    [[ -n "$deploy_home" && -s "$deploy_home/.ssh/authorized_keys" ]] && existing_login=1
+    pw_status="$(passwd -S "$BOOTSTRAP_USER" | awk '{print $2}')"
+    [[ "$pw_status" == P ]] && existing_login=1
+  fi
+  if (( ! existing_login )); then
+    if [[ -t 0 ]]; then
+      read -r -s -p "Password for ${BOOTSTRAP_USER} (leave blank for key-only): " BOOTSTRAP_PASSWORD
+      echo
+    fi
+    if [[ -z "$BOOTSTRAP_PASSWORD" ]]; then
+      echo "ERROR: provide BOOTSTRAP_PASSWORD or BOOTSTRAP_SSH_PUBKEY (env or .env)." >&2
+      echo "       The deploy user needs at least one working login path before" >&2
+      echo "       51-ssh-hardening disables root login." >&2
+      exit 1
+    fi
+  fi
+fi
+
+if (( existing_user )); then
   echo "==> User '${BOOTSTRAP_USER}' already exists -- ensuring sudo group membership"
   usermod -aG sudo "$BOOTSTRAP_USER"
 else

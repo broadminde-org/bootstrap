@@ -6,22 +6,18 @@
 #
 # What this script does:
 #
-#   1. Disables LLMNR (UDP 5355) via a systemd-resolved drop-in so the
+#   1. Installs ufw from apt.
+#
+#   2. Disables LLMNR (UDP 5355) via a systemd-resolved drop-in so the
 #      resolver stops advertising on the local network — even before ufw
 #      blocks port 5355 at the kernel level.
 #
-#   2. Installs ufw from apt.
-#
 #   3. Stages firewall rules:
 #        - default deny incoming / default allow outgoing
-#        - SSH allowed from the management network only (MGMT_SSH_CIDR,
-#          from the environment or repo-root .env — required)
+#        - SSH allowed on TCP 22 from any IPv4 and IPv6 source
 #        - Port 5355 TCP/UDP blocked (belt-and-suspenders LLMNR block)
 #
-#   4. Enables ufw non-interactively — but ONLY after verifying the SSH
-#      allow rule is actually staged (a misconfigured MGMT_SSH_CIDR must
-#      never lock the operator out silently; when the rule is missing the
-#      step fails loudly and leaves ufw disabled).
+#   4. Enables ufw non-interactively after staging the SSH allow rule.
 #
 # IMPORTANT: Do NOT add rules for ports 80, 443, or 3478/udp here.
 # Docker CE (with "iptables": true in daemon.json) inserts DNAT rules into
@@ -32,13 +28,8 @@
 #
 # Run as root (sudo ./init.sh 52-ufw).
 
-MGMT_SSH_CIDR="${MGMT_SSH_CIDR:-$(env_file_value MGMT_SSH_CIDR || true)}"
-if [[ -z "$MGMT_SSH_CIDR" ]]; then
-  echo "ERROR: MGMT_SSH_CIDR is not set." >&2
-  echo "       Set it in the environment or in $EE_ROOT/.env — the management" >&2
-  echo "       network allowed to reach SSH (e.g. MGMT_SSH_CIDR=203.0.113.0/24)." >&2
-  exit 1
-fi
+echo "=== 52-ufw: installing ufw ==="
+apt-get install -y ufw
 
 RESOLVED_DROP_IN_DIR=/etc/systemd/resolved.conf.d
 RESOLVED_DROP_IN="${RESOLVED_DROP_IN_DIR}/no-llmnr.conf"
@@ -46,7 +37,7 @@ RESOLVED_DROP_IN="${RESOLVED_DROP_IN_DIR}/no-llmnr.conf"
 echo "=== 52-ufw: disabling LLMNR via systemd-resolved drop-in ==="
 
 # ---------------------------------------------------------------------------
-# Step 1: Disable LLMNR via systemd-resolved drop-in (idempotent write).
+# Step 2: Disable LLMNR via systemd-resolved drop-in (idempotent write).
 # ---------------------------------------------------------------------------
 
 mkdir -p "$RESOLVED_DROP_IN_DIR"
@@ -70,14 +61,6 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: Install ufw.
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "=== 52-ufw: installing ufw ==="
-apt-get install -y ufw
-
-# ---------------------------------------------------------------------------
 # Step 3: Stage ufw rules.
 # ufw rule commands are idempotent — adding an already-present rule
 # prints "Skipping adding existing rule" and exits 0.
@@ -86,9 +69,15 @@ apt-get install -y ufw
 echo ""
 echo "=== 52-ufw: staging firewall rules ==="
 
+# UFW only generates IPv6 rules when IPV6=yes; do this before staging SSH.
+if ! grep -q '^IPV6=yes$' /etc/default/ufw; then
+  sed -i -E 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw
+  grep -q '^IPV6=yes$' /etc/default/ufw || { echo 'ERROR: could not enable UFW IPv6 rules' >&2; exit 1; }
+fi
+
 ufw default deny incoming
 ufw default allow outgoing
-ufw allow from "$MGMT_SSH_CIDR" to any port 22 proto tcp comment 'SSH from management network'
+ufw allow 22/tcp comment 'SSH'
 ufw deny 5355/tcp comment 'Block LLMNR (systemd-resolved, host-only)'
 ufw deny 5355/udp comment 'Block LLMNR (systemd-resolved, host-only)'
 
@@ -108,26 +97,17 @@ echo "=== Staged rules (NOT yet active) ==="
 ufw show added
 
 # ---------------------------------------------------------------------------
-# Step 5: Enable ufw — gated on the SSH rule being verifiably staged.
-#
-# Historically this step printed manual-enable instructions (the old
-# "Phase 1c") and hosts routinely never got their firewall turned on.
-# Now that the SSH rule is staged first and MGMT_SSH_CIDR is explicit,
-# enabling here is safe: if the rule is somehow absent the step fails
-# loudly and leaves ufw DISABLED rather than risking a lockout.
+# Step 5: Enable ufw. The SSH allow command above must succeed first.
 # ---------------------------------------------------------------------------
 
 echo ""
-if ufw status 2>/dev/null | grep -q 'Status: active'; then
-  echo "ufw is already active."
-elif ufw show added | grep -qF "from $MGMT_SSH_CIDR to any port 22"; then
-  echo "=== 52-ufw: SSH rule verified staged — enabling ufw ==="
-  ufw --force enable
-  ufw status verbose
-else
-  echo "ERROR: SSH allow rule for $MGMT_SSH_CIDR not found in 'ufw show added'." >&2
-  echo "       Refusing to enable ufw — doing so would lock out SSH." >&2
-  echo "       Staged rules were:" >&2
-  ufw show added >&2
+echo "=== 52-ufw: enabling ufw ==="
+ufw --force enable
+status="$(ufw status verbose)"
+printf '%s\n' "$status"
+if ! grep -q 'Status: active' <<< "$status" ||
+   ! grep -Eq '^22/tcp[[:space:]]+ALLOW IN[[:space:]]+Anywhere' <<< "$status" ||
+   ! grep -Eq '^22/tcp \(v6\)[[:space:]]+ALLOW IN[[:space:]]+Anywhere \(v6\)' <<< "$status"; then
+  echo 'ERROR: UFW must be active with unrestricted IPv4 and IPv6 SSH rules' >&2
   exit 1
 fi

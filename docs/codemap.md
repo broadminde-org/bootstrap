@@ -106,7 +106,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `45-woodpecker-local.disabled` | RETIRED — formerly provisioned a dedicated `woodpecker` service account for the local backend. Canonical architecture: the local agent runs as the deploy user via a user systemd unit from the ci repo's `init.d/20-agent-local`. Kept for reference only; never re-enable without an ADR. |
 | `50-docker` | Installs Docker CE, Compose/buildx plugins, and merges dual-stack IPv4/IPv6 daemon settings into `daemon.json` (app-added keys survive re-runs; fingerprint-pinned GPG key). Requires `docker`. |
 | `51-ssh-hardening` | Applies sshd hardening via `00-bootstrap-*.conf` drop-ins that sort before cloud-init's, validates with `sshd -t` before reload, asserts effective values via `sshd -T`, and refuses to disable root login without a working non-root login path. |
-| `52-ufw` | Installs ufw, disables LLMNR, stages deny-incoming/allow-outgoing plus SSH (from `.env`'s `MGMT_SSH_CIDR`) and LLMNR rules, and enables ufw non-interactively once the SSH rule is verified staged. |
+| `52-ufw` | Installs ufw, disables LLMNR, stages deny-incoming/allow-outgoing plus an unrestricted TCP 22 SSH allow and LLMNR rules, then enables ufw non-interactively. |
 | `53-fail2ban` | Installs fail2ban and manages SSH, Caddy-auth, and NetBird-installer jails and filters. |
 | `54-crowdsec` | Installs CrowdSec and its firewall bouncer, collections, Caddy log acquisition, LAPI configuration, and the Docker-bridge ufw rule. Requires `public`. |
 | `55-lazydocker` | Downloads and SHA256-verifies the pinned lazydocker release into the deploy user’s `~/.local/bin/`. Requires `docker`. |

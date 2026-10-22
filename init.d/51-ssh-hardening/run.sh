@@ -31,17 +31,19 @@
 #
 # Safety model — a bad config can never reach the live daemon:
 #
-#   a. `sshd -t` validates the merged config before any reload.
-#   b. Lockout gate: PermitRootLogin no is only activated when the
+#   a. On any pre-reload failure, restore the on-disk SSH files as well as
+#      leaving the running daemon untouched.
+#   b. `sshd -t` validates the merged config before any reload.
+#   c. Lockout gate: PermitRootLogin no is only activated when the
 #      deploy user has a working non-root login path — an enrolled
 #      authorized_keys entry, or a set password with effective
 #      `passwordauthentication yes`.
-#   c. Post-condition assertions: effective values are read back with
+#   d. Post-condition assertions: effective values are read back with
 #      `sshd -T -C user=<deploy>` (full merged config, Match blocks
 #      applied) BEFORE the reload, so a failed assertion aborts the
 #      step while the running daemon is still untouched. Round 1
 #      requires: permitrootlogin no, passwordauthentication yes.
-#   d. After reload the daemon's active state is confirmed.
+#   e. After reload the daemon's active state is confirmed.
 #
 # sshd is reloaded (never restarted), so active sessions survive.
 # The reload is skipped entirely when nothing changed.
@@ -55,6 +57,45 @@ STEP_DIR="$(dirname "$0")"
 require_deploy_user
 
 changed=0
+
+# Preserve the exact pre-run files until all checks pass. A failed check must
+# not leave an unsafe configuration that sshd would load on the next reboot.
+SSH_SNAPSHOT="$(mktemp -d /etc/ssh/.bootstrap-ssh.XXXXXX)"
+SSH_FILES=("$SSHD_CONFIG" "$DROP_IN_DIR/60-auth.conf" "$DROP_IN_DIR/61-hardening.conf"
+           "$DROP_IN_DIR/00-bootstrap-auth.conf" "$DROP_IN_DIR/01-bootstrap-hardening.conf")
+SSH_PRESENT=()
+for i in "${!SSH_FILES[@]}"; do
+  if [[ -e "${SSH_FILES[$i]}" || -L "${SSH_FILES[$i]}" ]]; then
+    cp -a "${SSH_FILES[$i]}" "$SSH_SNAPSHOT/$i"
+    SSH_PRESENT[i]=1
+  else
+    SSH_PRESENT[i]=0
+  fi
+done
+
+restore_ssh_files() {
+  local status=$? i restore_failed=0
+  if (( status != 0 )); then
+    echo 'Restoring pre-run SSH configuration after failed validation.' >&2
+    for i in "${!SSH_FILES[@]}"; do
+      if ! rm -f "${SSH_FILES[$i]}"; then
+        restore_failed=1
+        continue
+      fi
+      if (( SSH_PRESENT[i] )) && ! cp -a "$SSH_SNAPSHOT/$i" "${SSH_FILES[$i]}"; then
+        restore_failed=1
+      fi
+    done
+  fi
+  if (( restore_failed )); then
+    echo "ERROR: SSH restore incomplete; recover original files from $SSH_SNAPSHOT before reboot." >&2
+  else
+    rm -rf "$SSH_SNAPSHOT"
+  fi
+}
+trap restore_ssh_files EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "=== 51-ssh-hardening: patching base sshd_config ==="
 
@@ -178,6 +219,11 @@ if (( key_enrolled )); then
 else
   echo "  PASS: deploy user has a usable password (password auth enabled)"
 fi
+
+# All checks passed; a later service failure cannot make this validated
+# on-disk configuration unsafe to load at boot.
+trap - EXIT INT TERM
+rm -rf "$SSH_SNAPSHOT"
 
 # ---------------------------------------------------------------------------
 # Step 6: Reload sshd to apply changes without dropping active sessions.

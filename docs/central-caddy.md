@@ -276,6 +276,13 @@ owned by root-tier `54-crowdsec`. The bouncer is **fail-open** (hard-fails off)
 so a broken link is silent: caddy serves traffic but enforces zero CrowdSec
 decisions.
 
+`user/init.d/60-caddy` checks the bouncer link on every provisioning run when
+a key is configured, and fails the run if the link does not recover. This is
+not continuous monitoring: an outage between runs will not be detected by
+bootstrap. Use a separate scheduled health check or alert for that gap.
+If key generation fails, provisioning stops without deleting an existing
+`caddy-edge` registration; inspect the `cscli` error before manual recovery.
+
 Diagnostics:
 ```bash
 docker exec caddy caddy crowdsec health --address unix//run/caddy-admin.sock

@@ -115,6 +115,7 @@ if [[ -n "$CAPS_CONFIG" ]]; then
   export BOOTSTRAP_CONFIG_FILE="$CAPS_CONFIG"
 fi
 
+validate_capabilities "$CAPS_CONFIG"
 load_conf "$CAPS_CONFIG"
 
 # ---------------------------------------------------------------------------
@@ -150,12 +151,12 @@ if [[ ${#steps_by_num[@]} -eq 0 ]]; then
   exit 0
 fi
 
+validate_step_requirements "${steps_by_num[@]}" "$SCRIPT_DIR"/user/init.d/[0-9]*
+
 # ---------------------------------------------------------------------------
 # Run steps in numeric order
 # ---------------------------------------------------------------------------
 
-failed=0
-declare -a failed_names=()
 selector_matched=0
 
 mapfile -t sorted_nums < <(printf "%s\n" "${!steps_by_num[@]}" | sort -n)
@@ -195,8 +196,8 @@ for num in "${sorted_nums[@]}"; do
     else
       step_status=$?
       echo "    FAILED (exit $step_status)." >&2
-      (( failed++ )) || true
-      failed_names+=("$name")
+      echo "    Stopping provisioning after failed step $name." >&2
+      exit "$step_status"
     fi
   else
     if chmod +x "$path" && "$path"; then
@@ -204,8 +205,8 @@ for num in "${sorted_nums[@]}"; do
     else
       step_status=$?
       echo "    FAILED (exit $step_status)." >&2
-      (( failed++ )) || true
-      failed_names+=("$name")
+      echo "    Stopping provisioning after failed step $name." >&2
+      exit "$step_status"
     fi
   fi
   echo ""
@@ -216,15 +217,6 @@ if [[ -n "$only_number" && "$selector_matched" -eq 0 ]]; then
   echo "Available steps:" >&2
   for num in "${sorted_nums[@]}"; do
     echo "  $(basename "${steps_by_num[$num]}")" >&2
-  done
-  exit 1
-fi
-
-if [[ "$failed" -gt 0 ]]; then
-  echo "" >&2
-  echo "$failed script(s) failed:" >&2
-  for name in "${failed_names[@]}"; do
-    echo "  - $name" >&2
   done
   exit 1
 fi

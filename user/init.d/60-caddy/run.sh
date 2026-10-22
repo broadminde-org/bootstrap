@@ -8,9 +8,8 @@
 # AS the deploy user), syncs the stack files, renders the Caddyfile
 # template, and builds the custom Docker image. It then brings the stack up
 # itself (`docker compose up -d`) — refusing only when ports 80/443 are held
-# by something else — and verifies readiness: for every configured wildcard
-# zone it confirms the _acme-challenge CNAME delegation resolves and the
-# wildcard certificate has actually been issued into Caddy's storage.
+# by something else — and verifies the live admin config and HTTPS for each
+# configured wildcard zone.
 # Idempotent: safe to re-run.
 #
 # Also deploys the central-caddy agent skill (kilo/skills/ →
@@ -159,14 +158,11 @@ if cap_enabled public; then
     if command -v cscli >/dev/null 2>&1; then
       echo "Generating CrowdSec bouncer key for caddy-edge …"
       # sudo -n: never hang this non-interactive step on a password
-      # prompt — a missing/stale sudoers drop-in fails into the
-      # recovery branch instead.
-      if ! bkey="$(sudo -n cscli bouncers add caddy-edge -o raw 2>/dev/null)"; then
-        # A stale caddy-edge bouncer (e.g. from a previous partial run)
-        # blocks re-creation by name — remove it and regenerate so the
-        # step is self-healing instead of permanently running unprotected.
-        sudo -n cscli bouncers delete caddy-edge >/dev/null 2>&1 || true
-        bkey="$(sudo -n cscli bouncers add caddy-edge -o raw 2>/dev/null)" || bkey=""
+      # prompt. Never delete an existing bouncer on failure: the add could
+      # have failed for reasons other than a duplicate name.
+      if ! bkey="$(sudo -n cscli bouncers add caddy-edge -o raw)"; then
+        echo "ERROR: could not create CrowdSec bouncer key; existing registration left untouched." >&2
+        exit 1
       fi
       if [[ -n "$bkey" ]]; then
         # `|` delimiter: cscli keys are base64 (charset A-Za-z0-9+/=) —
@@ -178,7 +174,8 @@ if cap_enabled public; then
         compose_changed=1
         echo "Bouncer key written to $STACK_DIR/.env"
       else
-        echo "WARNING: sudo cscli failed — is /usr/bin/cscli in the passwordless sudo list (30-passwordless-sudo)? Running without CrowdSec" >&2
+        echo "ERROR: cscli returned an empty CrowdSec bouncer key; existing registration left untouched." >&2
+        exit 1
       fi
     else
       echo "WARNING: public cap enabled but cscli not found (54-crowdsec not run?) — running without CrowdSec"
@@ -366,10 +363,10 @@ else
     read -ra wildcard_labels <<< "$wildcards"
     for label in "${wildcard_labels[@]}"; do
       if [[ "$label" == "*" ]]; then
-        # Apex zone: cert for <base_domain> AND *.<base_domain> in one block.
+        # Reserve the wildcard only; an app can register the apex separately.
         # The file label "apex" keeps the routes.d filename glob-safe.
         zone_fqdn="$base_domain"
-        site_addresses="$base_domain, *.$base_domain"
+        site_addresses="*.$base_domain"
         file_label="apex"
       else
         if [[ ! "$label" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
@@ -464,7 +461,7 @@ central_json() {
     '{
       "version": 2,
       "hostname": $hostname,
-      "available": true,
+         "available": $running,
       "base_domain": $base_domain,
       "wildcards": ($wildcards | split(" ") | map(select(length > 0))),
       "portal_mode": $portal_mode,
@@ -505,8 +502,9 @@ central_json() {
         "description": "Full operator guide with snippet examples, TLS modes, day-2 ops"
       },
       "status": {
-        "running": $running,
-        "lifecycle_note": "provisioning step starts the container itself (refusing only on port conflicts) and verifies wildcard cert readiness"
+         "running": $running,
+         "ready": $running,
+         "lifecycle_note": "provisioning verifies live admin config and wildcard HTTPS before publishing readiness"
       }
     }' > "$STACK_DIR/central.json"
 }
@@ -608,9 +606,17 @@ if [[ "$was_running" -eq 1 ]]; then
   "$STACK_DIR/bin/caddy-route" reconcile
 fi
 
+# A healthy container can still have no loaded HTTP servers. Check the live
+# admin socket on every run, including no-change runs.
+if ! docker exec caddy curl -fsS --unix-socket /run/caddy-admin.sock \
+    http://localhost/config/apps/http/servers | jq -e 'type == "object" and (keys | length > 0)' >/dev/null; then
+  echo 'ERROR: Caddy has no live HTTP servers or its admin socket is unavailable' >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
-# Step 9: Post-condition checks (only meaningful against a running container
-# that we just mutated — a no-change run does zero work and skips these).
+# Step 9: Post-condition checks. Adaptation is needed only after a change;
+# CrowdSec health must also be checked on no-change provisioning runs.
 # ---------------------------------------------------------------------------
 
 if [[ "$was_running" -eq 1 && ( "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -eq 1 ) ]]; then
@@ -625,41 +631,30 @@ if [[ "$was_running" -eq 1 && ( "$image_changed" -eq 1 || "$compose_changed" -eq
     docker exec caddy caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 || true
     exit 1
   fi
+fi
 
-  # CrowdSec bouncer link — when a key is configured, prove decisions
-  # actually stream from the host LAPI into caddy. The bouncer plugin is
-  # fail-open (enable_hard_fails off), so a broken link is SILENT: caddy
-  # keeps serving with zero protection. This assertion is the only thing
-  # that catches it. The stream bouncer connects on its own retry loop —
-  # allow a few ticker intervals (ticker_interval 60s) before failing.
-  if [[ -n "$CROWDSEC_BOUNCER_KEY" ]]; then
-    cs_healthy=0
-    for _i in $(seq 1 12); do
-      if docker exec caddy caddy crowdsec health --address unix//run/caddy-admin.sock >/dev/null 2>&1; then
-        cs_healthy=1
-        break
-      fi
-      sleep 5
-    done
-    if [[ "$cs_healthy" -eq 1 ]]; then
-      echo "  PASS: CrowdSec bouncer link healthy (decisions streaming from host LAPI)"
-    else
-      echo "  FAIL: 'caddy crowdsec health' did not pass within 60s" >&2
-      echo "        The edge is running UNPROTECTED — the bouncer fails open." >&2
-      echo "        Diagnose:" >&2
-      echo "          docker exec caddy caddy crowdsec ping --address unix//run/caddy-admin.sock" >&2
-      echo "          cscli bouncers list                 (is caddy-edge registered?)" >&2
-      echo "          grep listen_uri /etc/crowdsec/config.yaml   (0.0.0.0:8080? — root-tier 54-crowdsec)" >&2
-      echo "          ufw status | grep 8080            (docker bridges allowed? — 54-crowdsec)" >&2
-      exit 1
+# The bouncer fails open, so check the LAPI link on every provisioning run
+# when a key is configured. Allow its stream retry loop time to reconnect.
+if [[ -n "$CROWDSEC_BOUNCER_KEY" ]]; then
+  cs_healthy=0
+  for _i in $(seq 1 12); do
+    if docker exec caddy caddy crowdsec health --address unix//run/caddy-admin.sock >/dev/null 2>&1; then
+      cs_healthy=1
+      break
     fi
-  fi
-
-  # Verify route listing works.
-  if "$STACK_DIR/bin/caddy-route" list >/dev/null 2>&1; then
-    echo "  PASS: caddy-route list works"
+    sleep 5
+  done
+  if [[ "$cs_healthy" -eq 1 ]]; then
+    echo "  PASS: CrowdSec bouncer link healthy (decisions streaming from host LAPI)"
   else
-    echo "  WARNING: caddy-route list failed"
+    echo "  FAIL: 'caddy crowdsec health' did not pass within 60s" >&2
+    echo "        The edge is running UNPROTECTED — the bouncer fails open." >&2
+    echo "        Diagnose:" >&2
+    echo "          docker exec caddy caddy crowdsec ping --address unix//run/caddy-admin.sock" >&2
+    echo "          cscli bouncers list                 (is caddy-edge registered?)" >&2
+    echo "          grep listen_uri /etc/crowdsec/config.yaml   (0.0.0.0:8080? — root-tier 54-crowdsec)" >&2
+    echo "          ufw status | grep 8080            (docker bridges allowed? — 54-crowdsec)" >&2
+    exit 1
   fi
 fi
 
@@ -676,14 +671,6 @@ if [[ "${#zone_fqdns[@]}" -gt 0 ]]; then
   echo ""
   echo "=== Wildcard readiness ==="
 
-  # Caddy storage layout: /data/caddy/certificates/<issuer>/<name>/{cert,key,json}
-  # with `*` sanitized to `wildcard_`. Directory presence == cert material.
-  cert_issued() { # cert_issued <site-address>
-    local name="${1/#\*/wildcard_}"
-    docker exec caddy sh -c \
-      "ls -d /data/caddy/certificates/*/$name >/dev/null 2>&1"
-  }
-
   fulldomain="$(jq -r '.fulldomain' "$STACK_DIR/acmedns.json")"
   readiness_failed=0
 
@@ -692,8 +679,11 @@ if [[ "${#zone_fqdns[@]}" -gt 0 ]]; then
     addresses="${zone_site_addresses[$zi]}"
 
     # (a) Delegation must resolve. `host -t CNAME` exits non-zero on NXDOMAIN
-    # or no-record; grep the target so a WRONG CNAME also fails loudly.
-    if host -t CNAME "_acme-challenge.$zone" 2>/dev/null | grep -q "$fulldomain"; then
+    # or no-record; compare the exact target so a WRONG CNAME fails loudly.
+    cname_target="$(host -t CNAME "_acme-challenge.$zone" 2>/dev/null | awk '/ is an alias for / {print $NF; exit}')" || cname_target=""
+    cname_target="${cname_target%.}"
+    expected_target="${fulldomain%.}"
+    if [[ -n "$cname_target" && "${cname_target,,}" == "${expected_target,,}" ]]; then
       echo "  PASS: _acme-challenge.$zone delegated to acme-dns"
     else
       echo "  FAIL: _acme-challenge.$zone is NOT delegated"
@@ -705,18 +695,24 @@ if [[ "${#zone_fqdns[@]}" -gt 0 ]]; then
       continue
     fi
 
-    # (b) With delegation in place, issuance takes seconds after start/load.
-    # Poll up to 90s per address before declaring failure.
+    # (b) Verify the actual TLS handshake on port 443 with normal certificate
+    # validation and a name covered by each wildcard. --resolve targets the
+    # local edge while preserving SNI and hostname verification.
     for address in ${addresses//,/ }; do
-      issued=0
+      probe="bootstrap-readiness.${address#\*.}"
+      ready=0
       for _i in $(seq 1 18); do
-        cert_issued "$address" && { issued=1; break; }
+        if curl -fsS --noproxy '*' --max-time 5 --resolve "$probe:443:127.0.0.1" \
+            -o /dev/null "https://$probe/"; then
+          ready=1
+          break
+        fi
         sleep 5
       done
-      if [[ "$issued" -eq 1 ]]; then
-        echo "  PASS: certificate issued for $address"
+      if [[ "$ready" -eq 1 ]]; then
+        echo "  PASS: HTTPS ready for $address"
       else
-        echo "  FAIL: no certificate for $address after 90s" >&2
+        echo "  FAIL: no verified HTTPS response for $address after 90s" >&2
         echo "        inspect issuance with: docker logs caddy --tail 50" >&2
         [[ -z "$ACME_EMAIL" ]] && echo "        NOTE: ACME_EMAIL is empty — issuance cannot succeed" >&2
         readiness_failed=1
@@ -742,7 +738,8 @@ if [[ "$image_changed" -eq 1 || "$compose_changed" -eq 1 || "$config_changed" -e
    || [[ "$(jq -r '.status.running' "$STACK_DIR/central.json" 2>/dev/null)" != "$was_running" ]] \
    || [[ "$(jq -r '.base_domain // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_caddy_conf base_domain "")" ]] \
    || [[ "$(jq -r '.portal_mode // empty' "$STACK_DIR/central.json" 2>/dev/null)" != "$(get_portal_conf mode dev)" ]] \
-   || [[ "$(jq -r '.version // 0' "$STACK_DIR/central.json" 2>/dev/null)" != "2" ]]; then
+    || [[ "$(jq -r '.status.ready // false' "$STACK_DIR/central.json" 2>/dev/null)" != "true" ]] \
+    || [[ "$(jq -r '.version // 0' "$STACK_DIR/central.json" 2>/dev/null)" != "2" ]]; then
   central_json "$was_running"
 fi
 

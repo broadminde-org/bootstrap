@@ -17,7 +17,14 @@ case "$(uname -m)" in
 esac
 asset="woodpecker-cli_linux_${arch}.tar.gz"
 
-if [[ -x "$bin_dir/woodpecker-cli" ]] && "$bin_dir/woodpecker-cli" --version 2>/dev/null | grep -q "${version#v}"; then
+installed_version=""
+if [[ -x "$bin_dir/woodpecker-cli" ]]; then
+  version_output="$("$bin_dir/woodpecker-cli" --version 2>/dev/null || true)"
+  if [[ "$version_output" =~ (^|[^[:digit:].])v?([0-9]+\.[0-9]+\.[0-9]+)([^[:digit:].]|$) ]]; then
+    installed_version="${BASH_REMATCH[2]}"
+  fi
+fi
+if [[ "$installed_version" == "${version#v}" ]]; then
   echo "woodpecker-cli ${version} already installed."
   exit 0
 fi

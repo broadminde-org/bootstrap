@@ -59,6 +59,7 @@
 _BOOTSTRAP_CONF_SH_LOADED=1
 
 declare -A _CAP_ENABLED
+declare -A _KNOWN_CAP
 declare -A _TOOL_VERSION
 declare -A _SKILLS_CONF
 declare -A _CADDY_CONF
@@ -71,6 +72,90 @@ _CONF_LOADED=0
 _CONF_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _CONF_ROOT="$(cd "$_CONF_SH_DIR/../.." && pwd)"
 _DEFAULT_CONF="${BOOTSTRAP_CONFIG_FILE:-$_CONF_ROOT/bootstrap.conf.yml}"
+
+# Read the deliberately small capabilities subset of YAML. Unlike the general
+# config reader, this rejects malformed and duplicate entries rather than
+# silently treating them as disabled.
+_capability_entries() {
+  local file="$1"
+  awk -v file="$file" '
+    /^capabilities:[[:space:]]*(#.*)?$/ { if (found++) { print file ": duplicate capabilities block" > "/dev/stderr"; exit 1 }; inside=1; next }
+    inside && /^[^[:space:]#]/ { inside=0 }
+    inside {
+      if (/^[[:space:]]*(#.*)?$/) next
+      if ($0 !~ /^  [a-z_][a-z0-9_]*:[[:space:]]*(true|false)[[:space:]]*(#.*)?$/) {
+        print file ":" NR ": malformed capability entry: " $0 > "/dev/stderr"
+        exit 1
+      }
+      line=$0
+      sub(/^  /, "", line)
+      key=line
+      sub(/:.*/, "", key)
+      if (seen[key]++) { print file ":" NR ": duplicate capability: " key > "/dev/stderr"; exit 1 }
+      sub(/^[^:]*:[[:space:]]*/, "", line)
+      sub(/[[:space:]#].*$/, "", line)
+      print key "=" line
+    }
+    END { if (!found) { print file ": missing capabilities block" > "/dev/stderr"; exit 1 } }
+  ' "$file"
+}
+
+# Validate the active host config against the checked-in example (the single
+# registry of recognized capabilities). Missing host keys remain disabled.
+validate_capabilities() {
+  local example="$_CONF_ROOT/example.bootstrap.conf.yml" entries key val
+  [[ -f "$example" ]] || { echo "ERROR: capability registry missing: $example" >&2; return 1; }
+  entries="$(_capability_entries "$example")" || return 1
+  _KNOWN_CAP=()
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _KNOWN_CAP["$key"]=1
+  done <<< "$entries"
+
+  local active="${1:-}"
+  [[ -n "$active" && -f "$active" ]] || { echo 'ERROR: bootstrap config missing (capabilities block required).' >&2; return 1; }
+  entries="$(_capability_entries "$active")" || return 1
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] || continue
+    if [[ ! -v _KNOWN_CAP[$key] ]]; then
+      echo "ERROR: unknown capability '$key' in $active" >&2
+      return 1
+    fi
+  done <<< "$entries"
+}
+
+# Preflight every discovered active step before provisioning changes the host.
+# In a multi-capability .requires, prerequisites come first and the feature
+# being selected comes last (e.g. docker then caddy).
+validate_step_requirements() {
+  local path file cap feature required line
+  for path in "$@"; do
+    [[ "$path" == *.disabled ]] && continue
+    [[ -d "$path" && -f "$path/run.sh" ]] || continue
+    file="$path/.requires"
+    [[ -f "$file" ]] || continue
+    feature=""
+    required=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+      cap="${line#"${line%%[![:space:]]*}"}"
+      cap="${cap%"${cap##*[![:space:]]}"}"
+      if [[ ! "$cap" =~ ^[a-z_][a-z0-9_]*$ || ! -v _KNOWN_CAP[$cap] || "$cap" == woodpecker ]]; then
+        echo "ERROR: invalid or unknown capability '$cap' in $file" >&2
+        return 1
+      fi
+      required+=("$cap")
+      feature="$cap"
+    done < "$file"
+    if [[ -n "$feature" ]] && cap_enabled "$feature"; then
+      for cap in "${required[@]}"; do
+        if ! cap_enabled "$cap"; then
+          echo "ERROR: $file enables '$feature' but requires '$cap: true'." >&2
+          return 1
+        fi
+      done
+    fi
+  done
+}
 
 # resolve_conf_file — print the active config file path:
 #   <repo root>/<hostname>.conf.yml when present, else
@@ -199,9 +284,10 @@ step_requires_caps() {
   fi
 
   local cap
-  while IFS= read -r cap; do
+  while IFS= read -r cap || [[ -n "$cap" ]]; do
     [[ -z "$cap" || "$cap" =~ ^[[:space:]]*# ]] && continue
-    cap="${cap## }"; cap="${cap%% }"
+    cap="${cap#"${cap%%[![:space:]]*}"}"
+    cap="${cap%"${cap##*[![:space:]]}"}"
     if ! cap_enabled "$cap"; then
       return 1
     fi

@@ -7,17 +7,24 @@
 # that user through here instead of reading SUDO_USER raw.
 #
 # Resolution order:
-#   1. BOOTSTRAP_USER (explicit operator env var / repo-root .env)
-#   2. SUDO_USER (set by sudo when a human runs `sudo ./init.sh`)
+#   1. BOOTSTRAP_USER (explicit operator environment variable)
+#   2. BOOTSTRAP_USER in the repo-root .env
+#   3. SUDO_USER (set by sudo when a human runs `sudo ./init.sh`)
 #
 # Hard error when the result is empty, "root", or a nonexistent
 # account: a root-tier step that cannot name a non-root deploy user
 # would otherwise provision root's account or die later with a cryptic
 # message. The only step exempt from this helper is
 # 10-create-deploy-user itself, which CREATES the account.
+# Callers source lib/common.sh first to provide env_file_value.
+
+resolve_deploy_user() {
+  DEPLOY_USER="${BOOTSTRAP_USER:-$(env_file_value BOOTSTRAP_USER || true)}"
+  DEPLOY_USER="${DEPLOY_USER:-${SUDO_USER:-}}"
+}
 
 require_deploy_user() {
-  DEPLOY_USER="${BOOTSTRAP_USER:-${SUDO_USER:-}}"
+  resolve_deploy_user
 
   if [[ -z "$DEPLOY_USER" ]]; then
     echo "ERROR: cannot resolve the deploy user." >&2

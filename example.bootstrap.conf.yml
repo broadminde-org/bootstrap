@@ -14,9 +14,10 @@
 # capability is skipped. Steps without a `.requires` file always run.
 #
 # A capability is enabled ONLY when it is listed here and set to true.
-# Unlisted capabilities are disabled, so a host conf should list every
-# capability explicitly (as this example does) — a missing key can never
-# silently turn a feature on.
+# Unlisted capabilities are disabled, so host confs may omit disabled keys.
+# This example is the canonical list of valid capability names. The
+# capabilities block itself is required, and invalid names/values fail
+# preflight rather than silently skipping steps.
 #
 #   docker  Docker CE + lazydocker. Required for any host that runs containers
 #           (app servers, CI runners, registries).

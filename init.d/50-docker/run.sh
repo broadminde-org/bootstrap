@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/user.sh"
+require_deploy_user
 
 # 50-docker — Install Docker CE (engine + CLI + Compose plugin) and
 # configure the daemon for dual-stack (IPv4 + IPv6) operation.
@@ -26,11 +28,9 @@
 #     repo's .env if your network requires a different UL prefix.
 #
 # Restart requirement:
-#   Changes to daemon.json require `systemctl restart docker` to
-#   take effect on a running daemon. This script intentionally does
-#   NOT restart Docker — re-running it on a host with live
-#   containers would tear them down. Restart manually after the
-#   first apply, or call this step before any compose stack starts.
+#   Changes to daemon.json or the systemd override require a restart.
+#   Restart automatically only when no containers are running; otherwise
+#   fail with an explicit restart requirement rather than disrupting them.
 #
 # Run as root (sudo ./init.sh 50-docker).
 
@@ -113,10 +113,8 @@ apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--fo
 # without sudo. The docker group is created by the docker-ce package
 # above. We own group membership here rather than in 20-groups so that
 # the docker group is only granted when Docker is actually installed.
-if [[ -n "${SUDO_USER:-}" ]]; then
-  usermod -aG docker "$SUDO_USER"
-  echo "Added $SUDO_USER to docker group"
-fi
+usermod -aG docker "$DEPLOY_USER"
+echo "Added $DEPLOY_USER to docker group"
 
 # Write daemon.json by MERGING into the existing file: this step owns
 # only the keys it sets, so app-added keys (e.g. extra "hosts" entries
@@ -158,14 +156,24 @@ NEW_DAEMON_JSON="$(jq -n \
   | .["insecure-registries"] = $reg
 ')"
 
+# Validate the proposed config before replacing the version that Docker will
+# load on reboot. A validation failure must leave the live file untouched.
+tmp_daemon="$(mktemp /etc/docker/.daemon.json.XXXXXX)"
+trap 'rm -f "$tmp_daemon"' EXIT
+printf '%s\n' "$NEW_DAEMON_JSON" > "$tmp_daemon"
+dockerd --validate --config-file "$tmp_daemon"
+
 if [[ -f "$DAEMON_JSON" ]] && [[ "$(jq -S . "$DAEMON_JSON" 2>/dev/null)" == "$(jq -S . <<<"$NEW_DAEMON_JSON")" ]]; then
   echo "daemon.json already up to date — skipping."
 else
   [[ -f "$DAEMON_JSON" && ! -f "${DAEMON_JSON}.bootstrap.bak" ]] \
     && cp -a "$DAEMON_JSON" "${DAEMON_JSON}.bootstrap.bak"
-  printf '%s\n' "$NEW_DAEMON_JSON" > "$DAEMON_JSON"
+  chmod 0644 "$tmp_daemon"
+  mv -f "$tmp_daemon" "$DAEMON_JSON"
   echo "Wrote daemon.json"
 fi
+rm -f "$tmp_daemon"
+trap - EXIT
 
 # ---------------------------------------------------------------------------
 # Systemd override: remove -H fd:// from ExecStart.
@@ -240,7 +248,27 @@ else
 fi
 
 systemctl enable --now docker
-echo "Docker configured and started"
+
+# A previous run may have written the files while Docker was already active.
+# Compare their mtimes with the active daemon's start time, even when this run
+# made no changes, so a rerun can detect and apply that pending configuration.
+started="$(systemctl show -P ExecMainStartTimestamp docker)"
+if [[ -z "$started" ]]; then
+  echo 'ERROR: Docker has no active daemon start time; configuration is unverified.' >&2
+  exit 1
+fi
+started_epoch="$(date -d "$started" +%s)"
+if (( $(stat -c %Y "$DAEMON_JSON") >= started_epoch || $(stat -c %Y "$OVERRIDE_FILE") >= started_epoch )); then
+  if [[ -n "$(docker ps -q)" ]]; then
+    echo 'ERROR: Docker config is newer than the running daemon; live containers prevent an automatic restart.' >&2
+    echo '       Arrange a maintenance window, restart Docker, then rerun step 50.' >&2
+    exit 1
+  fi
+  echo 'Docker config changed since daemon startup; restarting (no containers running).'
+  systemctl restart docker
+fi
+docker info --format '{{.ServerVersion}}' >/dev/null
+echo "Docker configured and running with current daemon settings"
 
 # ---------------------------------------------------------------------------
 # Post-condition: verify daemon.json parses and contains the expected
