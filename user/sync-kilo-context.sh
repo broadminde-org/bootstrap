@@ -39,6 +39,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DST_CONFIG="$SCRIPT_DIR/init.d/37-kilo-settings/_config/kilo"
 DST_KILO="$SCRIPT_DIR/init.d/37-kilo-settings/_kilo"
+PRIVILEGE_COMMANDS="$SCRIPT_DIR/init.d/37-kilo-settings/privilege-commands.txt"
 
 # -------------------------------------------------------------------
 # 1. Sync from ~/.config/kilo  -->  _config/kilo/
@@ -52,8 +53,8 @@ if [[ ! -d "$SRC_CONFIG" ]]; then
 fi
 
 # Refuse to mirror a live context that would remove the repository's global
-# privilege boundary. Deployment updates rules automatically, but kilo.jsonc
-# remains a manual merge on existing hosts.
+# privilege boundary. Deployment updates rules and safely migrates the
+# recognized policy subset in kilo.jsonc on existing hosts.
 policy_file="$SRC_CONFIG/rules/privilege-escalation.md"
 config_file="$SRC_CONFIG/kilo.jsonc"
 if [[ ! -f "$policy_file" ]]; then
@@ -65,13 +66,18 @@ if [[ ! -f "$config_file" ]]; then
   exit 1
 fi
 
-for command in sudo sudoedit su runuser doas pkexec; do
+[[ -f "$PRIVILEGE_COMMANDS" ]] || {
+  echo "Error: canonical privilege command list $PRIVILEGE_COMMANDS not found." >&2
+  exit 1
+}
+while IFS= read -r command; do
+  [[ -n "$command" && "$command" != \#* ]] || continue
   if ! grep -Fq "\"$command\": \"deny\"" "$config_file" ||
      ! grep -Fq "\"$command *\": \"deny\"" "$config_file"; then
-    echo "Error: $config_file is missing the required $command deny entries; merge the step 37 skeleton manually before syncing." >&2
+    echo "Error: $config_file is missing the required $command deny entries; run step 37 before syncing." >&2
     exit 1
   fi
-done
+done < "$PRIVILEGE_COMMANDS"
 
 mkdir -p "$DST_CONFIG"
 

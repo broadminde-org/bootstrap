@@ -44,10 +44,10 @@
 # (gated on docker + caddy), not from this skeleton.
 #
 # Idempotent: directories are synced without deletion — user-installed agents,
-# commands, and skills survive re-runs. kilo.json/kilo.jsonc are copied once; on
-# re-runs a diff is shown instead of overwriting, to protect accumulated
-# permissions. Docker Compose only rebuilds if sources changed (--build is
-# passed; cached layers apply).
+# commands, and skills survive re-runs. kilo.json is copied once and remains a
+# manual merge. kilo.jsonc is copied on first install; existing files receive a
+# narrow, validated migration of the managed instructions and privilege-denial
+# settings. Unfamiliar or conflicting JSONC is rejected for manual review.
 #
 # Run as the deploy user (./user/init.sh 37-kilo-settings).
 
@@ -90,36 +90,37 @@ done
 # Kilo deep-merges kilo.json with kilo.jsonc. MCP server configuration lives in
 # kilo.json; permissions such as permission.bash: allow live in kilo.jsonc.
 #
-# On first run: copy the skeleton file. On re-run: if the source differs from
-# the live file show a diff and a warning so the user can merge manually.
-for cfg in kilo.json kilo.jsonc; do
-  cfg_src="$SRC_CONFIG/$cfg"
-  cfg_dst="$KILO_CONFIG/$cfg"
-
-  if [[ ! -f "$cfg_src" ]]; then
-    echo "  skipped $cfg (not found in skeleton)"
-    continue
-  fi
-
-  if [[ ! -f "$cfg_dst" ]]; then
-    cp "$cfg_src" "$cfg_dst"
-    echo "  deployed $cfg (new)"
-  elif ! cmp -s "$cfg_src" "$cfg_dst"; then
+# kilo.json is create-once because its MCP settings are locally customizable.
+cfg_src="$SRC_CONFIG/kilo.json"
+cfg_dst="$KILO_CONFIG/kilo.json"
+if [[ ! -f "$cfg_src" ]]; then
+  echo "  skipped kilo.json (not found in skeleton)"
+elif [[ ! -f "$cfg_dst" ]]; then
+  cp "$cfg_src" "$cfg_dst"
+  echo "  deployed kilo.json (new)"
+elif ! cmp -s "$cfg_src" "$cfg_dst"; then
     echo ""
-    echo "  WARNING: skeleton $cfg differs from $cfg_dst"
+    echo "  WARNING: skeleton kilo.json differs from $cfg_dst"
     echo "  Diff (skeleton -> live):"
     diff -u "$cfg_dst" "$cfg_src" || true
     echo ""
     echo "  Review the diff above and merge changes into $cfg_dst manually."
-    if [[ "$cfg" == "kilo.jsonc" ]]; then
-      echo "  Security note: preserve the privilege-escalation deny entries from the skeleton."
-      echo "  Validate the merged configuration with: kilo config check"
-    fi
     echo "  This warning will appear on every re-run until the files match."
-  else
-    echo "  $cfg unchanged"
-  fi
-done
+else
+  echo "  kilo.json unchanged"
+fi
+
+# kilo.jsonc preserves local formatting and permissions while automatically
+# migrating only the recognized policy subset. The helper validates the live
+# effective config and rolls back atomically on failure.
+cfg_src="$SRC_CONFIG/kilo.jsonc"
+cfg_dst="$KILO_CONFIG/kilo.jsonc"
+if [[ ! -f "$cfg_src" ]]; then
+  echo "  skipped kilo.jsonc (not found in skeleton)"
+elif ! "$STEP_DIR/migrate-kilo-jsonc.sh" "$cfg_src" "$cfg_dst"; then
+  echo "  kilo.jsonc rejected; review the manual-merge guidance above." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Deploy Bootstrap workspace indexing exclusions

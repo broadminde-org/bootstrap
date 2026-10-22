@@ -1,0 +1,8 @@
+{
+  "instructions": ["./AGENTS.md"],
+  "permission": {
+    "bash": {
+      "*": "allow"
+    }
+  }
+}

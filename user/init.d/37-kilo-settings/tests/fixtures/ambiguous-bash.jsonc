@@ -1,0 +1,12 @@
+{
+  "permission": {
+    "bash": {
+      "*": "allow"
+    },
+    "nested": {
+      "bash": {
+        "*": "allow"
+      }
+    }
+  }
+}
