@@ -125,7 +125,7 @@ else
   uv_tmp="$(mktemp -d "$CACHE_HOME/uv-install.XXXXXX")"
   trap 'rm -rf "$uv_tmp"' EXIT
   curl -fsSL --retry 3 \
-    "https://github.com/astral-sh/uv/releases/download/v${EE_UV_VERSION#v}/uv-installer.sh" \
+    "https://github.com/astral-sh/uv/releases/download/${EE_UV_VERSION#v}/uv-installer.sh" \
     -o "$uv_tmp/uv-installer.sh"
   sh "$uv_tmp/uv-installer.sh" --no-modify-path
 
