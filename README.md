@@ -439,7 +439,7 @@ bootstrap/
 │   │   ├── lib/
 │   │   │   └── common.sh             # non-root check + sources conf.sh, exports version pins
 │   │   ├── 10-llmdocs/               # installs `llmdocs` wrapper at $HOME/.local/bin/
-│   │   ├── 12-bashrc/                # ~/.local/bin + ~/.kilo/bin PATH block in ~/.bashrc
+│   │   ├── 12-bashrc/                # user toolchain PATH before ~/.bashrc's non-interactive guard
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
 │   │   ├── 20-python/                # installs uv + uv-managed Python
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools (dev-gated)

@@ -128,7 +128,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | Step | What it installs or configures |
 |---|---|
 | `10-llmdocs` | Deploys the llmdocs framework and its `~/.local/bin/llmdocs` wrapper. |
-| `12-bashrc` | Adds the managed PATH block to `~/.bashrc` for non-login interactive shells. |
+| `12-bashrc` | Prepends a managed PATH block to `~/.bashrc` before Debian's non-interactive guard, exposing uv, Go, and the exact default nvm Node version to SSH-launched editor servers as well as interactive shells. Existing blocks after the guard are moved on re-run. A running editor server retains its old environment until restarted. |
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
 | `25-go` | Requires `dev`; installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
