@@ -58,13 +58,13 @@
 [ -n "${_BOOTSTRAP_CONF_SH_LOADED:-}" ] && return 0
 _BOOTSTRAP_CONF_SH_LOADED=1
 
-declare -A _CAP_ENABLED
-declare -A _KNOWN_CAP
-declare -A _TOOL_VERSION
-declare -A _SKILLS_CONF
-declare -A _CADDY_CONF
-declare -A _GITHUB_CONF
-declare -A _PORTAL_CONF
+declare -gA _CAP_ENABLED
+declare -gA _KNOWN_CAP
+declare -gA _TOOL_VERSION
+declare -gA _SKILLS_CONF
+declare -gA _CADDY_CONF
+declare -gA _GITHUB_CONF
+declare -gA _PORTAL_CONF
 _CONF_LOADED=0
 
 # Infer default config path from this file's own location.
