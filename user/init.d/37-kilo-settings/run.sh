@@ -60,6 +60,20 @@ BOOTSTRAP_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 KILO_CONFIG="$HOME/.config/kilo"
 KILO_HOME="$HOME/.kilo"
 
+# Each step runs in a separate shell, so 36-kilo's nvm PATH does not carry
+# over. Select the same Node version before validating the effective config.
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
+  echo "ERROR: nvm is not installed; run 35-node and 36-kilo first." >&2
+  exit 1
+fi
+source "$NVM_DIR/nvm.sh" --no-use
+nvm use --delete-prefix default >/dev/null
+if ! command -v kilo >/dev/null 2>&1; then
+  echo "ERROR: kilo CLI is not available; run 36-kilo first." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Ensure target dirs exist
 # ---------------------------------------------------------------------------
