@@ -2,8 +2,9 @@
 name: webapp-testing
 description: >-
   Toolkit for interacting with and testing local web applications. Playwright
-  MCP, Node Playwright, and browser binaries are provisioned host-wide by
-  bootstrap; verify current host state before claiming Playwright is missing.
+  MCP is seeded in Kilo config; Node Playwright and browser binaries
+  are installed for the deploy user on dev hosts. Verify current state before
+  claiming they are missing.
   Uses the Playwright MCP browser tools for interactive testing, debugging UI
   behavior, screenshots, and browser logs; falls back to Python Playwright
   scripts for repeatable automation.
@@ -18,31 +19,50 @@ metadata:
 
 # Web Application Testing
 
-Two toolkits are available in this environment. Pick per the decision tree.
+Two toolkits may be available in this environment. Pick per the decision tree.
 
 ## Host Capability Baseline
 
-On bootstrap-provisioned hosts, assume Playwright browser tooling is available
-unless proven otherwise:
+Bootstrap separates MCP configuration, per-user binaries, and system libraries:
 
-- The Playwright MCP is configured in `~/.config/kilo/kilo.json`.
-- Bootstrap user step `35-node` installs global `@playwright/test` and browser
-  binaries under `~/.cache/ms-playwright`.
-- Bootstrap root step `06-playwright-deps` installs the system libraries when
-  the host has the `dev` capability enabled.
+- User step `37-kilo-settings` seeds `~/.config/kilo/kilo.json` with the
+  Playwright MCP on a fresh configuration. Existing configs are not overwritten;
+  inspect the live config and the active session's MCP permissions.
+- On `dev` hosts, user step `39-playwright` installs `@playwright/test` into
+  the deploy user's default nvm Node tree (`~/.nvm/versions/node/v*/`) and
+  Chromium, Firefox, and WebKit into that user's `~/.cache/ms-playwright`.
+  Root step `06-playwright-deps` installs the required system libraries.
+- On non-`dev` hosts these steps are skipped, but disabling a capability
+  does not uninstall browsers or libraries from an earlier run.
 
 Do not repeat historical claims that "Playwright is not installed" without
-validating current host state. Check at least one current signal:
+validating the current deploy-user environment:
 
-- availability of `playwright_browser_*` MCP tools in the active session;
-- `command -v playwright`;
-- browser directories under `~/.cache/ms-playwright`.
+- Check whether `playwright_browser_*` tools are available **to this agent**;
+  missing tools can mean MCP permission is denied (for example, the deployed
+  `test-engineer` agent), a stale or customized Kilo config, or MCP startup
+  failure, not missing browsers.
+- Run `command -v playwright` and `playwright --version` as the deploy user.
+  If absent from PATH, inspect `~/.nvm/alias/default` and source
+  `~/.nvm/nvm.sh` to select `nvm use default` before concluding it is absent.
+  Restart an editor server that predates `12-bashrc`/`35-node` provisioning.
+- Inspect `~/.cache/ms-playwright` for the current user. The cache may have
+  been cleared by maintenance; a directory alone does not prove launch works.
+- If availability matters, try launching a browser and report its actual error.
+  Missing shared libraries require the operator to run root-tier provisioning;
+  agents must not attempt privilege escalation.
 
 Distinguish these failures explicitly:
 
-- **Capability absent:** no MCP tools, no Playwright executable, no browser
-  cache, and bootstrap state does not provision it.
-- **Browser installed but unavailable:** MCP or launch error despite installed
+- **Not provisioned for this user:** `dev` is disabled or step `39-playwright`
+  has not completed, and the executable/cache are absent.
+- **MCP unavailable:** inspect live config, agent permissions, and startup error;
+  use the installed Node Playwright CLI or a project test when MCP access is
+  denied. Do not treat MCP permission denial as a missing browser install.
+- **System libraries missing:** browser binaries exist but launch reports
+  missing shared libraries; root-tier `06-playwright-deps` must be run manually
+  by the operator on a supported distro.
+- **Browser installed but unavailable:** launch error despite installed
   executable/cache; report the launch error.
 - **App/server blocked:** browser is installed, but the dev server or backend
   cannot start; do not report Playwright as missing.
@@ -51,10 +71,10 @@ Distinguish these failures explicitly:
 
 ## Toolkit 1 (preferred): Playwright MCP browser tools
 
-The Playwright MCP (`@playwright/mcp`) is configured globally in
-`~/.config/kilo/kilo.json` (deployed by bootstrap step `37-kilo-settings`).
-Its tools are available in-session as `playwright_browser_*` — no installs,
-no browser lifecycle to manage, no scripts to write.
+The Playwright MCP (`@playwright/mcp`) is seeded in
+`~/.config/kilo/kilo.json` by bootstrap step `37-kilo-settings` on new configs.
+When enabled and permitted for this agent, its tools appear as
+`playwright_browser_*` — no browser lifecycle or scripts to manage.
 
 Use it for: verifying frontend functionality, debugging UI behavior,
 capturing screenshots, reading console logs and network requests.
@@ -96,11 +116,11 @@ uv run --with playwright python your_automation.py
 
 ```
 User task → Must the run be saved/repeated? (CI, regression, multi-server)
-    ├─ No → Playwright MCP tools (Toolkit 1)
+    ├─ No, MCP permitted → Playwright MCP tools (Toolkit 1)
     │         1. Start dev server if needed
     │         2. Navigate → snapshot → act on refs → verify
     │
-    └─ Yes → Python script path (Toolkit 2)
+    └─ Yes, or MCP unavailable → Python script path (Toolkit 2)
               ├─ Server already running? → write script, run with
               │   uv run --with playwright python your_automation.py
               └─ Need server lifecycle? →

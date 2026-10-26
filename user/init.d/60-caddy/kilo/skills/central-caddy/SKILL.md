@@ -166,7 +166,7 @@ Registration is zero-downtime: validate → copy to `routes.d/` → reconcile
 Validate without registering:
 
 ```bash
-docker exec caddy caddy adapt --config - --adapter caddyfile < myapp.caddy
+docker exec -i caddy caddy adapt --config - --adapter caddyfile < myapp.caddy
 ```
 
 ## Automating in init.sh

@@ -11,7 +11,7 @@ description: Debugging errors, failing tests, non-2xx fetches, missing files, an
 - REPORT: Present relevant log lines, error codes, and timestamps before proposing fixes.
 
 ## Log Locations
-- Use `docker compose logs --tail=100 <service>` and capture workspace-local output in `<workspace>/.tmp/`.
+- Use `docker compose logs --tail=100 <service>` and capture disposable output under `$HOME/.tmpdir/` when needed.
 - For init or pipeline failures, rerun with `bash -x` or `set -x`; use browser console and network tools for frontend failures.
 
 ## Methodology

@@ -55,10 +55,23 @@ STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_CONFIG="$STEP_DIR/_config/kilo"
 SRC_KILO="$STEP_DIR/_kilo"
 SRC_KILOCODEIGNORE="$STEP_DIR/.kilocodeignore"
+OPTIONAL_SKILLS_FILE="$STEP_DIR/optional-skills.txt"
 BOOTSTRAP_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 
 KILO_CONFIG="$HOME/.config/kilo"
 KILO_HOME="$HOME/.kilo"
+AGENT_TMP="$HOME/.tmpdir"
+
+if [[ -L "$AGENT_TMP" ]]; then
+  echo "ERROR: refusing symlink at $AGENT_TMP" >&2
+  exit 1
+fi
+mkdir -p "$AGENT_TMP"
+if [[ ! -O "$AGENT_TMP" ]]; then
+  echo "ERROR: $AGENT_TMP must be owned by the current user." >&2
+  exit 1
+fi
+chmod 700 "$AGENT_TMP"
 
 # Each step runs in a separate shell, so 36-kilo's nvm PATH does not carry
 # over. Select the same Node version before validating the effective config.
@@ -167,7 +180,48 @@ fi
 echo "=== Deploying from _kilo/ to ~/.kilo/ ==="
 
 if [[ -d "$SRC_KILO/skills" ]]; then
-  sync_dir_preserve "$SRC_KILO/skills" "$KILO_HOME/skills"
+  if [[ ! -f "$OPTIONAL_SKILLS_FILE" ]]; then
+    echo "ERROR: optional skill manifest is missing: $OPTIONAL_SKILLS_FILE" >&2
+    exit 1
+  fi
+
+  declare -A optional_skills=()
+  while IFS= read -r skill; do
+    [[ -n "$skill" && "$skill" != \#* ]] || continue
+    if [[ ! -f "$SRC_KILO/skills/$skill/SKILL.md" ]]; then
+      echo "ERROR: optional skill '$skill' has no source directory." >&2
+      exit 1
+    fi
+    optional_skills["$skill"]=1
+  done < "$OPTIONAL_SKILLS_FILE"
+
+  declare -A selected_optional_skills=()
+  if [[ -n "${KILO_OPTIONAL_SKILLS:-}" ]]; then
+    if [[ "$KILO_OPTIONAL_SKILLS" == "all" ]]; then
+      for skill in "${!optional_skills[@]}"; do
+        selected_optional_skills["$skill"]=1
+      done
+    else
+      IFS=',' read -r -a requested_skills <<< "$KILO_OPTIONAL_SKILLS"
+      for skill in "${requested_skills[@]}"; do
+        if [[ -z "${optional_skills[$skill]+x}" ]]; then
+          echo "ERROR: '$skill' is not an optional Kilo skill." >&2
+          exit 1
+        fi
+        selected_optional_skills["$skill"]=1
+      done
+    fi
+  fi
+
+  for skill_dir in "$SRC_KILO/skills"/*; do
+    [[ -f "$skill_dir/SKILL.md" ]] || continue
+    skill="${skill_dir##*/}"
+    if [[ -n "${optional_skills[$skill]+x}" && -z "${selected_optional_skills[$skill]+x}" ]]; then
+      echo "  skipped optional skill: $skill"
+      continue
+    fi
+    sync_dir_preserve "$skill_dir" "$KILO_HOME/skills/$skill"
+  done
 else
   echo "  skipped skills/ (not found in skeleton)"
 fi
@@ -178,10 +232,11 @@ fi
 
 echo ""
 echo "37-kilo-settings: context set deployed."
+echo "  Agent scratch:    $AGENT_TMP (private, user-owned)"
 echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
-echo "  LLM privilege:     rules/privilege-escalation.md (manual handoff required)"
 echo "  ~/.kilo/:         skills/"
+echo "  Optional skills:  KILO_OPTIONAL_SKILLS=all or a comma-separated skill list"
 echo "  Bootstrap:        $BOOTSTRAP_ROOT/.kilocodeignore"
-echo "  Playwright MCP:   npx @playwright/mcp (needs node/npx from 35-node)"
+echo "  Playwright MCP seed: npx @playwright/mcp (check live kilo.json for existing configs)"
 echo ""
 echo "Restart kilo (or reload config) to pick up the new context."

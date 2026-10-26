@@ -1,0 +1,16 @@
+# Skills excluded from the default host context.
+#
+# Install a selected skill during provisioning with:
+#   KILO_OPTIONAL_SKILLS=skill-one,skill-two ./user/init.sh 37-kilo-settings
+# Or install every optional skill with:
+#   KILO_OPTIONAL_SKILLS=all ./user/init.sh 37-kilo-settings
+agent-md-refactor
+artifacts-builder
+frontend-design
+mermaid-diagram-generation
+neurodivergent-ux
+skill-creator
+svelte-code-writer
+svelte-core-bestpractices
+theme-factory
+web-design-guidelines

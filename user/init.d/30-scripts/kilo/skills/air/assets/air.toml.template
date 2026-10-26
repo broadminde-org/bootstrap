@@ -1,0 +1,54 @@
+# Air configuration — canonical template for this host.
+# Source: bootstrap user/init.d/30-scripts/templates/air.toml.template
+# Docs:   ~/.kilo/skills/air/SKILL.md
+# Fields: https://github.com/air-verse/air/blob/master/air_example.toml
+#
+# Setup: copy to <project>/.air.toml and replace every <app> placeholder with
+# the binary name. This assumes the Go module lives in backend/ and air runs
+# from the project root (the host default). If you instead use
+# <project>/backend/.air.toml, air runs from backend/ — change cmd to build "."
+# and note the .dev/tmp paths then resolve under backend/. Do NOT use
+# <project>/.config/air.toml — the host `dev` runner only detects .air.toml.
+# Air has no global config; ~/.config/air/ is never read.
+
+root = "."
+tmp_dir = ".dev/tmp"
+
+[build]
+  # -buildvcs=false: worktrees and detached checkouts must not fail the build.
+  cmd = "go build -buildvcs=false -o .dev/tmp/<app> ./backend"
+  # Modern entrypoint form. Do NOT use the deprecated `bin` field —
+  # air warns: "build.bin is deprecated; set build.entrypoint instead".
+  entrypoint = ["./.dev/tmp/<app>"]
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  # Prune per project; keep .dev, tmp, .git, vendor, node_modules excluded.
+  exclude_dir = ["tmp", "vendor", "dist", ".git", ".dev", "node_modules", "frontend", "data", "static", "secrets", "test-results", "build-results", "update-results"]
+  exclude_regex = ["_test\\.go"]
+  exclude_unchanged = false
+  follow_symlink = false
+  delay = 1000
+  stop_on_error = true
+  # Graceful shutdown so the backend releases its port before air kills it.
+  send_interrupt = true
+  kill_delay = "2s"
+  log = "build-errors.log"
+
+[log]
+  time = false
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = true
+
+# Intentionally absent (host conventions):
+#   [proxy]       — browser reload is owned by Vite, not air.
+#   env_files     — env is owned by direnv, not air.
+#   [[build.rules]] — escape hatch for templ/sqlc/asset pipelines; see the skill.
