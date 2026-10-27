@@ -28,13 +28,12 @@ Bootstrap separates MCP configuration, per-user binaries, and system libraries:
 - User step `37-kilo-settings` seeds `~/.config/kilo/kilo.json` with the
   Playwright MCP on a fresh configuration. Existing configs are not overwritten;
   inspect the live config and the active session's MCP permissions.
-- User step `35-node` installs `@playwright/test` into the deploy user's
-  default nvm Node tree (`~/.nvm/versions/node/v*/`) and Chromium, Firefox,
-  and WebKit into that user's `~/.cache/ms-playwright`.
-  Dev-gated root step `06-playwright-deps` installs the required system
-  libraries.
-- On non-`dev` hosts the system-library step is skipped, but disabling a
-  capability does not uninstall browsers or libraries from an earlier run.
+- On `dev` hosts, user step `39-playwright` installs `@playwright/test` into
+  the deploy user's default nvm Node tree (`~/.nvm/versions/node/v*/`) and
+  Chromium, Firefox, and WebKit into that user's `~/.cache/ms-playwright`.
+  Root step `06-playwright-deps` installs the required system libraries.
+- On non-`dev` hosts these steps are skipped, but disabling a capability
+  does not uninstall browsers or libraries from an earlier run.
 
 Do not repeat historical claims that "Playwright is not installed" without
 validating the current deploy-user environment:
@@ -55,8 +54,8 @@ validating the current deploy-user environment:
 
 Distinguish these failures explicitly:
 
-- **Not provisioned for this user:** step `35-node` has not completed, and
-  the executable/cache are absent.
+- **Not provisioned for this user:** `dev` is disabled or step `39-playwright`
+  has not completed, and the executable/cache are absent.
 - **MCP unavailable:** inspect live config, agent permissions, and startup error;
   use the installed Node Playwright CLI or a project test when MCP access is
   denied. Do not treat MCP permission denial as a missing browser install.

@@ -3,7 +3,7 @@
 - Status: accepted (2026-09-18)
 - Deciders: luke
 - Supersedes: the interim design documented in
-  `source-rw-token-storage-problem.md` (repo root)
+  `_plans/done/source-rw-token-storage-problem.md`
 
 ## Context
 
@@ -66,8 +66,9 @@ local-backend agent fetches private modules with a read-only deploy key.
 
 ## Consequences
 
-- Token access no longer depends on the bootstrap checkout; `source-rw`,
-  `status`, and `clear` work without it.
+- Stored token access no longer depends on the bootstrap checkout. `status`
+  and `clear` work without it; `source-rw` setup still needs the checkout for
+  its GitHub role configuration.
 - The `workflow`-scope constraint applies only to PAT/OAuth pushes; SSH and
   GitHub App paths are unaffected.
 - Rotation: create a new classic PAT in GitHub, run `github-access

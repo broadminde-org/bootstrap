@@ -248,8 +248,11 @@ cmd_deregister() {
 # ---------------------------------------------------------------------------
 
 cmd_list() {
-  local live
-  live="$($SOCK http://localhost/config/apps/http/servers 2>/dev/null)" || true
+  local live names
+  live="$($SOCK -fsS http://localhost/config/)" || die 'cannot read live Caddy config from admin API'
+  jq -e 'type == "object" and (has("error") | not) and ((.apps.http.servers // {}) | type == "object")' \
+    <<< "$live" >/dev/null || die 'invalid live Caddy config from admin API'
+  names="$(jq -r '.apps.http.servers // {} | keys[]' <<< "$live")"
 
   echo "=== routes.d (disk) ==="
   shopt -s nullglob
@@ -265,11 +268,6 @@ cmd_list() {
 
   echo ""
   echo "=== Live server names ==="
-  # The Admin API returns {"error":"invalid traversal path…"} when no servers
-  # exist — exclude error payloads before listing keys. jq failure (empty or
-  # malformed response, e.g. container unreachable) also yields empty names.
-  local names
-  names="$(echo "$live" | jq -r 'if type == "object" and (has("error") | not) then keys[] else empty end' 2>/dev/null)" || true
   if [[ -z "$names" ]]; then
     echo "  (no servers loaded)"
   else

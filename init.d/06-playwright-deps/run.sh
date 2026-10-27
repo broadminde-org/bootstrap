@@ -4,7 +4,7 @@
 
 # 06-playwright-deps — OS libraries required to launch Playwright browsers.
 #
-# The user tier (user/init.d/35-node) installs @playwright/test and downloads
+# The user tier (user/init.d/39-playwright) installs @playwright/test and downloads
 # chromium/firefox/webkit into ~/.cache/ms-playwright, but the browsers only
 # launch if their shared-library dependencies are present — and installing
 # those needs root. This step is the root-tier counterpart: it installs the
@@ -43,8 +43,9 @@ case "${ID}-${VERSION_CODENAME:-}" in
     ;;
   *)
     echo "  skipped — no Playwright dep list for '${ID} ${VERSION_CODENAME:-unknown}'."
-    echo "  Install them later as the deploy user with:"
-    echo "    npx playwright install-deps chromium firefox webkit"
+    echo "  Have the operator install the missing system libraries for this distro."
+    echo "  'playwright install-deps --dry-run chromium firefox webkit' lists them"
+    echo "  after the user-tier 39-playwright step installs the CLI."
     exit 0
     ;;
 esac

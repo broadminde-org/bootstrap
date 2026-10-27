@@ -64,15 +64,15 @@ registration; see [Wildcard zones](docs/central-caddy.md#wildcard-zones).
 ## Quick start
 
 Fresh hosts provision in two phases. Step 10 — which creates the deploy
-user — runs as **root** on the fresh VPS; everything after it runs as
-the **deploy user** via `sudo` (the remaining root-tier steps resolve
-the deploy user from `SUDO_USER`).
+user — runs as **root** on the fresh VPS. Run the remaining root-tier
+steps via `sudo` as the deploy user; they resolve `BOOTSTRAP_USER` from
+the environment or `.env`, falling back to `SUDO_USER`.
 
 ```bash
 # ---- Phase 1: as root on the freshly provisioned VPS ----
 apt-get install -y git
-git clone https://github.com/<your-org>/bootstrap.git
-cd bootstrap
+git clone https://github.com/<your-org>/bootstrap.git /opt/bootstrap
+cd /opt/bootstrap
 
 # Configure capabilities for this host.
 cp example.bootstrap.conf.yml bootstrap.conf.yml
@@ -92,9 +92,10 @@ EOF
 chmod 600 .env
 
 ./init.sh 10          # creates the deploy user (as root)
+chown -R luke:luke /opt/bootstrap  # use the BOOTSTRAP_USER from .env
 
 # ---- Phase 2: log out, log back in as the deploy user ----
-cd bootstrap
+cd /opt/bootstrap
 sudo ./init.sh        # all remaining root-tier steps
 cd user
 ./init.sh             # user tier
@@ -236,7 +237,7 @@ prerequisites fails before any step runs.
 | `caddy` | user-tier 60-caddy | `true` |
 | `docker` | 50-docker, 55-lazydocker | `true` |
 | `kvm` | 57-kvm | `false` |
-| `dev` | 06-playwright-deps, user-tier 25-go, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
+| `dev` | 06-playwright-deps, user-tier 25-go, 39-playwright, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
 | `woodpecker` | RETIRED — 45-woodpecker-local.disabled (local agent runs as deploy user via ci repo) | `false` |
 
@@ -448,6 +449,7 @@ bootstrap/
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
 │   │   ├── 37-kilo-settings/         # deploys Kilo context, permissions, and global LLM safety rules
 │   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
+│   │   ├── 39-playwright/            # installs Playwright into nvm + browsers into user cache (dev-gated)
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
 │   │   ├── 97-gh-auth-instructions/  # points operators to the interactive ~/scripts/github-access helper (dev-gated)
@@ -484,8 +486,9 @@ LLM sessions. Chat LLM sessions never execute privilege escalation, even for
 an approved change. Root-tier commands are run manually by the operator; an
 agent must instead provide the exact commands, execution context, expected
 result, and non-privileged verification steps where possible. Step
-`37-kilo-settings` deploys this as an always-on global Kilo rule. The semantic
-rule is the primary policy; direct command denials are defense in depth.
+`37-kilo-settings` manages bash command denials as the privilege policy for
+chat LLM sessions; they block common direct invocations but are not a
+complete security sandbox.
 
 ### Idempotency
 
@@ -500,11 +503,12 @@ Every step in both tiers is designed to be safe to re-run:
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
 - `59-gh-cli` — the official APT keyring and repository are compared before write; package installation is idempotent. Authentication remains a separate per-user operation.
-- `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. **Never starts a stopped container** — bringing up the edge is an explicit operator action; updates apply in place only when it is already running.
+- `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. Starts a stopped container when ports 80/443 are free; recreates it for image or Compose changes and hot-reloads Caddyfile-only changes.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
-- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
+- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. It provisions private, user-owned `~/.tmpdir/` for agent scratch files across workspaces without changing the session-wide `TMPDIR`. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
+- `39-playwright` — requires `dev`; installs `@playwright/test` into the deploy user's default nvm Node version if absent and restores missing browser binaries in `~/.cache/ms-playwright` without privilege escalation. Disabling `dev` does not remove prior installs.
 
 ---
 

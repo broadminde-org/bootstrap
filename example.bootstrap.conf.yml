@@ -26,7 +26,8 @@
 #           Required for hosts that run VMs.
 #
 #   dev     Development-node tooling. Gates 06-playwright-deps (browser
-#           automation test dependencies), user/25-go (Go toolchain),
+#           system libraries), user/39-playwright (per-user Node package and
+#           browser binaries), user/25-go (Go toolchain),
 #           user/97-gh-auth-instructions, and user/98-npm-shared +
 #           user/99-go-shared (read-only access to Broadminde shared
 #           repositories and packages — Go modules, frontend source/package
@@ -90,8 +91,8 @@ skills:
 #
 #   base_domain  Zone apex (e.g. "example.com"). A label L serves *.L.<base_domain>.
 #                The special label "host" serves *.<hostname>.<base_domain>.
-#                The special label "*" serves the apex itself: <base_domain>
-#                AND *.<base_domain> in a single cert/site block.
+#                The special label "*" warms *.<base_domain> only; register
+#                the apex <base_domain> separately as an app route.
 #
 #   wildcards    Space-separated DNS labels to render as wildcard zone
 #                snippets. Each label must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$,

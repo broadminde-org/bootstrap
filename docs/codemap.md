@@ -5,7 +5,8 @@
 Bootstrap is a two-tier provisioning system for fresh Debian/Ubuntu cloud VPSes.
 The root tier (`init.sh`) provisions the host: apt, baseline packages, the deploy
 user and groups, Docker, SSH and firewall hardening, optional virtualization and
-IPS tooling, mDNS, and a dedicated Woodpecker local-backend account. The user
+IPS tooling, and mDNS. The retired dedicated Woodpecker account step is disabled;
+the CI repo provisions its local agent under the deploy user. The user
 tier (`user/init.sh`) runs as the deploy user and installs per-user tooling,
 Kilo configuration, agent skills, shared-repository access, Woodpecker CLI, and
 the optional central Caddy stack.
@@ -56,7 +57,7 @@ flowchart LR
     subgraph Root["Root tier"]
         R1["01 apt"] --> R2["05 packages"] --> R3["06 Playwright deps"]
         R3 --> R4["10 deploy user"] --> R5["20 groups"] --> R6["30 sudo"]
-        R6 --> R7["40 profile"] --> R8["45 Woodpecker account"] --> R9["50 Docker"]
+        R6 --> R7["40 profile"] --> R9["50 Docker"]
         R9 --> R10["51 SSH hardening"] --> R11["52 ufw"] --> R12["53 fail2ban"]
         R12 --> R13["54 CrowdSec"] --> R14["55 lazydocker"] --> R15["56 SSH client"]
         R15 --> R16["57 KVM"] --> R17["58 mDNS"] --> R18["59 gh cli"]
@@ -64,8 +65,8 @@ flowchart LR
     subgraph User["User tier"]
         U1["10 llmdocs"] --> U2["12 bashrc"] --> U3["15 direnv"] --> U4["20 Python"]
         U4 --> U5["25 Go"] --> U6["30 scripts"] --> U7["35 Node"] --> U8["36 Kilo"]
-        U8 --> U9["37 Kilo settings"] --> U10["38 Woodpecker CLI"] --> U11["40 npx skills"]
-        U11 --> U12["60 Caddy"] --> U13["97 gh auth instructions"] --> U14["98 npm shared"] --> U15["99 Go shared"]
+        U8 --> U9["37 Kilo settings"] --> U10["38 Woodpecker CLI"] --> U11["39 Playwright"] --> U12["40 npx skills"]
+        U12 --> U13["60 Caddy"] --> U14["97 gh auth instructions"] --> U15["98 npm shared"] --> U16["99 Go shared"]
     end
     Root -->|"log in as deploy user"| User
     User --> Apps["App repos / Woodpecker jobs"]
@@ -74,16 +75,16 @@ flowchart LR
 ## Capability Configuration
 
 Capabilities are parsed by `init.d/lib/conf.sh`. A capability is enabled only
-when listed and set to `true` — unlisted capabilities are disabled. If the
-config file is missing entirely, all capabilities are disabled and version
-pins default to `latest`.
+when listed and set to `true` — unlisted capabilities are disabled. Both runners
+fail preflight if the config file or `capabilities:` block is missing; only
+omitted version pins default to `latest`.
 
 | Capability | Gated steps |
 |---|---|
 | `docker` | `init.d/50-docker`, `init.d/55-lazydocker`, `user/init.d/60-caddy` |
 | `caddy` | `user/init.d/60-caddy` (also requires `docker`) |
 | `kvm` | `init.d/57-kvm` |
-| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
+| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled` (local agent runs as deploy user via ci repo) |
 
@@ -120,8 +121,8 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `58-mdns` | Enables private-interface mDNS through nsswitch and Avahi while excluding public uplinks. |
 | `59-gh-cli` | Installs GitHub CLI from the official signed Debian repository; authentication remains a separate per-user operation. |
 
-**Root-tier step count: 18** (01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52,
-53, 54, 55, 56, 57, 58, 59).
+**Active root-tier step count: 17** (01, 05, 06, 10, 20, 30, 40, 50, 51, 52,
+53, 54, 55, 56, 57, 58, 59). Step 45 is retained but disabled.
 
 ## User-Tier Step Ownership
 
@@ -133,17 +134,18 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `20-python` | Installs uv and a uv-managed CPython according to version pins. |
 | `25-go` | Requires `dev`; installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
-| `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
+| `35-node` | Installs nvm and pinned Node.js plus non-Playwright global npm packages. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
-| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. The managed bash command denials are the privilege policy for chat LLM sessions; elevated work is handed to the operator as manual commands. |
+| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`; provisions private `~/.tmpdir/` for cross-workspace agent scratch files. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. The managed bash command denials are the privilege policy for chat LLM sessions; elevated work is handed to the operator as manual commands. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
+| `39-playwright` | Requires `dev`; installs global `@playwright/test` into the deploy user's default nvm Node tree and browser binaries into `~/.cache/ms-playwright`. Re-running restores a cleared cache; disabling `dev` does not uninstall prior browsers. |
 | `40-npx-skills` | Installs the configured general and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; starts the stack (refusing on port conflicts) and verifies wildcard cert readiness. |
 | `97-gh-auth-instructions` | Requires `dev`; points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
 | `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when a packages token is present. |
 | `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, registers them through `gh api` when authenticated and authorized, manages known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 
-**User-tier step count: 15** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40,
+**User-tier step count: 16** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 39, 40,
 60, 97, 98, 99).
 
 Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
@@ -187,11 +189,11 @@ operator has permission, and then verifies access with `git ls-remote`.
 
 Interactive post-bootstrap credential setup is orchestrated by
 `~/scripts/bootstrap-access` (no arguments). It loads the active conf, walks
-each enabled capability that needs credentials — `gh` login, then `dev` (via
-`github-access`), then `caddy` (ACME email in `~/infra/caddy/.env`, acme-dns
-registration when `caddy.wildcards` is non-empty) — verifying current state
-before prompting so re-runs are idempotent. Capabilities with no interactive
-credentials (`docker`, `kvm`, `public`) are reported and skipped.
+each enabled capability that needs credentials — `gh` login, package access
+for `dev` or Docker hosts with `github.packages_read`/`packages_write`, then
+`caddy` (ACME email in `~/infra/caddy/.env`, acme-dns registration when
+`caddy.wildcards` is non-empty) — verifying current state before prompting so
+re-runs are idempotent. `kvm` and `public` have no interactive credentials.
 
 ## Relationship to App Repositories
 
@@ -200,8 +202,8 @@ provides the deploy user, Docker and Compose, group membership, passwordless
 service administration, PATH setup for login and non-login shells, SSH defaults,
 baseline packages, optional host security services, uv/Python, Go, Node/npm,
 Kilo, shared-repository access, and the central Caddy discovery and routing
-tools. The Woodpecker local-backend account additionally receives its own home,
-toolchain, CLI, and `plugin-git` binary.
+tools. The CI repo provisions the Woodpecker local agent as a deploy-user
+systemd unit; bootstrap's old dedicated-account step is disabled.
 
 ```mermaid
 flowchart LR
@@ -216,6 +218,6 @@ flowchart LR
 
 | Tier | Expected steps | Found in source | Status |
 |---|---|---|---|
-| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 45, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 = **18** | Same 18 directory steps, plus `lib/` (library, not a step) | All accounted for |
-| User (`user/init.d/`) | 10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 40, 60, 97, 98, 99 = **15** | Same 15 directory steps, plus `lib/` (library, not a step) | All accounted for |
+| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 = **17 active** | Same 17 active directory steps, plus disabled `45-woodpecker-local.disabled/` and `lib/` (library) | All accounted for |
+| User (`user/init.d/`) | 10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 39, 40, 60, 97, 98, 99 = **16** | Same 16 directory steps, plus `lib/` (library, not a step) | All accounted for |
 | **Total executable steps** | **33** | **33** | Complete |

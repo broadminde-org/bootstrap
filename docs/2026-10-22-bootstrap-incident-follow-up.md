@@ -5,6 +5,16 @@ not a declaration that provisioning or security is healthy. The original outage
 handoff is `/home/stack/netbird-caddy-outage.md`. Commands below are diagnostic;
 do not rerun provisioning or reload the edge merely to gather evidence.
 
+**Source follow-up (2026-10-25):** The root runner now stops on the first failed
+step (`init.sh`); fail2ban requires active UFW and stages Caddy-log jails disabled
+until the log is readable (`init.d/53-fail2ban/run.sh`); and Caddy rejects an
+empty/invalid merged configuration and checks its live HTTP servers and admin
+socket (`user/init.d/60-caddy/stack/bin/caddy-route`, `user/init.d/60-caddy/run.sh`).
+The observations and source-state descriptions below are preserved as incident
+evidence, not current operating instructions. These source mitigations do not
+establish that the affected host's firewall, deployment, or authenticated
+NetBird relay is healthy; those live checks remain outstanding.
+
 ## Executive assessment
 
 The root bootstrap **reported failure but continued executing later steps**.
