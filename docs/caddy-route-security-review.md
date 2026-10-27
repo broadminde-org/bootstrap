@@ -62,8 +62,9 @@ abusable to burn the Let's Encrypt rate limits for the shared ACME account.
 
 ### 6. Rollback is best-effort
 
-If the rollback `reconcile` also fails, disk and live state diverge silently
-(error path just exits 1).
+At review time, a failed rollback `reconcile` could leave disk and live state
+diverged silently. The current helper warns when rollback reconciliation fails;
+restoration is still best-effort and must be verified after an error.
 
 ### 7. No audit trail
 

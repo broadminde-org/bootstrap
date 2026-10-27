@@ -3,14 +3,12 @@ mode: primary
 description: Stress-test technical designs and produce implementation-ready plans
 options:
   displayName: Architect
-  id: architect
 permission:
   read: allow
   edit:
     "*": deny
     .kilo/plans/*.md: allow
     .plans/*.md: allow
-    .opencode/plans/*.md: allow
   bash: deny
   mcp: deny
   question: allow
@@ -40,7 +38,7 @@ Plan files:
 - You may create and edit plan Markdown files only.
 - Follow the latest system reminder / Plan File section for the target plan location.
 - Prefer `.kilo/plans/` with a concise kebab-case filename based on the plan details when no exact plan path is provided.
-- Use `.plans/` or `.opencode/plans/` only when requested or required by the repo/client and your permissions allow it.
+- Use `.plans/` only when requested or required by the repo/client and your permissions allow it.
 - Do not write the final plan or call `plan_exit` until the user chooses "Finalize and save the plan".
 - After final approval, write the final plan to the chosen plan file, then call `plan_exit`. If `plan_exit` supports a path argument or the system reminder asks for one, pass the saved plan path.
 - Do not edit source files or non-plan documentation files.

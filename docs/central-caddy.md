@@ -28,7 +28,7 @@ myapp.host.broadminde.org {
 (`/srv/edge` inside the container is a read-only mount of `~/infra/edge` on
 the host — drop static assets there from any app stack.)
 
-- **Allowed**: site blocks and site-level directives such as matchers, `handle`,
+- **Supported**: site blocks and site-level directives such as matchers, `handle`,
   `route`, `tls`, `log`, `header`, `respond`, `redir`, `reverse_proxy`, and
   `file_server`.
 - **Forbidden**: global blocks `({ ... })` — ACME email, storage, admin, CrowdSec, and
@@ -37,6 +37,12 @@ the host — drop static assets there from any app stack.)
   `{env.CROWDSEC_BOUNCER_KEY}`). App-specific values (domains, upstreams) should
   be **rendered into the snippet by the app repo** (envsubst) before registration.
 - Dual-mode: a snippet is also a valid `import` target for any standalone Caddy.
+
+Registration does **not** enforce a directive allowlist, hostname ownership, or
+safe file roots. Treat anyone who can register a snippet as fully trusted to
+control the edge, including access to files and environment inside Caddy. See
+`docs/caddy-route-security-review.md` in the bootstrap checkout before granting
+app pipelines access.
 
 ## Registration
 
@@ -107,15 +113,19 @@ Run once per host:
 acmedns-register
 ```
 
-It registers with `auth.acme-dns.io`, writes `acmedns.json`, and prints the
-`_acme-challenge` CNAMEs you must add to DNS for each delegated name.
-(`user/init.d/60-caddy` runs the registrar automatically when the credential
-is missing, and re-prints the outstanding CNAME delegation on every run
-while wildcards are configured.)
+On first registration it writes `acmedns.json` and prints a generic
+`_acme-challenge.<your-name>` CNAME pattern and an example, not a list of
+configured names. If credentials already exist, it skips registration without
+printing DNS records. The `user/init.d/60-caddy` step runs registration when
+needed and prints the exact configured CNAMEs when wildcard readiness fails.
+
+After creating or replacing `acmedns.json`, recreate the container so the
+individual bind mount and the DNS provider load the new credentials. A reload
+or `docker restart` may retain the old mount after atomic file replacement:
 
 ```bash
-# Restart Caddy after creating acmedns.json (the DNS provider reads it at init):
-docker restart caddy
+cd ~/infra/caddy
+docker compose up -d --no-build --force-recreate caddy
 ```
 
 One `acmedns-register` run yields one acme-dns account. Each zone label
@@ -126,8 +136,8 @@ _acme-challenge.<label>.<base_domain>  CNAME  <uuid>.auth.acme-dns.io
 ```
 
 For the `host` label, the CNAME is `_acme-challenge.<hostname>.<base_domain>`.
-For the `*` (apex) label, the CNAME is `_acme-challenge.<base_domain>` — one
-delegation covers both the apex and wildcard names in that cert.
+For the `*` label, the CNAME is `_acme-challenge.<base_domain>` for the
+wildcard. The apex needs its own registered app site and certificate.
 Acme-dns holds max 2 TXT records per account — stagger first issuance if errors
 appear (the wildcard zone render prints each `*.zone` it writes; certificates
 provision internally within a few minutes).
@@ -144,8 +154,8 @@ caddy:
 
 - **`base_domain`** — zone apex. A label `L` serves `*.L.base_domain`; the
   special label `host` serves `*.<hostname>.base_domain`; the special label
-  `*` serves `base_domain` AND `*.base_domain` in a single cert/site block
-  (rendered as `apex-wildcard.caddy`).
+  `*` serves only `*.base_domain` as a wildcard placeholder. Register the
+  apex separately through an app route.
 - **`wildcards`** — space-separated DNS labels matching
   `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, plus the special labels `*` and `host`.
   Empty string = no zone snippets.
@@ -181,10 +191,12 @@ and is not renewed.
 The step starts the container itself, so running it on a host whose 80/443
 are already held (e.g. a legacy per-stack caddy) **fails loudly**: it
 provisions and builds, names the listeners holding the ports, and exits
-without starting. Stop the old service — or remap ports via
+without starting. Stop the old service before re-running the step. For an
+operator-managed parallel stack, ports can instead be remapped in
 `~/infra/caddy/compose.override.yaml` (replacing the base ports needs the
-`!override` tag; plain extra publishes/mounts merge additively without one) —
-then re-run the step:
+`!override` tag), but the step's listener check still fails while 80/443 are
+held. Start the remapped stack manually from `~/infra/caddy/`; rerun the step
+only after the legacy listener has been removed:
 
 ```yaml
 services:
@@ -205,8 +217,10 @@ services:
   will bring it back up (stop it again if it should stay down).
 - **Restart**: safe — Caddy resumes its autosaved configuration; `routes.d/` remains
   the source of truth and `caddy-route reconcile` can replay it if needed.
-- **Rebuild**: re-run `./user/init.sh 60-caddy` (wipes autosave, restarts the
-  container, replays routes.d)
+- **Rebuild/update**: re-run `./user/init.sh 60-caddy`. An image-input change
+  rebuilds and clears autosave before recreating the container; a Compose-only
+  change recreates without rebuilding; a Caddyfile-only change hot-reloads.
+  A converged run does not recreate the container. All paths reconcile routes.d.
 - **Runtime logs**: `docker compose logs -f caddy` (startup, TLS, certificate,
   and configuration diagnostics are written to Docker stdout).
 - **Access logs**: site blocks must opt into Caddy's site-level `log` directive;
@@ -296,7 +310,7 @@ compatibility before upgrading.
 
 ```bash
 # Validate a snippet without registering it:
-docker exec caddy caddy adapt --config - --adapter caddyfile < myapp.caddy
+docker exec -i caddy caddy adapt --config - --adapter caddyfile < myapp.caddy
 
 # See the running config:
 docker exec caddy curl --unix-socket /run/caddy-admin.sock http://localhost/config/ | jq .
@@ -436,9 +450,7 @@ Caddy is not provisioned on this host (or was torn down).
 - `user/init.d/60-caddy/run.sh` — the provisioning step (user tier)
 - `user/init.d/60-caddy/stack/` — Dockerfile, compose, template, helpers
 - `user/init.d/60-caddy/stack/wildcard.caddy.tmpl` — config-driven wildcard zone template
-- `_plans/central-caddy.md` — full specification and design rationale
-- `_plans/caddy-conversions.md` — Phase 2: converting the existing ci,
-  netbird, and artifacts Caddy instances into dual-mode snippets
+- `_plans/done/central-caddy.md` — historical specification and design rationale
 - `init.d/53-fail2ban/run.sh` — reads `~/infra/caddy/logs/access.log`
 - `init.d/54-crowdsec/run.sh` — LAPI + bouncer; grants the deploy
   user `crowdsec` group membership (enables `cscli` from the user tier)

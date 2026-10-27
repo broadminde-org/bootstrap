@@ -169,7 +169,6 @@ install_packages() {
   # stray npmrc prefix reappears.
   nvm use --delete-prefix "$EE_NODE_VERSION" >/dev/null 2>&1
 
-  local has_playwright=false
   npm_list=$(npm list -g --depth=0 2>/dev/null || true)
 
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -185,10 +184,6 @@ install_packages() {
     else
       pkg_name="$pkg_spec"
       pkg_version=""
-    fi
-
-    if [ "$pkg_name" = "@playwright/test" ]; then
-      has_playwright=true
     fi
 
     # Resolve the installed version (if any) from the npm list snapshot.
@@ -219,16 +214,6 @@ install_packages() {
     fi
     npm install -g "$pkg_spec"
   done < "$packages_file"
-
-  if [ "$has_playwright" = true ]; then
-    echo "--- Installing Playwright browsers"
-    # No --with-deps: installing OS libraries needs root (passworded sudo
-    # fails unattended). System deps are installed by the root tier
-    # (bootstrap/init.d/06-playwright-deps); verify with
-    # `npx playwright install-deps --dry-run chromium`.
-    npx playwright install chromium firefox webkit
-    echo "Playwright browsers installed."
-  fi
 }
 
 # ---------------------------------------------------------------------------

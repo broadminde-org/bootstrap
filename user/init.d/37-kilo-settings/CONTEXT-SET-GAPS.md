@@ -1,5 +1,10 @@
 # Context Set Gap Analysis — Recommendations
 
+> **Status: RESOLVED (2026-10-27) — historical reference.** All recommendations below
+> have been executed: R2/R3 (skills restored as defaults), R4 (`rules/config-hygiene.md`
+> added), R5 (mcp-server step removed from `run.sh`). R6 remains the standing policy:
+> do not re-add the purged rules/skills. The body below is kept for the rationale.
+
 Date: 2026-09-02
 Scope: Cross-reference of salvaged opencode context set (`_salvage/opencode/`) against the
 deployed Kilo global context set (`init.d/37-kilo-settings/` → `~/.config/kilo/`, `~/.kilo/`),

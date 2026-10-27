@@ -3,12 +3,7 @@
 # One package per line. Lines starting with # are comments.
 # Packages already installed are skipped (idempotent).
 #
-# @playwright/test gets special handling: after install, browsers
-# (chromium, firefox, webkit) are installed via `npx playwright install`
-# — deliberately WITHOUT --with-deps: OS library deps need root and are
-# owned by the root tier (init.d/06-playwright-deps).
-
-@playwright/test
+# Playwright is installed separately by dev-gated 39-playwright.
 
 # --- Global CLI tools (from ee monorepo node setup) ---
 

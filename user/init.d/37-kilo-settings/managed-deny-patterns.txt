@@ -1,0 +1,53 @@
+# Managed bash deny patterns — exact permission.bash keys, one per line.
+# The migrator inserts any missing pattern as "<pattern>": "deny" into an
+# existing kilo.jsonc. Privilege-escalation commands live in
+# privilege-commands.txt and are expanded to bare and wildcard forms there.
+#
+# Convention: Kilo's docs say a trailing " *" also matches the bare command
+# ("git status *" matches `git status`). We do not rely on that for commands
+# whose bare form is destructive on its own (shutdown, reboot, poweroff,
+# halt, git reset --hard): those get an explicit bare deny entry as well.
+# Other bare forms are inert without arguments (git clean, docker volume rm,
+# git branch -D) and stay wildcard-only.
+rm *
+shred *
+unlink *
+dd *
+mkfs *
+mkfs.* *
+fdisk *
+gdisk *
+parted *
+sfdisk *
+wipefs *
+blkdiscard *
+useradd *
+userdel *
+usermod *
+passwd *
+chpasswd *
+groupadd *
+groupdel *
+groupmod *
+shutdown
+shutdown *
+reboot
+reboot *
+poweroff
+poweroff *
+halt
+halt *
+git clean *
+git reset --hard
+git reset --hard *
+git push --force *
+git push --force-with-lease *
+git push --delete *
+git branch -D *
+docker system prune *
+docker container prune *
+docker image prune *
+docker volume prune *
+docker network prune *
+docker builder prune *
+docker volume rm *

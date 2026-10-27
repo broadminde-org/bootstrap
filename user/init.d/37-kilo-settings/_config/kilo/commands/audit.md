@@ -21,7 +21,7 @@ DENIED: Modify any files, run destructive scans, push to registries.
    - Verify lockfile matches dependency declarations
 2. SECURITY: Run vulnerability scanners:
    - Go: `govulncheck ./...`
-   - Python: `uv run safety check` or `pip-audit`
+   - Python: `uv run pip-audit` (`safety check` requires a paid account — skip it)
    - npm: `npm audit`
    - Docker: `trivy image <image>` or `docker scout`
 3. CONFIG: Check for configuration drift:

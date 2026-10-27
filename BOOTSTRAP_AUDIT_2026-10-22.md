@@ -3,12 +3,43 @@
 Audited 2026-10-22 against `main` at `34e9499` plus the uncommitted working
 tree. Scope: root and user runners, security provisioning, central Caddy,
 operator instructions, and read-only host state. **No provisioning step or
-route mutation was run for this audit.** This is a current-state review, not
-proof that an older committed revision behaved identically. The incident
-timeline and uncertainty around the 03:20 Caddy load are recorded separately
-in [docs/2026-10-22-bootstrap-incident-follow-up.md](docs/2026-10-22-bootstrap-incident-follow-up.md).
+route mutation was run for this audit.** This was a current-state review on
+2026-10-22, not proof that an older committed revision behaved identically.
+The incident timeline and uncertainty around the 03:20 Caddy load are recorded
+separately in [docs/2026-10-22-bootstrap-incident-follow-up.md](docs/2026-10-22-bootstrap-incident-follow-up.md).
 
-## Decision summary
+## Source follow-up (2026-10-25)
+
+This is a read-only comparison with the current checkout, including uncommitted
+changes. **It does not update the 2026-10-22 host snapshot or establish that
+the affected host has recovered.** The original findings and line references
+below describe the audited revision; use the current files for implementation.
+
+| Original finding | Current source status and remaining work |
+|---|---|
+| LAPI ingress (P0) | **Open.** `54-crowdsec` now refuses inactive UFW, but still binds `0.0.0.0:8080` and allows the whole `172.16.0.0/12` range. Verify effective host/provider policy and external reachability with authorized access; constrain the rule without breaking Caddy. |
+| Runner prerequisites (P1) | **Partial.** Root `init.sh` now stops at the first failed step. `user/init.sh` still continues after failures; decide whether dependent user steps need fail-fast or explicit prerequisites. Test failure propagation off-host. |
+| Fail2ban startup and filter reload (P1/P2) | **Mitigated in source, not host-verified.** Step 53 now requires active UFW, leaves Caddy-log jails disabled until the log is readable, reloads on jail or filter changes, and checks daemon/jail status. Verify recovery after reboot, real log matching, and a working ban action on a disposable host and the affected host. |
+| Route deregistration (P1) | **Restore added, not proved atomic.** `caddy-route deregister` now restores the disk snippet after failed reconcile and attempts a second reconcile; a failed live rollback still requires inspection. Test rejected `/load` and disk/live state off-host. |
+| Caddy credentials and environment (P1) | **Open.** Existing `.env` or atomically replaced `acmedns.json` changes need not recreate the container. `docs/central-caddy.md` now instructs manual container recreation after credential replacement, not restart; automatic change detection remains deferred. |
+| Caddy readiness and discovery (P1) | **Partly fixed.** Step 60 now requires live HTTP servers and probes validated local HTTPS for configured wildcard zones. `caddy-route list` now fails on unavailable/invalid admin config instead of claiming no servers; `user/init.d/60-caddy/tests/test-route-list.sh` covers five mocked responses. App routes and upstreams are not probed, there is no HTTPS probe without wildcard zones, and `central.json` is a last-success record, not a live monitor. |
+| Deploy-user identity and privilege (P2) | **Identity fixed; policy open.** Docker and CrowdSec now use the shared deploy-user resolver. Docker-group access and broad passwordless `systemctl` grants still need an explicit trust decision. |
+| Fresh-host and recovery instructions (P2) | **Fixed for the cited contradictions.** The README quick start uses `/opt/bootstrap` and hands ownership to the deploy user after step 10; it now describes starting a stopped Caddy container. Wildcard/apex and conditional rebuild guidance is corrected, and the acme-dns guide requires recreation after credential replacement. These instructions have not been exercised on a fresh host. |
+
+Still deferred: Docker registry/TCP-listener policy, the three KVM risks, the
+full-trust Caddy snippet boundary, and monitoring of the fail-open CrowdSec
+bouncer between bootstrap runs. Playwright's `dev` gating is resolved in this
+checkout (see the deferred user-tier follow-ups below). The exact cause of the
+historical zero-byte Caddy `/load` remains unknown; the merged-config guard
+prevents that specific empty load, but does not explain the incident.
+
+**Current order:** verify LAPI ingress and recover UFW/fail2ban with a safe SSH
+path; exercise runner and security postconditions on a disposable host; test
+Caddy failure rollback and app-route readiness off-host; then decide the
+remaining privilege, dependency, credential-lifecycle, and deferred policies.
+Do not treat source changes or the mocked list test as live-host recovery.
+
+## Original decision summary (2026-10-22)
 
 1. **P0: determine whether CrowdSec LAPI on TCP 8080 is reachable from an
    unintended network and close that path.** Local observation establishes a
@@ -228,7 +259,9 @@ step on a host with VM data merely to confirm them.
   `init.d/06-playwright-deps` OS dependencies are `dev`-gated. Defer splitting
   Playwright into a separate `dev`-gated user step until the user-step layout
   is revisited; non-dev hosts currently install browsers without guaranteed
-  system dependencies.
+  system dependencies. **Resolved after this audit:** `user/init.d/39-playwright`
+  now gates the per-user package and browsers on `dev` alongside the root tier;
+  existing installs are not removed on non-dev hosts.
 - **CrowdSec monitoring between bootstrap runs:** `user/init.d/60-caddy/run.sh`
   now checks the configured bouncer link on every provisioning run, and failed
   key generation no longer deletes an existing registration. Bootstrap is not
@@ -254,7 +287,7 @@ state (discuss that capability behavior separately):
   `docker` group. Central Caddy currently depends on it. Revisit together with
   the broad sudo grants rather than removing group access in isolation.
 
-## Recommended order in the bootstrap workspace
+## Original recommended order (2026-10-22)
 
 1. Verify live LAPI reachability and host/provider firewall policy with
    authorized access; recover UFW and fail2ban with a tested SSH path.

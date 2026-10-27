@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1091
 # Install agent skills via npx skills CLI.
 #
 # User tier: runs as the deploy user (non-root).
@@ -56,11 +57,6 @@ npx --yes skills add https://github.com/mattpocock/skills \
     research \
   -g -a "${SKILLS_AGENTS[@]}" -y
 
-npx --yes skills add https://github.com/anthropics/skills \
-  --skill \
-    frontend-design \
-  -g -a "${SKILLS_AGENTS[@]}" -y
-
 npx --yes skills add https://github.com/addyosmani/agent-skills \
   --skill \
     frontend-ui-engineering \
@@ -69,5 +65,3 @@ npx --yes skills add https://github.com/addyosmani/agent-skills \
 # Python
 # npx --yes skills add https://github.com/github/awesome-copilot --skill python-mcp-server-generator -g -y
 # npx --yes skills add https://github.com/wshobson/agents --skill async-python-patterns -g -y
-
-# Svelte

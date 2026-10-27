@@ -1,7 +1,0 @@
-
-
-
-2 script(s) failed:
-  - 52-ufw
-  - 53-fail2ban
-stack@gs-birdnet1:~/

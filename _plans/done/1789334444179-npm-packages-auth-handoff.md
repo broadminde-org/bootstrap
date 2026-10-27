@@ -1,5 +1,7 @@
 # Handoff — Provision GitHub Packages npm auth via bootstrap user init step
 
+> Historical handoff, superseded by the implemented classic-PAT token-file design in `docs/adr/0001-github-pat-storage.md` and `user/init.d/98-npm-shared/`.
+
 **Execute from:** the `~/bootstrap` workspace, as user `luke` on the broadminde1 host (linux). You are configuring host-level user tooling, not any app repo.
 
 ## Why (context)

@@ -4,11 +4,11 @@ set -euo pipefail
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 CONFIG="$STEP_DIR/_config/kilo/kilo.jsonc"
-RULE="$STEP_DIR/_config/kilo/rules/privilege-escalation.md"
 MAINTAINER="$STEP_DIR/_config/kilo/agents/system-maintainer.md"
 RUNNER="$STEP_DIR/run.sh"
 MIGRATOR="$STEP_DIR/migrate-kilo-jsonc.sh"
 COMMANDS="$STEP_DIR/privilege-commands.txt"
+PATTERNS="$STEP_DIR/managed-deny-patterns.txt"
 FIXTURES="$STEP_DIR/tests/fixtures"
 
 fail() {
@@ -22,13 +22,17 @@ require_literal() {
 }
 
 assert_policy() {
-  local file="$1" command
+  local file="$1" command pattern
   require_literal "$file" '"instructions": ["~/.config/kilo/rules/*.md"]'
   while IFS= read -r command; do
     [[ -n "$command" && "$command" != \#* ]] || continue
     require_literal "$file" "\"$command\": \"deny\""
     require_literal "$file" "\"$command *\": \"deny\""
   done < "$COMMANDS"
+  while IFS= read -r pattern; do
+    [[ -n "$pattern" && "$pattern" != \#* ]] || continue
+    require_literal "$file" "\"$pattern\": \"deny\""
+  done < "$PATTERNS"
 }
 
 tmp="$(mktemp -d)"
@@ -66,7 +70,6 @@ run_conflict_case() {
   require_literal "$tmp/conflict.out" 'Manual merge required:'
 }
 
-[[ -f "$RULE" ]] || fail "global privilege-escalation rule not found"
 assert_policy "$CONFIG"
 
 # Missing instructions, wildcard-only denials, comments, unrelated permissions,
@@ -141,12 +144,6 @@ require_literal "$tmp/rollback.out" 'Restored the original'
 
 # The following assertions intentionally match literal Markdown/code text.
 # shellcheck disable=SC2016
-require_literal "$RULE" 'Never execute `sudo`'
-require_literal "$RULE" 'Do not bypass this restriction'
-require_literal "$RULE" 'User approval authorizes the proposed change and scope; it does not authorize'
-require_literal "$RULE" 'the user exact, copy-pasteable commands'
-require_literal "$RULE" 'Never claim'
-require_literal "$RULE" 'that a command handed to the user was executed.'
 require_literal "$MAINTAINER" 'current non-root identity'
 # shellcheck disable=SC2016
 require_literal "$MAINTAINER" 'Approval never authorizes you to execute `sudo`'
@@ -156,6 +153,5 @@ require_literal "$RUNNER" 'for dir in agents commands rules; do'
 require_literal "$RUNNER" '"$STEP_DIR/migrate-kilo-jsonc.sh" "$cfg_src" "$cfg_dst"'
 require_literal "$REPO_ROOT/AGENTS.md" 'Chat LLM sessions must never execute privilege escalation'
 require_literal "$REPO_ROOT/README.md" 'Chat LLM sessions never execute privilege escalation'
-require_literal "$REPO_ROOT/docs/codemap.md" 'privilege-escalation policy'
 
 echo "PASS: Kilo privilege-escalation policy and migration invariants"

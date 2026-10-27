@@ -1,5 +1,7 @@
 # Plan — Provision GitHub Packages npm auth via bootstrap user init step
 
+> Historical plan: the implemented `user/init.d/98-npm-shared/` uses a classic PAT in `~/.config/gh/`, not the proposed fine-grained PAT in the checkout `.env`. See `docs/adr/0001-github-pat-storage.md`.
+
 **Executor:** GPT 5.6 Luna. **Workspace:** `~/bootstrap` (this repo), as user `luke` on broadminde1 (linux). Host-level user tooling — do not touch ee, portal, go-shared, or frontend-shared.
 **Supersedes:** `~/bootstrap/1789334444179-npm-packages-auth-handoff.md` (all open items resolved below against live host state on 2026-09-14).
 **Review fixes applied (2026-09-14):** verification 5 outer-shell PATH capture; nvm fallback for non-interactive runs; anchored `authToken` grep; `$HOME`-local `mktemp` (true atomic `mv`); leak-proof token grep; script-relative `.env`; `${VAR:-}` under `set -u`; README tree confirmed as the docs target.

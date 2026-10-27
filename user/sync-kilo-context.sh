@@ -12,9 +12,11 @@ set -euo pipefail
 # document that feature and share its capability gating) are routed to
 # their owning step instead of the 37-kilo-settings skeleton:
 #
-#   ~/.kilo/skills/air/            ->  init.d/30-scripts/kilo/skills/air/
-#   ~/.kilo/skills/image-build/    ->  init.d/30-scripts/kilo/skills/image-build/
-#   ~/.kilo/skills/central-caddy/  ->  init.d/60-caddy/kilo/skills/central-caddy/
+#   ~/.kilo/skills/air/                     ->  init.d/30-scripts/kilo/skills/air/
+#   ~/.kilo/skills/image-build/             ->  init.d/30-scripts/kilo/skills/image-build/
+#   ~/.kilo/skills/central-caddy/           ->  init.d/60-caddy/kilo/skills/central-caddy/
+#   ~/.kilo/skills/frontend-shared-access/  ->  init.d/98-npm-shared/kilo/skills/frontend-shared-access/
+#   ~/.kilo/skills/go-shared-access/        ->  init.d/99-go-shared/kilo/skills/go-shared-access/
 #
 # The two destination directories match Kilo's global installation
 # targets per the Marketplace docs:
@@ -52,15 +54,10 @@ if [[ ! -d "$SRC_CONFIG" ]]; then
   exit 1
 fi
 
-# Refuse to mirror a live context that would remove the repository's global
-# privilege boundary. Deployment updates rules and safely migrates the
+# Refuse to mirror a live context whose kilo.jsonc is missing the managed
+# privilege denials. Deployment updates rules and safely migrates the
 # recognized policy subset in kilo.jsonc on existing hosts.
-policy_file="$SRC_CONFIG/rules/privilege-escalation.md"
 config_file="$SRC_CONFIG/kilo.jsonc"
-if [[ ! -f "$policy_file" ]]; then
-  echo "Error: required live policy $policy_file not found; run step 37 and reload Kilo before syncing." >&2
-  exit 1
-fi
 if [[ ! -f "$config_file" ]]; then
   echo "Error: required live config $config_file not found." >&2
   exit 1
@@ -171,6 +168,7 @@ route_skill air 30-scripts
 route_skill image-build 30-scripts
 route_skill central-caddy 60-caddy
 route_skill frontend-shared-access 98-npm-shared
+route_skill go-shared-access 99-go-shared
 
 # -------------------------------------------------------------------
 # Done

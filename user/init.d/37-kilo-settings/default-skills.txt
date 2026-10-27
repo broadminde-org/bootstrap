@@ -1,0 +1,12 @@
+# Skills installed on every host by default.
+#
+# Every skill directory under _kilo/skills/ must appear in exactly one of
+# this file and optional-skills.txt; the step fails on an unlisted or
+# doubly listed skill.
+debug-with-logs
+go
+init-d
+package-version-lookup
+ponytail
+python
+webapp-testing
