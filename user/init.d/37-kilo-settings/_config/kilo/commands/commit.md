@@ -14,7 +14,7 @@ DENIED: Force push, skip hooks, amend without user instruction, commit secrets o
 
 ## Methodology
 1. PREFLIGHT: Run project tests and linters. If any fail, report and abort.
-2. STASH: `git stash --include-untracked` to save working state.
+2. STASH: `git stash --include-untracked` to save working state. Skip STASH/PULL/POP when the tree is clean or when inside a Kilo Agent Manager worktree (stashes are shared across worktrees; commit directly onto the worktree branch instead).
 3. PULL: `git pull --rebase` to sync with remote.
 4. POP: `git stash pop`. Resolve conflicts if any.
 5. STATUS: `git status` to review what will be committed.

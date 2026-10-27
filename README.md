@@ -504,7 +504,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
-- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. The global privilege rule therefore reaches existing hosts. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
+- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
 
 ---
 

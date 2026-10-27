@@ -41,14 +41,20 @@
       "groupdel *": "deny",
       "groupmod *": "deny",
 
-      // Host shutdown and service changes.
+      // Host shutdown and service changes (bare forms denied explicitly —
+      // destructive without arguments).
+      "shutdown": "deny",
       "shutdown *": "deny",
+      "reboot": "deny",
       "reboot *": "deny",
+      "poweroff": "deny",
       "poweroff *": "deny",
+      "halt": "deny",
       "halt *": "deny",
 
       // Destructive or remote-mutating Git operations.
       "git clean *": "deny",
+      "git reset --hard": "deny",
       "git reset --hard *": "deny",
       "git push --force *": "deny",
       "git push --force-with-lease *": "deny",

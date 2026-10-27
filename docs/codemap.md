@@ -135,9 +135,9 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js, global npm packages, and Playwright browsers. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
-| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. Its managed `privilege-escalation` semantic rule requires manual operator handoff for elevated work and remains the primary policy; direct command denials are defense in depth. |
+| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. The managed bash command denials are the privilege policy for chat LLM sessions; elevated work is handed to the operator as manual commands. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
-| `40-npx-skills` | Installs the configured general, frontend, and UI engineering skills through `npx skills` for explicit agents. |
+| `40-npx-skills` | Installs the configured general and UI engineering skills through `npx skills` for explicit agents. |
 | `60-caddy` | Provisions `~/infra/caddy`, the `edge` network, central Caddy files, wildcard snippets, `caddy-route`, and the central-caddy skill. Requires `docker` and `caddy`; starts the stack (refusing on port conflicts) and verifies wildcard cert readiness. |
 | `97-gh-auth-instructions` | Requires `dev`; points operators to the interactive `~/scripts/bootstrap-access` walk (and the underlying `github-access` helper); does not authenticate or modify credentials. |
 | `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when a packages token is present. |
@@ -147,20 +147,20 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 60, 97, 98, 99).
 
 Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
-agents, commands, and rules update through `sync_dir_preserve`, so the
-privilege-escalation policy reaches existing hosts while destination-only
-context survives. `kilo.json` remains create-once and receives a diff when its
+agents, commands, and rules update through `sync_dir_preserve`, so managed
+context reaches existing hosts while destination-only context survives.
+`kilo.json` remains create-once and receives a diff when its
 managed source changes. For `kilo.jsonc`, a focused migration helper recognizes
 the root instructions property and a `permission.bash` object with at most one
 `"*": "allow"` anchor (anchor-less allowlists are migrated too), then
-adds only the managed instructions glob and missing privilege denials. It
+adds only the managed instructions glob and missing managed denials. It
 preserves unrelated permissions, comments, indexing settings, formatting, and
 local customization; atomically installs a same-directory candidate; validates
 the effective live configuration; and restores the original on failure or
 interruption. Unfamiliar, ambiguous, or conflicting JSONC is left unchanged for
-manual review. The semantic rule is the primary policy and covers indirect
-escalation; command denials block common direct invocations as defense in depth,
-not as a complete security sandbox.
+manual review. The command denials are the privilege policy for chat LLM
+sessions: they block common direct invocations and require operator handoff
+for elevated work, but they are not a complete security sandbox.
 
 ## Version Pins and Shared Access
 

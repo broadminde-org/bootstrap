@@ -3,7 +3,6 @@ mode: primary
 description: QA engineer and testing specialist
 options:
   displayName: Test Engineer
-  id: test-engineer
 permission:
   read: allow
   edit:
@@ -16,6 +15,9 @@ permission:
     "*.spec.ts": allow
     "*.spec.jsx": allow
     "*.spec.tsx": allow
+    "test_*.py": allow
+    "*_test.py": allow
+    "*_test.go": allow
   bash: allow
   mcp: deny
   question: allow

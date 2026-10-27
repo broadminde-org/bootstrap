@@ -10,6 +10,7 @@ source_config="$1"
 live_config="$2"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command_file="$script_dir/privilege-commands.txt"
+patterns_file="$script_dir/managed-deny-patterns.txt"
 # This is the literal Kilo config value, not a shell path.
 # shellcheck disable=SC2088
 rules_glob='~/.config/kilo/rules/*.md'
@@ -28,12 +29,21 @@ manual_merge() {
   else
     echo "  (canonical command list unavailable: $command_file)" >&2
   fi
+  if [[ -f "$patterns_file" ]]; then
+    while IFS= read -r pattern; do
+      [[ -n "$pattern" && "$pattern" != \#* ]] || continue
+      echo "  \"$pattern\": \"deny\"," >&2
+    done < "$patterns_file"
+  else
+    echo "  (canonical deny pattern list unavailable: $patterns_file)" >&2
+  fi
   echo "Then validate the effective configuration with: kilo config check" >&2
   exit 1
 }
 
 [[ -f "$source_config" ]] || manual_merge "source configuration is missing"
 [[ -f "$command_file" ]] || manual_merge "canonical privilege command list is missing"
+[[ -f "$patterns_file" ]] || manual_merge "canonical deny pattern list is missing"
 if [[ -L "$live_config" ]]; then
   manual_merge "the live configuration is a symlink"
 fi
@@ -76,17 +86,20 @@ else
   had_live=true
   chmod --reference="$live_config" "$candidate"
 
-  if ! report_raw="$(perl - "$live_config" "$candidate" "$command_file" 2>&1 <<'PERL'
+  if ! report_raw="$(perl - "$live_config" "$candidate" "$command_file" "$patterns_file" 2>&1 <<'PERL'
 use strict;
 use warnings;
 
-my ($input, $output, $commands_file) = @ARGV;
+my ($input, $output, $commands_file, $patterns_file) = @ARGV;
 open my $in, '<', $input or die "cannot read $input: $!\n";
 my @lines = <$in>;
 close $in;
 open my $commands_in, '<', $commands_file or die "cannot read $commands_file: $!\n";
 chomp(my @commands = grep { /\S/ && !/^\s*#/ } <$commands_in>);
 close $commands_in;
+open my $patterns_in, '<', $patterns_file or die "cannot read $patterns_file: $!\n";
+chomp(my @patterns = grep { /\S/ && !/^\s*#/ } <$patterns_in>);
+close $patterns_in;
 
 sub fail_migration { die "STRUCTURE: $_[0]\n" }
 sub structural_line {
@@ -160,6 +173,7 @@ for my $i ($bash_start + 1 .. $#lines) {
 fail_migration("bash object has no recognizable closing brace") unless defined $bash_end;
 
 my %managed = map { $_ => 1, "$_ *" => 1 } @commands;
+$managed{$_} = 1 for @patterns;
 my %seen;
 my @anchors;
 for my $i ($bash_start + 1 .. $bash_end - 1) {
@@ -182,7 +196,7 @@ for my $i ($bash_start + 1 .. $bash_end - 1) {
 # adding denials only ever restricts, never loosens.
 fail_migration("ambiguous \"*\": \"allow\" anchors in permission.bash") if @anchors > 1;
 
-my @missing = grep { !$seen{$_} } map { ($_, "$_ *") } @commands;
+my @missing = grep { !$seen{$_} } ((map { ($_, "$_ *") } @commands), @patterns);
 my @output = @lines;
 if (@missing) {
   my ($insert_at, $indent);

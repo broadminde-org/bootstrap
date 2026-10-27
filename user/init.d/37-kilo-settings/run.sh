@@ -32,8 +32,9 @@
 #   kilo.jsonc — instructions glob (rules/) plus permissions
 #
 # ~/.config/kilo/rules/ is loaded globally by the instructions glob in
-# kilo.jsonc. It includes the no-privilege-escalation policy for chat LLM
-# sessions. Keep this set small: rules are present in every agent context.
+# kilo.jsonc. Keep this set small: rules are present in every agent context.
+# The privilege boundary for chat LLM sessions is enforced by the bash
+# denials in kilo.jsonc and the migrator below, not by a rule file.
 #
 # _kilo/ deploys:
 #   skills/    — skills (each skill is a subdirectory with SKILL.md)
@@ -56,6 +57,7 @@ SRC_CONFIG="$STEP_DIR/_config/kilo"
 SRC_KILO="$STEP_DIR/_kilo"
 SRC_KILOCODEIGNORE="$STEP_DIR/.kilocodeignore"
 OPTIONAL_SKILLS_FILE="$STEP_DIR/optional-skills.txt"
+DEFAULT_SKILLS_FILE="$STEP_DIR/default-skills.txt"
 BOOTSTRAP_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 
 KILO_CONFIG="$HOME/.config/kilo"
@@ -72,6 +74,25 @@ if [[ ! -O "$AGENT_TMP" ]]; then
   exit 1
 fi
 chmod 700 "$AGENT_TMP"
+
+# Prune agent scratch older than 14 days via the systemd user tmpfiles
+# timer. Agent shell deletion is denied by policy, so this timer is the
+# cleanup mechanism the workspace-temp rule refers to. Best-effort: the
+# user manager must be running (linger is not enabled by default), so the
+# timer fires during active deploy-user sessions.
+TMPFILES_DIR="$HOME/.config/user-tmpfiles.d"
+TMPFILES_CONF="$TMPFILES_DIR/kilo-agent-tmp.conf"
+mkdir -p "$TMPFILES_DIR"
+tmpfiles_content='d %h/.tmpdir 0700 - - 14d'
+if [[ ! -f "$TMPFILES_CONF" ]] || ! printf '%s\n' "$tmpfiles_content" | cmp -s - "$TMPFILES_CONF"; then
+  printf '%s\n' "$tmpfiles_content" > "$TMPFILES_CONF"
+  echo "  deployed $(basename "$TMPFILES_CONF") (prune $AGENT_TMP older than 14d)"
+fi
+if systemctl --user enable --now systemd-tmpfiles-clean.timer >/dev/null 2>&1; then
+  systemd-tmpfiles --user --create >/dev/null 2>&1 || true
+else
+  echo "  WARNING: systemd user manager unavailable; $AGENT_TMP will not be pruned automatically" >&2
+fi
 
 # Each step runs in a separate shell, so 36-kilo's nvm PATH does not carry
 # over. Select the same Node version before validating the effective config.
@@ -110,6 +131,13 @@ for dir in agents commands rules; do
     echo "  skipped $dir/ (not found in skeleton)"
   fi
 done
+
+# Retired context: the privilege-escalation rule file and the standards
+# command (dead standards_search/standards_get MCP tools) were removed from
+# the managed set. sync_dir_preserve never deletes, so remove stale copies
+# on re-run to converge previously provisioned hosts.
+rm -f "$KILO_CONFIG/rules/privilege-escalation.md"
+rm -f "$KILO_CONFIG/commands/standards.md"
 
 # ---------------------------------------------------------------------------
 # 3. Deploy kilo.json / kilo.jsonc
@@ -184,6 +212,10 @@ if [[ -d "$SRC_KILO/skills" ]]; then
     echo "ERROR: optional skill manifest is missing: $OPTIONAL_SKILLS_FILE" >&2
     exit 1
   fi
+  if [[ ! -f "$DEFAULT_SKILLS_FILE" ]]; then
+    echo "ERROR: default skill manifest is missing: $DEFAULT_SKILLS_FILE" >&2
+    exit 1
+  fi
 
   declare -A optional_skills=()
   while IFS= read -r skill; do
@@ -194,6 +226,20 @@ if [[ -d "$SRC_KILO/skills" ]]; then
     fi
     optional_skills["$skill"]=1
   done < "$OPTIONAL_SKILLS_FILE"
+
+  declare -A default_skills=()
+  while IFS= read -r skill; do
+    [[ -n "$skill" && "$skill" != \#* ]] || continue
+    if [[ -n "${optional_skills[$skill]+x}" ]]; then
+      echo "ERROR: skill '$skill' is listed in both default and optional manifests." >&2
+      exit 1
+    fi
+    if [[ ! -f "$SRC_KILO/skills/$skill/SKILL.md" ]]; then
+      echo "ERROR: default skill '$skill' has no source directory." >&2
+      exit 1
+    fi
+    default_skills["$skill"]=1
+  done < "$DEFAULT_SKILLS_FILE"
 
   declare -A selected_optional_skills=()
   if [[ -n "${KILO_OPTIONAL_SKILLS:-}" ]]; then
@@ -216,6 +262,10 @@ if [[ -d "$SRC_KILO/skills" ]]; then
   for skill_dir in "$SRC_KILO/skills"/*; do
     [[ -f "$skill_dir/SKILL.md" ]] || continue
     skill="${skill_dir##*/}"
+    if [[ -z "${optional_skills[$skill]+x}" && -z "${default_skills[$skill]+x}" ]]; then
+      echo "ERROR: skill '$skill' is in neither default-skills.txt nor optional-skills.txt." >&2
+      exit 1
+    fi
     if [[ -n "${optional_skills[$skill]+x}" && -z "${selected_optional_skills[$skill]+x}" ]]; then
       echo "  skipped optional skill: $skill"
       continue
@@ -232,7 +282,7 @@ fi
 
 echo ""
 echo "37-kilo-settings: context set deployed."
-echo "  Agent scratch:    $AGENT_TMP (private, user-owned)"
+echo "  Agent scratch:    $AGENT_TMP (private, user-owned, pruned >14d via user tmpfiles timer)"
 echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
 echo "  Optional skills:  KILO_OPTIONAL_SKILLS=all or a comma-separated skill list"

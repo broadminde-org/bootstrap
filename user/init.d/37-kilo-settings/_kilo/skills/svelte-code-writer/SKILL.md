@@ -12,7 +12,16 @@ description: >-
 
 ## CLI tools
 
-You have access to `@sveltejs/mcp` CLI for Svelte-specific assistance. Use these commands via `npx`:
+Two access paths exist for the same Svelte documentation service:
+
+- **Remote `svelte` MCP server** (seeded in `~/.config/kilo/kilo.json`): when
+  `svelte_list-sections` / `svelte_get-documentation` / `svelte_svelte-autofixer`
+  tools are available to this agent, prefer them — no local install needed.
+- **`@sveltejs/mcp` CLI via `npx`**: the fallback for agents with `mcp: deny`
+  (e.g. the deployed `frontend-specialist`) or when the MCP server is
+  unreachable. The commands below are that CLI.
+
+CLI usage:
 
 ### List documentation sections
 

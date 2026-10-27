@@ -3,7 +3,6 @@ mode: primary
 description: Senior software engineer conducting thorough code reviews
 options:
   displayName: Code Reviewer
-  id: code-reviewer
 permission:
   read: allow
   bash: allow
