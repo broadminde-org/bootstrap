@@ -332,3 +332,61 @@ EOF
   [ -f "$FIXTURE/dist/frontend/index.html" ]
   grep -Fq "Frontend Directory | $FIXTURE/ui" "$FIXTURE/build-results/latest/build.md"
 }
+
+@test "binary build defaults to the detected package and app filename" {
+  mkdir -p "$FIXTURE/bin"
+  touch "$FIXTURE/go.mod"
+  cat > "$FIXTURE/bin/go" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$MOCK_GO_CALLS"
+EOF
+  chmod +x "$FIXTURE/bin/go"
+  run env -u GO_BUILD_PKG -u BUILD_BINARY_NAME PATH="$FIXTURE/bin:$PATH" \
+    MOCK_GO_CALLS="$FIXTURE/go.calls" IMAGE_NAME=fixture bash -c \
+    'cd "$1" && shift && exec "$@"' _ "$FIXTURE" "$BUILD_SCRIPT" --binary-only
+  [ "$status" -eq 0 ]
+  grep -Fxq '.' "$FIXTURE/go.calls"
+  grep -Fxq "$FIXTURE/dist/fixture" "$FIXTURE/go.calls"
+}
+
+@test "binary build uses project package, output filename, and cross-build settings" {
+  mkdir -p "$FIXTURE/bin" "$FIXTURE/cmd/example"
+  touch "$FIXTURE/go.mod"
+  cat > "$FIXTURE/.env" <<'EOF'
+GO_BUILD_PKG=./cmd/example
+BUILD_BINARY_NAME=example-freebsd
+GOOS=freebsd
+GOARCH=amd64
+CGO_ENABLED=0
+EOF
+  cat > "$FIXTURE/bin/go" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$MOCK_GO_CALLS"
+printf '%s/%s/%s\n' "$GOOS" "$GOARCH" "$CGO_ENABLED" >> "$MOCK_GO_CALLS"
+EOF
+  chmod +x "$FIXTURE/bin/go"
+  run env -u GO_BUILD_PKG -u BUILD_BINARY_NAME -u GOOS -u GOARCH -u CGO_ENABLED \
+    PATH="$FIXTURE/bin:$PATH" MOCK_GO_CALLS="$FIXTURE/go.calls" \
+    IMAGE_NAME=fixture bash -c 'cd "$1" && shift && exec "$@"' _ \
+    "$FIXTURE" "$BUILD_SCRIPT" --binary-only
+  [ "$status" -eq 0 ]
+  grep -Fxq './cmd/example' "$FIXTURE/go.calls"
+  grep -Fxq "$FIXTURE/dist/example-freebsd" "$FIXTURE/go.calls"
+  grep -Fxq 'freebsd/amd64/0' "$FIXTURE/go.calls"
+}
+
+@test "binary filename override cannot escape dist" {
+  mkdir -p "$FIXTURE/bin"
+  touch "$FIXTURE/go.mod"
+  cat > "$FIXTURE/bin/go" <<'EOF'
+#!/usr/bin/env bash
+printf 'called\n' > "$MOCK_GO_CALLS"
+EOF
+  chmod +x "$FIXTURE/bin/go"
+  run env PATH="$FIXTURE/bin:$PATH" MOCK_GO_CALLS="$FIXTURE/go.calls" \
+    BUILD_BINARY_NAME=../escape IMAGE_NAME=fixture bash -c \
+    'cd "$1" && shift && exec "$@"' _ "$FIXTURE" "$BUILD_SCRIPT" --binary-only
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'BUILD_BINARY_NAME must be a single filename'* ]]
+  [ ! -f "$FIXTURE/go.calls" ]
+}

@@ -46,6 +46,13 @@ elif [[ -f "${app_dir}/go.mod" ]]; then
     go_build_pkg="."
   fi
 fi
+go_build_pkg="${GO_BUILD_PKG:-$go_build_pkg}"
+binary_name="${BUILD_BINARY_NAME:-$app}"
+if [[ -n "${BUILD_BINARY_NAME:-}" && ! "$BUILD_BINARY_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+  fail "[${app}] BUILD_BINARY_NAME must be a single filename"
+  step_event "step_fail" "$STEP_NAME" "$STEP_LABEL" "" "invalid BUILD_BINARY_NAME"
+  exit 1
+fi
 
 append_log "### Go Binary Build"
 append_log ""
@@ -69,22 +76,22 @@ if [[ "${BUILD_HOOK_VERBOSE:-false}" == "true" ]]; then
   go build \
     -C "${go_build_dir}" \
     -ldflags="${_go_ldflags}" \
-    -o "${dist_dir}/${app}" \
+    -o "${dist_dir}/${binary_name}" \
     "${go_build_pkg}" 2>&1 | tee -a "${log_file}" || _build_rc=$?
 else
   go build \
     -C "${go_build_dir}" \
     -ldflags="${_go_ldflags}" \
-    -o "${dist_dir}/${app}" \
+    -o "${dist_dir}/${binary_name}" \
     "${go_build_pkg}" >> "${log_file}" 2>&1 || _build_rc=$?
 fi
 
 if [[ $_build_rc -eq 0 ]]; then
 
   append_log '```'
-  ok "[${app}] Binary built: dist/${app}"
+  ok "[${app}] Binary built: dist/${binary_name}"
   append_log ""
-  append_log "**Binary: SUCCESS** — dist/${app}"
+  append_log "**Binary: SUCCESS** — dist/${binary_name}"
 
   # Run post-binary hook
   run_build_hook "post-binary"

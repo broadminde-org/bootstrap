@@ -66,6 +66,9 @@ Environment:
   BUILD_SWAG_*       Optional Swagger settings; BUILD_SWAG_REQUIRED_PATHS
                      uses comma-delimited exact JSON path keys
   BUILD_GENERATE_STRICT  Make Swagger and go generate failures fatal
+  GO_BUILD_PKG      Go package to build (default: detected module entrypoint)
+  BUILD_BINARY_NAME Output filename in dist/ (default: app name)
+  GOOS, GOARCH, CGO_ENABLED  Standard Go cross-build settings
   EE_RESULTS_KEEP    How many build-results/<ts> dirs to keep (default: 10,
                      0 disables pruning)
 
@@ -80,7 +83,7 @@ Output:
   build-results/<YYYYMMDD-HHMMSS>/build.md           build log
   build-results/<YYYYMMDD-HHMMSS>/build-events.jsonl structured step events
   build-results/latest -> <ts>                       newest run
-  dist/<app>                                         Go binary
+  dist/<BUILD_BINARY_NAME or app>                    Go binary
   dist/frontend/                                     built frontend assets
 EOF
 }
