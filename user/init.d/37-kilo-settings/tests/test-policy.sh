@@ -80,6 +80,10 @@ require_literal "$HOME/.config/kilo/kilo.jsonc" '"indexing": { "enabled": false,
 run_success_case missing-pkexec.jsonc
 run_success_case fully-migrated.jsonc
 
+# Kilo's generated schema-only file has no local policy to preserve.
+run_success_case schema-only.jsonc
+cmp -s "$CONFIG" "$HOME/.config/kilo/kilo.jsonc" || fail "schema-only config did not receive the managed source"
+
 # A managed key that appears only in a comment must not count as configured:
 # the real denial is added while the comment survives untouched.
 run_success_case comment-key.jsonc

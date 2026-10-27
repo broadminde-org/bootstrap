@@ -76,14 +76,24 @@ else
   had_live=true
   chmod --reference="$live_config" "$candidate"
 
-  if ! report_raw="$(perl - "$live_config" "$candidate" "$command_file" 2>&1 <<'PERL'
+  if ! report_raw="$(perl - "$live_config" "$candidate" "$command_file" "$source_config" 2>&1 <<'PERL'
 use strict;
 use warnings;
 
-my ($input, $output, $commands_file) = @ARGV;
+my ($input, $output, $commands_file, $source) = @ARGV;
 open my $in, '<', $input or die "cannot read $input: $!\n";
 my @lines = <$in>;
 close $in;
+my $content = join '', @lines;
+if ($content =~ /\A\s*\{\s*"\$schema"\s*:\s*"https:\/\/app\.kilo\.ai\/config\.json"\s*,?\s*\}\s*\z/) {
+  open my $src, '<', $source or die "cannot read $source: $!\n";
+  open my $out, '>', $output or die "cannot write $output: $!\n";
+  print {$out} <$src>;
+  close $src or die "cannot close $source: $!\n";
+  close $out or die "cannot close $output: $!\n";
+  print 'replaced empty default with the managed source';
+  exit 0;
+}
 open my $commands_in, '<', $commands_file or die "cannot read $commands_file: $!\n";
 chomp(my @commands = grep { /\S/ && !/^\s*#/ } <$commands_in>);
 close $commands_in;
