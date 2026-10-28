@@ -22,6 +22,7 @@ Every ee Go backend app follows `ee/docs/standards/backend-structure.md`. The th
 ## Tooling
 - Workspace-aware: repos use `go.work`. Build from repo root.
 - DONE_GATE: work is complete only when `gofmt -l .` is empty, `go vet ./...` is clean, and `go test ./...` passes (per module when inside a multi-module repo).
+- FAILURE_BOUNDARY: Report unrelated pre-existing failures; do not expand scope to fix them.
 - Linters installed host-wide: golangci-lint, gosec, govulncheck (`~/go/bin`).
 - GOWORK_CHECK: `GOWORK=off go build ./...` verifies a consumer uses the versioned go-shared module, not an accidental local workspace copy.
 - In the ee repo use the `tests [app]` script (on PATH via direnv; auto-detects the app from `$PWD`) instead of assembling lint/test invocations by hand.
