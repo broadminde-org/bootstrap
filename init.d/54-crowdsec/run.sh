@@ -24,8 +24,8 @@ require_deploy_user
 #      127.0.0.1:8080 refuses non-loopback connections. Exposure is scoped
 #      by the ufw rule in Step 2c.
 #
-#   2c. Allows 172.16.0.0/12 → 8080/tcp in ufw so container→host LAPI
-#      packets traverse the INPUT chain (ufw default-deny applies).
+#   2c. Allows LAPI ingress only on local Docker bridge interfaces in ufw;
+#      loopback is already allowed by ufw and other ingress remains denied.
 #
 #   3. Installs the crowdsecurity/sshd and crowdsecurity/caddy
 #      collections (parsers + scenarios for those services).
@@ -79,6 +79,10 @@ resolve_caddy_log RESOLVED_CADDY_LOG
 
 if ! command -v ufw >/dev/null 2>&1 || ! ufw status | grep -q 'Status: active'; then
   echo 'ERROR: CrowdSec requires active UFW; run 52-ufw first.' >&2
+  exit 1
+fi
+if ! ufw status verbose | grep -q 'Default: deny (incoming)'; then
+  echo 'ERROR: LAPI requires UFW default deny incoming; run 52-ufw first.' >&2
   exit 1
 fi
 
@@ -168,24 +172,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2c: Allow docker bridge traffic to the LAPI (ufw).
+# Step 2c: Allow local Docker bridge traffic to the LAPI (ufw).
 #
 # Container → host LAPI packets traverse the INPUT chain, where ufw's
-# default-deny applies. Allow only the RFC1918 docker bridge range; external
-# exposure stays denied by policy. `ufw allow` stages the rule whether or not
-# ufw is active yet (52-ufw stages rules, then enables ufw once the SSH rule
-# is verified), so ordering against ufw activation does not matter. IPv6: the
-# `edge` network is v4-only today — add a matching fd00::/8 rule if that
-# ever changes.
+# default-deny applies. Match ingress interfaces, not source addresses: a
+# private source address alone does not establish that traffic is local.
+# Enumerate Docker's current bridges (including custom bridge names); rerun
+# this step after adding a Docker network that needs LAPI access. UFW permits
+# loopback by default. The interface rule also covers bridge IPv6 if enabled.
 # ---------------------------------------------------------------------------
 
-if command -v ufw >/dev/null 2>&1; then
-  if ! ufw show added 2>/dev/null | grep -q 'CrowdSec LAPI'; then
-    ufw allow from 172.16.0.0/12 to any port 8080 proto tcp comment 'CrowdSec LAPI from docker bridges'
-    echo "ufw: allowed 172.16.0.0/12 → 8080/tcp (docker bridges)"
-  else
-    echo "ufw: LAPI rule already present — skipping"
+command -v docker >/dev/null 2>&1 || { echo 'ERROR: Docker is required for LAPI bridge access' >&2; exit 1; }
+mapfile -t bridge_networks < <(docker network ls --filter driver=bridge --format '{{.ID}}')
+(( ${#bridge_networks[@]} > 0 )) || { echo 'ERROR: no Docker bridge networks found' >&2; exit 1; }
+
+for network in "${bridge_networks[@]}"; do
+  network_id="$(docker network inspect --format '{{.Id}}' "$network")"
+  bridge_name="$(docker network inspect --format '{{index .Options "com.docker.network.bridge.name"}}' "$network")"
+  if [[ "$bridge_name" == '<no value>' || -z "$bridge_name" ]]; then
+    if [[ "$(docker network inspect --format '{{.Name}}' "$network")" == bridge ]]; then
+      bridge_name=docker0
+    else
+      bridge_name="br-${network_id:0:12}"
+    fi
   fi
+  ip link show dev "$bridge_name" >/dev/null || { echo "ERROR: Docker bridge $bridge_name not found" >&2; exit 1; }
+  ufw allow in on "$bridge_name" to any port 8080 proto tcp comment 'CrowdSec LAPI from local Docker bridge'
+done
+
+# Replace the earlier source-only rule, which also admitted non-local private
+# networks. Remove only that exact rule; ufw delete is not idempotent.
+if ufw show added | grep -qF "ufw allow from 172.16.0.0/12 to any port 8080 proto tcp comment 'CrowdSec LAPI from docker bridges'"; then
+  ufw --force delete allow from 172.16.0.0/12 to any port 8080 proto tcp
 fi
 
 # ---------------------------------------------------------------------------
