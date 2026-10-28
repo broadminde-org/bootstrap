@@ -372,8 +372,11 @@ Then `caddy reload` or restart the container.
 The bouncer plugin gates on the `public` capability + a generated key (Step 2).
 When enabled, caddy streams decisions from the host LAPI at
 `http://host.docker.internal:8080`. The host side expects
-`listen_uri: 0.0.0.0:8080` and a ufw `172.16.0.0/12 → 8080/tcp` rule — both
-owned by root-tier `54-crowdsec`. The bouncer is **fail-open** (hard-fails off)
+`listen_uri: 0.0.0.0:8080` and UFW rules allowing TCP 8080 only from local
+Docker bridge interfaces (plus UFW's default loopback allowance). Root-tier
+`54-crowdsec` installs the rules for existing bridges; rerun it after adding
+a bridge that needs LAPI access. Other incoming traffic is denied by UFW's
+default policy. The bouncer is **fail-open** (hard-fails off)
 so a broken link is silent: caddy serves traffic but enforces zero CrowdSec
 decisions.
 
@@ -395,16 +398,27 @@ cscli bouncers list          # is caddy-edge registered?
 ## Architecture
 
 - **One Caddy container per host**, named `caddy`, on the `edge` docker network.
-- **`edge` subnet is pinned** (`172.24.0.0/16`, gateway `172.24.0.1` — set at
-  creation in 60-caddy step 4): snippets may reference the gateway IP.
-  Requests originating on the host itself hairpin through docker-proxy and
-  arrive with the gateway as source IP, so host-trusting gates (e.g.
-  ci-dashboard's mesh gate) whitelist `172.24.0.1/32`.
+- **`edge` is dual-stack** with pinned IPv4 (`172.24.0.0/16`, gateway
+  `172.24.0.1`) and IPv6 ULA (`fd42:1724:0:1::/64`, gateway
+  `fd42:1724:0:1::1`). Snippets may reference the IPv4 gateway; host-trusting
+  gates such as ci-dashboard's mesh gate whitelist `172.24.0.1/32`.
+  An existing IPv4-only network fails provisioning instead of being removed.
+  Inventory `docker network inspect edge --format '{{json .Containers}}'`,
+  stop unexpected attached apps first, then run
+  `bash ./user/init.d/60-caddy/migrate-edge-ipv6.sh` as the deploy user from the
+  bootstrap checkout. It stops/recreates the expected Caddy and NetBird
+  containers, preserves volumes, and refuses other attachments. Rerun
+  `./user/init.sh 60-caddy` afterward for full provisioning checks.
 - **Admin API: unix socket only** (`/run/caddy-admin.sock` inside the container),
   reached via `docker exec caddy curl --unix-socket …`. No TCP admin surface.
   Authorization = docker group membership (deploy user).
 - **Ports**: 80 and 443 on `0.0.0.0` and `[::]`. No mesh or bridge IP binds —
   everything publishes on `0.0.0.0` and the firewall decides access.
+  With `userland-proxy=false`, `ss` may show no listening IPv6 socket; inspect
+  effective Docker port bindings and probe both ports over IPv6 instead.
+  Verify `curl -6 -v https://<hostname>/` from an independent IPv6 client,
+  plus IPv4, TLS, and application routes. Check host/provider firewall and
+  IPv6 forwarding if external probes fail; retain AAAA only after they pass.
 - **Registry**: `~/infra/caddy/routes.d/<app>.caddy` is the source of truth on
   disk. Reconcile replays it into the running config.
 - **Static assets**: `~/infra/edge/` on the host mounts to `/srv/edge` (ro) in

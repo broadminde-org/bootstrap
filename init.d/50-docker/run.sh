@@ -10,7 +10,7 @@ require_deploy_user
 # Cleans up any containerd/run/docker.io remnants, adds Docker's
 # upstream apt repo for the current distro (Debian or Ubuntu),
 # writes /etc/docker/daemon.json with iptables/ip6tables enabled,
-# userland-proxy disabled, and IPv6 enabled with a fixed-cidr-v6
+# userland-proxy enabled, and IPv6 enabled with a fixed-cidr-v6
 # for container addressing. Writes /etc/sysctl.d/99-docker-ipv6.conf
 # with the kernel settings Docker needs for IPv6 forwarding and
 # dual-stack `[::]` listeners, and applies them via `sysctl --system`.
@@ -149,7 +149,7 @@ NEW_DAEMON_JSON="$(jq -n \
   $base
   | .iptables = true
   | .ip6tables = true
-  | .["userland-proxy"] = false
+  | .["userland-proxy"] = true
   | .ipv6 = true
   | .["fixed-cidr-v6"] = $cidr
   | .hosts = (((.hosts // []) | map(select(. != "unix:///var/run/docker.sock"))) + ["unix:///var/run/docker.sock"])
