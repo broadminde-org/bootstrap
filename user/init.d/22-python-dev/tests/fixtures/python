@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == --version ]]
+echo "Python $(tail -1 "$TEST_STATE/managed")"

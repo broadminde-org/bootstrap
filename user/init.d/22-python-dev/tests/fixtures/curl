@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "$TEST_LOG"
+[[ "${TEST_CURL_FAIL:-0}" == 0 ]] || exit 1
+if [[ "$*" == *api.github.com* ]]; then
+  printf '{"tag_name":"0.13.5"}\n'
+else
+  while [[ "$1" != -o ]]; do shift; done
+  cp "$TEST_FIXTURES/installer.sh" "$2"
+fi

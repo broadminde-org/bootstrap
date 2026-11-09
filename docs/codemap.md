@@ -64,7 +64,7 @@ flowchart LR
     end
     subgraph User["User tier"]
         U1["10 llmdocs"] --> U2["12 bashrc"] --> U3["15 direnv"] --> U4["20 Python"]
-        U4 --> U5["25 Go"] --> U6["30 scripts"] --> U7["35 Node"] --> U8["36 Kilo"]
+        U4 --> U22["22 Python dev: Ruff (dev)"] --> U5["25 Go"] --> U6["30 scripts"] --> U7["35 Node"] --> U8["36 Kilo"]
         U8 --> U9["37 Kilo settings"] --> U10["38 Woodpecker CLI"] --> U11["39 Playwright"] --> U12["40 npx skills"]
         U12 --> U13["60 Caddy"] --> U14["97 gh auth instructions"] --> U15["98 npm shared"] --> U16["99 Go shared"]
     end
@@ -84,7 +84,7 @@ omitted version pins default to `latest`.
 | `docker` | `init.d/50-docker`, `init.d/55-lazydocker`, `user/init.d/60-caddy` |
 | `caddy` | `user/init.d/60-caddy` (also requires `docker`) |
 | `kvm` | `init.d/57-kvm` |
-| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
+| `dev` | `init.d/06-playwright-deps`, `user/init.d/22-python-dev`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled` (local agent runs as deploy user via ci repo) |
 
@@ -97,6 +97,8 @@ name, or a nonexistent user is a hard error.
 The example configuration also contains `versions:` pins for `uv`, `python`,
 `kilo`, `go`, and `node`; `skills.agents` for explicit `npx skills` targets;
 and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
+Disabling or omitting `dev` skips provisioning of its steps but leaves existing
+tools installed; unconditional `20-python` still ensures uv and managed CPython.
 
 ## Root-Tier Step Ownership
 
@@ -131,7 +133,8 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `10-llmdocs` | Deploys the llmdocs framework and its `~/.local/bin/llmdocs` wrapper. |
 | `12-bashrc` | Prepends a managed PATH block to `~/.bashrc` before Debian's non-interactive guard, exposing uv, Go, and the exact default nvm Node version to SSH-launched editor servers as well as interactive shells. Existing blocks after the guard are moved on re-run. A running editor server retains its old environment until restarted. |
 | `15-direnv` | Adds the direnv Bash hook and creates the profile-level direnv scaffold. |
-| `20-python` | Installs uv and a uv-managed CPython according to version pins. |
+| `20-python` | Unconditional uv plus managed CPython. Accepts numeric major/minor/exact requests, reusing a matching managed interpreter without patch upgrades; system Python cannot satisfy the check. Resolves `latest` from the selected uv's stable CPython catalog after uv setup, failing without a hardcoded fallback if no candidate is available. |
+| `22-python-dev` | Requires only `dev`; installs/upgrades unpinned Ruff via `uv tool install --upgrade`, explicitly selecting an existing matching managed CPython (`latest`: installed managed discovery), with `--no-python-downloads` and no `--force`. Missing uv/Python fails with remediation to run step 20; it never invokes step 20 or uses system Python. Registry, install, and executable-collision failures remain nonzero. |
 | `25-go` | Requires `dev`; installs Go, shell environment, persistent Go settings, and development tools under `~/go/bin/`. |
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js plus non-Playwright global npm packages. |
@@ -145,7 +148,7 @@ and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 | `98-npm-shared` | Requires `dev`; configures and verifies GitHub Packages npm auth for `@broadminde-org/*` when a packages token is present. |
 | `99-go-shared` | Requires `dev`; creates dedicated read-only GitHub deploy keys, registers them through `gh api` when authenticated and authorized, manages known-host files, SSH aliases, Git URL rewrites, and verifies both shared repositories. |
 
-**User-tier step count: 16** (10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 39, 40,
+**User-tier step count: 17** (10, 12, 15, 20, 22, 25, 30, 35, 36, 37, 38, 39, 40,
 60, 97, 98, 99).
 
 Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
@@ -170,6 +173,25 @@ Version pins live in `bootstrap.conf.yml` under `versions:` and are exported by
 the user common library. Supported tools are `uv`, `python`, `kilo`, `go`, and
 `node`; `latest`, major, major.minor, and exact pins are supported where the
 individual step documents them. Environment variables override configuration.
+
+Python's partial requests reuse an existing matching managed CPython without
+a patch upgrade. Ruff has no version key or pin: step 22 asks uv for the latest
+compatible release on each enabled run and does not unnecessarily reinstall an
+already-current tool. The unversioned install replaces previous uv tool pins;
+rerun 20 then 22 when changing Python series. Older managed interpreters and
+user-created executable links are preserved. Tool environments are isolated
+under the deploy user's home; mypy, pytest, coverage, and project dependencies
+remain project-owned, with no project `.venv` or lockfile changes.
+
+For manual non-root validation on a disposable development host, run
+`./user/init.sh 20-python` then `./user/init.sh 22-python-dev` twice from the
+repository root with `dev: true`. Compare `uv python list --only-installed --managed-python`,
+`uv tool list`, and `ruff --version` between runs; verify `ruff check --help` and
+`ruff format --help`. An already-current Ruff should retain its version. In an
+isolated disabled/omitted-dev fixture, confirm step 22 is skipped and the
+existing tool still runs. Validate CLIs and uv inventory, not Python imports
+or project-environment creation. Registry/offline failures must remain visible
+even when an older Ruff is usable.
 
 The `dev` capability deliberately gates only development-node extras, not the
 core user tier. `98-npm-shared` reads `BROADMINDE_PACKAGES_TOKEN` from the
@@ -200,7 +222,8 @@ re-runs are idempotent. `kvm` and `public` have no interactive credentials.
 Bootstrap is a prerequisite for app repositories and Woodpecker jobs. It
 provides the deploy user, Docker and Compose, group membership, passwordless
 service administration, PATH setup for login and non-login shells, SSH defaults,
-baseline packages, optional host security services, uv/Python, Go, Node/npm,
+baseline packages, optional host security services, uv/managed CPython,
+dev-gated Ruff, Go, Node/npm,
 Kilo, shared-repository access, and the central Caddy discovery and routing
 tools. The CI repo provisions the Woodpecker local agent as a deploy-user
 systemd unit; bootstrap's old dedicated-account step is disabled.
@@ -219,5 +242,5 @@ flowchart LR
 | Tier | Expected steps | Found in source | Status |
 |---|---|---|---|
 | Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 = **17 active** | Same 17 active directory steps, plus disabled `45-woodpecker-local.disabled/` and `lib/` (library) | All accounted for |
-| User (`user/init.d/`) | 10, 12, 15, 20, 25, 30, 35, 36, 37, 38, 39, 40, 60, 97, 98, 99 = **16** | Same 16 directory steps, plus `lib/` (library, not a step) | All accounted for |
-| **Total executable steps** | **33** | **33** | Complete |
+| User (`user/init.d/`) | 10, 12, 15, 20, 22, 25, 30, 35, 36, 37, 38, 39, 40, 60, 97, 98, 99 = **17** | Same 17 directory steps, plus `lib/` (library, not a step) | All accounted for |
+| **Total executable steps** | **34** | **34** | Complete |

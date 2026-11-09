@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == --version ]]
+echo 'ruff 0.14.0'

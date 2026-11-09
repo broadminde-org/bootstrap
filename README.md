@@ -19,7 +19,8 @@ installed, and — depending on the capability flags set in
 
 After the root tier finishes, log in as the deploy user and run the
 **user tier** (`./user/init.sh`). It installs per-user
-tooling into `$HOME/.local/bin/` — `uv`, a uv-managed Python, the
+tooling under `$HOME`, with CLIs exposed through the user PATH — `uv`,
+uv-managed CPython, Ruff when `dev` is enabled, the
 `kilo` CLI, Go toolchain, Node.js, direnv, and wrappers for the
 `llmdocs` and user scripts that ship in this repo — and, when the
 `caddy` capability is enabled, provisions the host's central Caddy
@@ -30,6 +31,77 @@ capability-gated as a whole; individual steps declare their own
 After both tiers finish, individual apps (e.g. `apps/<app>/` in
 their own repository) take over and run their own `init.sh` as the
 deploy user.
+
+### Python tooling (20-python, 22-python-dev)
+
+`20-python` always runs, independently of `dev`. It installs or updates uv
+according to the existing version policy, then ensures **uv-managed CPython**.
+Numeric major (`3`), major.minor (`3.13`), and exact (`3.13.2`) requests match
+literal version components. An existing matching managed interpreter is reused;
+a partial request does not trigger a patch upgrade. System Python does not
+satisfy the check. For `latest`, resolve a stable CPython candidate from the
+selected uv's catalog only after uv installation/update; fail clearly if none
+is available, rather than using a hardcoded fresh-host fallback. Existing
+environment-over-configuration precedence remains unchanged. Older managed
+interpreters, system Python, and user-created executable links are not pruned.
+
+`22-python-dev` requires **only `dev`** and installs **only Ruff**, in an
+isolated uv tool environment under the deploy user's home. It requires uv and
+an existing managed CPython matching the configured request; for `latest`, it
+discovers an installed managed CPython after step 20. It passes that interpreter
+explicitly with the equivalent of
+`uv tool install --upgrade --python "$managed_python" --no-python-downloads ruff`.
+It neither runs step 20 nor downloads Python or falls back to system Python.
+Missing prerequisites fail with guidance to run `./user/init.sh 20-python`
+from the repository root, including when step 20 failed earlier in a full run.
+
+Ruff has **no version pin or configuration key**. Each enabled provisioning run
+lets uv resolve the latest release compatible with the selected interpreter;
+an already-current tool is not unnecessarily reinstalled. The unversioned
+install request also replaces a previous uv tool pin. Changing Python series
+requires rerunning 20 then 22 to bind Ruff to the selected interpreter.
+Registry access is required: resolution, installation, and offline failures
+remain visible and nonzero even if an older Ruff still works. An unrelated
+executable collision fails rather than overwriting it with `--force`.
+
+mypy, pytest, coverage, and project dependencies remain **project-owned**.
+Bootstrap does not add pyright, install these tools into project `.venv`s, or
+change project lockfiles. Disabling or omitting `dev` skips step 22's
+provisioning; it does not uninstall existing Ruff or other development tools.
+
+Manual validation, as the **non-root deploy user** from the repository root on
+a disposable development host with `dev: true` (not a live bootstrap run):
+
+```bash
+./user/init.sh 20-python
+./user/init.sh 22-python-dev
+uv python list --only-installed --managed-python
+uv tool list
+ruff --version
+ruff check --help
+ruff format --help
+
+# Repeat in the same order and compare the inventories/version.
+./user/init.sh 20-python
+./user/init.sh 22-python-dev
+uv python list --only-installed --managed-python
+uv tool list
+ruff --version
+```
+
+Expect matching managed CPython to be reused and an already-current Ruff version
+to remain unchanged. In an isolated fixture with `dev: false` or omitted, run
+the step-22 selector and verify it is skipped while `uv tool list` and
+`ruff --version` still show the existing tool. Use CLI and uv inventories for
+validation, not imports through `uv run --no-project -- python`, which do not
+verify isolated tools and can create an environment.
+
+Focused regression tests use stubbed uv/network commands and a disposable home
+under the existing `$HOME/.tmpdir/`; they do not provision the host:
+
+```bash
+bash user/init.d/22-python-dev/tests/test-provisioning.sh
+```
 
 ### Central Caddy (60-caddy)
 
@@ -237,14 +309,15 @@ prerequisites fails before any step runs.
 | `caddy` | user-tier 60-caddy | `true` |
 | `docker` | 50-docker, 55-lazydocker | `true` |
 | `kvm` | 57-kvm | `false` |
-| `dev` | 06-playwright-deps, user-tier 25-go, 39-playwright, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
+| `dev` | 06-playwright-deps, user-tier 22-python-dev, 25-go, 39-playwright, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
 | `woodpecker` | RETIRED — 45-woodpecker-local.disabled (local agent runs as deploy user via ci repo) | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
 20-groups, 30-sudo, 40-profile, 51-ssh-hardening, 52-ufw,
 53-fail2ban, 56-ssh-client, 58-mdns, 59-gh-cli. The user tier always runs;
-per-step gating applies (e.g. 60-caddy requires `docker` + `caddy`).
+per-step gating applies (e.g. 22-python-dev requires only `dev`, while 20-python
+is unconditional; 60-caddy requires `docker` + `caddy`).
 
 Capabilities are an allowlist: a capability is enabled only when it is listed
 and set to `true`. Unlisted capabilities are disabled; host confs can omit
@@ -314,11 +387,15 @@ The `versions:` section sets the toolchain and central Caddy version.
 Set a tool to `"latest"` to auto-resolve the newest stable release at install
 time, or pin an exact version string. Caddy defaults to `"latest"` when omitted;
 its resolved version is saved in `~/infra/caddy/.env` for subsequent Compose runs.
+Python, Go, and Node also accept numeric major and major.minor requests.
+For Python, a matching installed managed interpreter satisfies a partial
+request without a patch upgrade; `latest` uses uv's catalog after uv setup.
+Ruff is deliberately outside `versions:` and upgrades unpinned via uv.
 
 | Tool | Env var | Description |
 |---|---|---|
 | `uv` | `EE_UV_VERSION` | Astral uv Python package manager |
-| `python` | `EE_PYTHON_VERSION` | CPython version installed via uv |
+| `python` | `EE_PYTHON_VERSION` | Managed CPython via uv; numeric major/minor/exact or `latest` |
 | `kilo` | `KILO_VERSION` | Kilo CLI binary |
 | `go` | `EE_GO_VERSION` | Go toolchain |
 | `node` | `EE_NODE_VERSION` | Node.js (via nvm) |
@@ -442,7 +519,9 @@ bootstrap/
 │   │   ├── 10-llmdocs/               # installs `llmdocs` wrapper at $HOME/.local/bin/
 │   │   ├── 12-bashrc/                # user toolchain PATH before ~/.bashrc's non-interactive guard
 │   │   ├── 15-direnv/                # direnv bashrc hook + profile-level direnvrc scaffold
-│   │   ├── 20-python/                # installs uv + uv-managed Python
+│   │   ├── 20-python/                # unconditional uv + managed CPython; reuses matching interpreter
+│   │   ├── 22-python-dev/            # unpinned Ruff upgrades via uv with existing managed Python
+│   │   │   └── .requires             # dev only
 │   │   ├── 25-go/                    # installs Go toolchain + dev tools (dev-gated)
 │   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
@@ -505,7 +584,8 @@ Every step in both tiers is designed to be safe to re-run:
 - `59-gh-cli` — the official APT keyring and repository are compared before write; package installation is idempotent. Authentication remains a separate per-user operation.
 - `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. Starts a stopped container when ports 80/443 are free; recreates it for image or Compose changes and hot-reloads Caddyfile-only changes.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
-- `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
+- `20-python` — checks uv's version and only uv-managed CPython; matching numeric major/minor/exact requests are reused without patch upgrades. Resolves Python `latest` from the selected uv's catalog after uv setup, with no hardcoded fallback.
+- `22-python-dev` — requires only `dev`; unpinned `uv tool install --upgrade` resolves Ruff against an explicit existing managed interpreter with Python downloads disabled and no `--force`. Already-current tools are not unnecessarily reinstalled; failures remain nonzero. Disabling `dev` leaves existing tools installed.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
 - `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. It provisions private, user-owned `~/.tmpdir/` for agent scratch files across workspaces without changing the session-wide `TMPDIR`. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
 - `39-playwright` — requires `dev`; installs `@playwright/test` into the deploy user's default nvm Node version if absent and restores missing browser binaries in `~/.cache/ms-playwright` without privilege escalation. Disabling `dev` does not remove prior installs.

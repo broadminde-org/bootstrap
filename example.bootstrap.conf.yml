@@ -26,15 +26,18 @@
 #           Required for hosts that run VMs.
 #
 #   dev     Development-node tooling. Gates 06-playwright-deps (browser
-#           system libraries), user/39-playwright (per-user Node package and
-#           browser binaries), user/25-go (Go toolchain),
+#           system libraries), user/22-python-dev (Ruff only, unpinned upgrades
+#           via uv using existing managed Python), user/25-go (Go toolchain),
+#           user/39-playwright (per-user Node package and browser binaries),
 #           user/97-gh-auth-instructions, and user/98-npm-shared +
 #           user/99-go-shared (read-only access to Broadminde shared
 #           repositories and packages — Go modules, frontend source/package
 #           paths; deploy keys can be registered through gh by the interactive
 #           github-access helper when the operator has permission). Enable on
 #           hosts that build or test code. The user tier itself is NOT
-#           capability-gated — per-user tooling always installs.
+#           capability-gated — baseline tooling such as user/20-python always
+#           installs. Disabling/omitting dev skips provisioning, not removal of
+#           existing tools. mypy/pytest/coverage remain project-owned.
 #
 #   public  CrowdSec IPS (LAPI + iptables bouncer + Central API). Enable on
 #           internet-facing servers; disable on internal/private hosts.
@@ -58,16 +61,23 @@ capabilities:
 
 # ── Versions ─────────────────────────────────────────────────────────────────
 #
-# Pins the installed version of each tool. Three formats are accepted:
+# Selects the installed version of each tool. Four formats are accepted:
 #
 #   "latest"   auto-resolve to the newest stable release at install time
 #   "24"       resolve to the newest 24.x.y (major-only pin)
 #   "1.26"     resolve to the newest 1.26.x (major.minor pin)
 #   "1.26.4"   install exactly this version (fully-specified pin)
 #
-# Partial resolution (major or major.minor) is supported for go and node.
-# uv, kilo, python, and caddy accept "latest" or a fully-specified version.
+# Partial requests (numeric major or major.minor) are supported for python,
+# go, and node. Python reuses matching uv-managed CPython without a patch
+# upgrade; system Python does not satisfy the check. Python "latest" resolves
+# from the selected uv's stable CPython catalog after uv installation/update,
+# failing if no candidate is available rather than using a hardcoded fallback.
+# uv, kilo, and caddy accept "latest" or a fully-specified version.
 # Omit a tool (or delete the versions: section) to default to "latest".
+# Ruff has no pin or versions key: user/22-python-dev uses uv tool install
+# --upgrade with an explicit existing managed Python and --no-python-downloads,
+# never --force. uv resolves the latest compatible Ruff on each dev-enabled run.
 #
 # Supported tools: uv, python, kilo, go, node, caddy
 

@@ -4,7 +4,7 @@
 
 # 20-python — Install per-user Python tooling (uv + uv-managed CPython).
 #
-# Two user-level installs land in $HOME/.local/bin/:
+# Two user-level installs:
 #
 #   1. uv          Astral's Python package / project runner. The
 #                  standalone installer from https://docs.astral.sh/uv/
@@ -17,15 +17,12 @@
 #
 #   2. Python      Managed by uv. The interpreter lives under
 #                  ~/.local/share/uv/python/cpython-<ver>-.../bin/ —
-#                  not on PATH directly. Callers should use
-#                  `uv run …` (or rely on uv's automatic environment
-#                  discovery) rather than bare `python3`. Apps that
-#                  need a bare `python3` on PATH should add the
-#                  uv-managed interpreter to PATH (or symlink it)
-#                  themselves.
+#                  uv also installs versioned executable links in its
+#                  user bin directory. No --default or --force is used;
+#                  existing user links and older interpreters are kept.
 #
 # All installs land in the running user's $HOME — files outside
-# of /etc and /usr/local are not touched, so this step can be re-run
+# the home directory are not touched, so this step can be re-run
 # without root. The non-root check and toolchain version pins are set up
 # by lib/common.sh; do NOT add `set -euo pipefail` or an id check here.
 #
@@ -58,32 +55,23 @@ resolve_latest_uv() {
 }
 
 resolve_latest_python() {
-  local uv_cmd
-  uv_cmd="${HOME}/.local/bin/uv"
-  if ! command -v uv >/dev/null 2>&1 && [[ ! -x "$uv_cmd" ]]; then
-    uv_cmd="$(command -v uv 2>/dev/null || true)"
+  local version
+  # Preserve the existing latest-series policy, excluding prereleases and
+  # variant builds. The final uv executable supplies the fresh-host catalog.
+  version="$("$UV_CMD" python list --only-downloads --all-versions --no-config \
+    | awk -F- '$1 == "cpython" && $2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/ {
+        split($2, parts, "."); print parts[1] "." parts[2]
+      }' | sort -t. -k1,1n -k2,2n | tail -1)" || return 1
+  if [[ -z "$version" ]]; then
+    echo "ERROR: uv's catalog contains no stable CPython candidate for this host." >&2
+    return 1
   fi
-  if [[ -x "$uv_cmd" ]]; then
-    "$uv_cmd" python list --all-versions 2>/dev/null \
-      | awk '{print $1}' \
-      | grep '^cpython-' \
-      | grep -v '[abrc][0-9]' \
-      | sed 's/^cpython-//' \
-      | sed 's/\.[0-9]*-.*$//' \
-      | sort -t. -k1,1n -k2,2n \
-      | tail -1
-  else
-    echo "3.13"
-  fi
+  echo "$version"
 }
 
 if [[ "$EE_UV_VERSION" == "latest" ]]; then
   EE_UV_VERSION="$(resolve_latest_uv)"
   echo "Resolved uv latest -> ${EE_UV_VERSION}"
-fi
-if [[ "$EE_PYTHON_VERSION" == "latest" ]]; then
-  EE_PYTHON_VERSION="$(resolve_latest_python)"
-  echo "Resolved python latest -> ${EE_PYTHON_VERSION}"
 fi
 
 LOCAL_BIN="$HOME/.local/bin"
@@ -106,12 +94,13 @@ mkdir -p "$LOCAL_BIN"
 
 UV_BIN="$LOCAL_BIN/uv"
 
-# Idempotency: skip if uv is on PATH (or at the pinned path) and
+# Idempotency: prefer the user-local uv, then PATH, consistently with
+# the Python substep. Skip if that executable
 # reports the pinned version. `uv --version` prints "uv <ver>".
-if command -v uv >/dev/null 2>&1; then
-  current_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
-elif [[ -x "$UV_BIN" ]]; then
+if [[ -x "$UV_BIN" ]]; then
   current_uv="$("$UV_BIN" --version 2>/dev/null | awk '{print $2}')"
+elif command -v uv >/dev/null 2>&1; then
+  current_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
 else
   current_uv=""
 fi
@@ -142,42 +131,47 @@ else
   UV_CMD="$(command -v uv || true)"
 fi
 
+if [[ -z "$UV_CMD" || ! -x "$UV_CMD" ]]; then
+  echo "ERROR: uv was not found after installation; re-run ./user/init.sh 20-python from the repository root." >&2
+  exit 1
+fi
+actual_uv="$("$UV_CMD" --version | awk '{print $2}')"
+if [[ "$actual_uv" != "${EE_UV_VERSION#v}" ]]; then
+  echo "ERROR: selected uv reports ${actual_uv}, expected ${EE_UV_VERSION}." >&2
+  exit 1
+fi
+if [[ "$EE_PYTHON_VERSION" == "latest" ]]; then
+  EE_PYTHON_VERSION="$(resolve_latest_python)"
+  echo "Resolved python latest -> ${EE_PYTHON_VERSION}"
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Python (uv-managed)
 # ---------------------------------------------------------------------------
 
-# `uv python list --only-installed` prints installed interpreters
-# e.g. "cpython-3.14.0-<platform>-<libc>-x86_64-gnu" — note the HYPHEN
-# after the version. Accept any installed CPython whose version is
-# EE_PYTHON_VERSION followed by '.', '-', or end (exact pins and
-# major.minor prefixes both match).
-python_already=0
-if [[ -n "$UV_CMD" ]]; then
-  if "$UV_CMD" python list --only-installed 2>/dev/null \
-        | awk '{print $1}' \
-        | grep -E "^cpython-${EE_PYTHON_VERSION}(\.|-|$)" >/dev/null; then
-    python_already=1
-  fi
-fi
-
-if (( python_already )); then
+# uv parses numeric components literally; --system excludes project/virtual
+# environments, while --managed-python excludes system-installed Python.
+if python_bin="$("$UV_CMD" python find --no-project --system --managed-python \
+    --no-python-downloads --no-config "cpython@${EE_PYTHON_VERSION}" 2>/dev/null)"; then
   echo "Python ${EE_PYTHON_VERSION} (uv-managed) already installed; skipping."
 else
-  if [[ -z "$UV_CMD" ]]; then
-    echo "ERROR: uv is required to install Python ${EE_PYTHON_VERSION} but was not found on PATH." >&2
-    echo "       Re-run after the uv install above succeeds, or install uv manually." >&2
-    exit 1
-  fi
   echo "Installing Python ${EE_PYTHON_VERSION} via uv..."
-  "$UV_CMD" python install "$EE_PYTHON_VERSION" || {
+  "$UV_CMD" python install --no-config "cpython@${EE_PYTHON_VERSION}" || {
     echo "uv python install failed for ${EE_PYTHON_VERSION}." >&2
     echo "If this is a brand-new uv version, check https://docs.astral.sh/uv/concepts/python-versions/" >&2
     echo "for the latest CPython build available." >&2
     exit 1
   }
+  python_bin="$("$UV_CMD" python find --no-project --system --managed-python \
+    --no-python-downloads --no-config "cpython@${EE_PYTHON_VERSION}")" || {
+    echo "ERROR: no matching managed CPython found after installation." >&2
+    exit 1
+  }
   python_installed=1
   echo "Python ${EE_PYTHON_VERSION} installed via uv."
 fi
+actual_python="$("$python_bin" --version)"
+echo "Managed interpreter: ${actual_python} (${python_bin})"
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -191,8 +185,8 @@ fi
 
 echo ""
 echo "20-python: installed"
-(( uv_installed ))    && echo "  - uv ${EE_UV_VERSION}" || true
-(( python_installed )) && echo "  - Python ${EE_PYTHON_VERSION} (uv-managed)" || true
+if (( uv_installed )); then echo "  - uv ${EE_UV_VERSION}"; fi
+if (( python_installed )); then echo "  - Python ${EE_PYTHON_VERSION} (uv-managed)"; fi
 echo ""
 echo "PATH note: $LOCAL_BIN must be on PATH for login shells (see /etc/skel/.profile)."
 echo "Use 'uv run <script>' to run Python scripts against the uv-managed interpreter."
