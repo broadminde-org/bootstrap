@@ -195,18 +195,37 @@ if [[ ! -d "$EDGE_DIR" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4: Create edge network if absent.
+# Step 4: Create or validate the dual-stack edge network.
 #
 # Subnet + gateway are PINNED: routes.d snippets may reference the gateway
 # IP — e.g. the ci-dashboard mesh gate allows 172.24.0.1/32 so requests
 # originating on this host (which hairpin through docker-proxy and arrive
 # with the gateway as source IP) pass the gate. An auto-assigned subnet
 # would silently break such snippets if the network were ever recreated.
+# The ULA /64 is separate from the default bridge's fd00:db8::/64.
 # ---------------------------------------------------------------------------
 
-if ! docker network inspect edge >/dev/null 2>&1; then
-  docker network create edge --subnet 172.24.0.0/16 --gateway 172.24.0.1 >/dev/null
-  echo "Created docker network: edge (172.24.0.0/16, gateway 172.24.0.1 — pinned)"
+EDGE_IPV6_SUBNET=fd42:1724:0:1::/64
+EDGE_IPV6_GATEWAY=fd42:1724:0:1::1
+if docker network inspect edge >/dev/null 2>&1; then
+  if ! docker network inspect edge | jq -e --arg v6 "$EDGE_IPV6_SUBNET" --arg gw "$EDGE_IPV6_GATEWAY" '
+    .[0].Driver == "bridge" and .[0].EnableIPv6 == true and
+    ([.[0].IPAM.Config[] | select(.Subnet == "172.24.0.0/16" and .Gateway == "172.24.0.1")] | length == 1) and
+    ([.[0].IPAM.Config[] | select(.Subnet == $v6 and .Gateway == $gw)] | length == 1)
+  ' >/dev/null; then
+    echo "ERROR: existing edge network does not match the pinned dual-stack configuration." >&2
+    echo "       Inventory attached containers: docker network inspect edge --format '{{json .Containers}}'" >&2
+    echo "       Schedule downtime for Caddy AND every attached application, disconnect/stop them," >&2
+    echo "       migrate with bash ./user/init.d/60-caddy/migrate-edge-ipv6.sh as the deploy user," >&2
+    echo "       then rerun ./user/init.sh 60-caddy." >&2
+    echo "       Never remove an edge network while applications are attached." >&2
+    exit 1
+  fi
+else
+  docker network create --ipv6 \
+    --subnet 172.24.0.0/16 --gateway 172.24.0.1 \
+    --subnet "$EDGE_IPV6_SUBNET" --gateway "$EDGE_IPV6_GATEWAY" edge >/dev/null
+  echo "Created dual-stack edge network (172.24.0.0/16, $EDGE_IPV6_SUBNET)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -614,6 +633,25 @@ if ! docker exec caddy curl -fsS --unix-socket /run/caddy-admin.sock \
   echo 'ERROR: Caddy has no live HTTP servers or its admin socket is unavailable' >&2
   exit 1
 fi
+
+# With userland-proxy=false there may be no listening host socket: Docker
+# forwards published traffic with ip6tables. Verify the effective binding and
+# an actual IPv6 connection instead of relying on ss -ltn6 alone.
+if ! docker inspect caddy | jq -e '
+  .[0].NetworkSettings.Ports as $ports |
+  all(["80/tcp", "443/tcp"][]; . as $port |
+    any($ports[$port][]?; .HostIp == "::" and .HostPort == ($port | split("/")[0])))
+' >/dev/null; then
+  echo 'ERROR: Caddy does not have effective IPv6 host bindings for 80 and 443.' >&2
+  exit 1
+fi
+if ! curl -6 -sS --noproxy '*' --max-time 5 -o /dev/null 'http://[::1]/' \
+   || ! curl -6 -sS --noproxy '*' --max-time 5 --connect-only 'http://[::1]:443/'; then
+  echo 'ERROR: Caddy published ports 80/443 are not reachable over IPv6 loopback.' >&2
+  echo '       Check Docker ip6tables rules, IPv6 forwarding, and host firewall policy.' >&2
+  exit 1
+fi
+echo 'IPv6 published ports 80/443 reachable on loopback (external reachability still requires an independent client).'
 
 # ---------------------------------------------------------------------------
 # Step 9: Post-condition checks. Adaptation is needed only after a change;
