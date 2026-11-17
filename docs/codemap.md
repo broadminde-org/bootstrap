@@ -60,7 +60,7 @@ flowchart LR
         R6 --> R7["40 profile"] --> R9["50 Docker"]
         R9 --> R10["51 SSH hardening"] --> R11["52 ufw"] --> R12["53 fail2ban"]
         R12 --> R13["54 CrowdSec"] --> R14["55 lazydocker"] --> R15["56 SSH client"]
-        R15 --> R16["57 KVM"] --> R17["58 mDNS"] --> R18["59 gh cli"]
+        R15 --> R16["57 KVM"] --> R17["58 mDNS"] --> R18["59 gh cli"] --> R19["65 bmcluster (opt-in)"]
     end
     subgraph User["User tier"]
         U1["10 llmdocs"] --> U2["12 bashrc"] --> U3["15 direnv"] --> U4["20 Python"]
@@ -76,8 +76,9 @@ flowchart LR
 
 Capabilities are parsed by `init.d/lib/conf.sh`. A capability is enabled only
 when listed and set to `true` — unlisted capabilities are disabled. Both runners
-fail preflight if the config file or `capabilities:` block is missing; only
-omitted version pins default to `latest`.
+fail preflight if the config file or `capabilities:` block is missing. Omitted
+user-tool and Caddy version pins default to `latest`; bmcluster instead requires
+an exact signed-release tag whenever `cluster` is enabled.
 
 | Capability | Gated steps |
 |---|---|
@@ -86,16 +87,17 @@ omitted version pins default to `latest`.
 | `kvm` | `init.d/57-kvm` |
 | `dev` | `init.d/06-playwright-deps`, `user/init.d/22-python-dev`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec`; also enables CrowdSec integration in `60-caddy` when present |
+| `cluster` | `init.d/65-bmcluster` (no Docker/dev prerequisite; preparation only) |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled` (local agent runs as deploy user via ci repo) |
 
 Steps that act on the deploy account (`20-groups`, `30-passwordless-sudo`,
-`40-profile`, `51-ssh-hardening`, `55-lazydocker`, `56-ssh-client`, `57-kvm`)
-resolve that account through `init.d/lib/user.sh`'s `require_deploy_user`:
+`40-profile`, `51-ssh-hardening`, `55-lazydocker`, `56-ssh-client`, `57-kvm`,
+`65-bmcluster`) resolve that account through `init.d/lib/user.sh`'s `require_deploy_user`:
 `BOOTSTRAP_USER` first, then `SUDO_USER`; empty, `root`, an invalid account
 name, or a nonexistent user is a hard error.
 
 The example configuration also contains `versions:` pins for `uv`, `python`,
-`kilo`, `go`, and `node`; `skills.agents` for explicit `npx skills` targets;
+`kilo`, `go`, `node`, and exact signed-release `bmcluster`; `skills.agents` for explicit `npx skills` targets;
 and `caddy.base_domain` plus `caddy.wildcards` for wildcard zone rendering.
 Disabling or omitting `dev` skips provisioning of its steps but leaves existing
 tools installed; unconditional `20-python` still ensures uv and managed CPython.
@@ -122,9 +124,10 @@ tools installed; unconditional `20-python` still ensures uv and managed CPython.
 | `57-kvm` | Installs and configures the KVM/libvirt virtualization stack. Requires `kvm`. |
 | `58-mdns` | Enables private-interface mDNS through nsswitch and Avahi while excluding public uplinks. |
 | `59-gh-cli` | Installs GitHub CLI from the official signed Debian repository; authentication remains a separate per-user operation. |
+| `65-bmcluster` | Requires `cluster`; verifies a pinned amd64/arm64 prebuilt binary with an out-of-band Ed25519 key, signed manifest and SHA-256 checksum before preparing a locked account, private state parent, root-owned binary, disabled systemd service and operator socket, denied SSH command, and UFW deny. Never creates membership or activates admission. See `docs/cluster.md`. |
 
-**Active root-tier step count: 17** (01, 05, 06, 10, 20, 30, 40, 50, 51, 52,
-53, 54, 55, 56, 57, 58, 59). Step 45 is retained but disabled.
+**Active root-tier step count: 18** (01, 05, 06, 10, 20, 30, 40, 50, 51, 52,
+53, 54, 55, 56, 57, 58, 59, 65). Step 45 is retained but disabled.
 
 ## User-Tier Step Ownership
 
@@ -169,10 +172,10 @@ for elevated work, but they are not a complete security sandbox.
 
 ## Version Pins and Shared Access
 
-Version pins live in `bootstrap.conf.yml` under `versions:` and are exported by
-the user common library. Supported tools are `uv`, `python`, `kilo`, `go`, and
-`node`; `latest`, major, major.minor, and exact pins are supported where the
-individual step documents them. Environment variables override configuration.
+Version pins live in `bootstrap.conf.yml` under `versions:`. User tools `uv`,
+`python`, `kilo`, `go`, and `node` support the formats their steps document;
+the root-tier `bmcluster` installer accepts only an exact signed release tag.
+Environment variables override user-tool configuration where documented.
 
 Python's partial requests reuse an existing matching managed CPython without
 a patch upgrade. Ruff has no version key or pin: step 22 asks uv for the latest
@@ -241,6 +244,6 @@ flowchart LR
 
 | Tier | Expected steps | Found in source | Status |
 |---|---|---|---|
-| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59 = **17 active** | Same 17 active directory steps, plus disabled `45-woodpecker-local.disabled/` and `lib/` (library) | All accounted for |
+| Root (`init.d/`) | 01, 05, 06, 10, 20, 30, 40, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 65 = **18 active** | Same 18 active directory steps, plus disabled `45-woodpecker-local.disabled/` and `lib/` (library) | All accounted for |
 | User (`user/init.d/`) | 10, 12, 15, 20, 22, 25, 30, 35, 36, 37, 38, 39, 40, 60, 97, 98, 99 = **17** | Same 17 directory steps, plus `lib/` (library, not a step) | All accounted for |
-| **Total executable steps** | **34** | **34** | Complete |
+| **Total executable steps** | **35** | **35** | Complete |

@@ -73,6 +73,7 @@ capabilities:
   dev: false        # 06-playwright-deps + user/22-python-dev, user/25-go, user/39-playwright,
                     # user/97-gh-auth-instructions, user/98-npm-shared, user/99-go-shared
   public: false     # 54-crowdsec (internet-facing hosts only)
+  cluster: false    # 65-bmcluster (signed prebuilt release; no auto-activation)
 ```
 
 - **Unlisted capabilities are disabled** (allowlist gating). Host confs may
@@ -94,14 +95,17 @@ Current capability map (verify against `*/.requires` files before editing):
 | `kvm` | `init.d/57-kvm` |
 | `dev` | `init.d/06-playwright-deps`, `user/init.d/22-python-dev`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec` |
+| `cluster` | `init.d/65-bmcluster` (independent of `docker` and `dev`) |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled`; the local backend agent runs as the deploy user via a user systemd unit provisioned by the ci repo's `init.d/20-agent-local` |
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
-node, caddy — `"latest"` or exact versions; partial versions for python/go/node), `skills:` (npx skills
+node, caddy — `"latest"` or exact versions; partial versions for python/go/node;
+bmcluster requires an exact release tag), `skills:` (npx skills
 agent targets), `caddy:` (wildcard zone config + `acme_email` for the ACME
 account, written to `~/infra/caddy/.env` by user/60-caddy), `github:` (host credential
 role for the access walk), and `portal:` (`mode: dev | image`, published to
-`central.json` for app deployment steps).
+`central.json` for app deployment steps), and `cluster:` (release trust and
+private-interface binding; required only when `cluster` is enabled).
 See `example.bootstrap.conf.yml` for the annotated template.
 
 ### Python tooling

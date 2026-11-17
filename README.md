@@ -291,8 +291,9 @@ Useful follow-ups:
 provisioning steps run), `versions:` (which toolchain versions to install),
 `skills:` (which agent targets receive npx-installed skills), `caddy:`
 (wildcard zone `base_domain` and `wildcards` labels), `github:` (host
-credential role for the access walk), and `portal:` (the central-Caddy Portal
-mode, `dev` or `image`). The Caddy discovery file publishes the effective
+credential role for the access walk), `portal:` (the central-Caddy Portal
+mode, `dev` or `image`), and `cluster:` (opt-in release trust and private
+listener settings). The Caddy discovery file publishes the effective
 `base_domain` and `portal_mode` so app repositories consume one runtime
 contract instead of parsing bootstrap configuration.
 
@@ -311,6 +312,7 @@ prerequisites fails before any step runs.
 | `kvm` | 57-kvm | `false` |
 | `dev` | 06-playwright-deps, user-tier 22-python-dev, 25-go, 39-playwright, 97-gh-auth-instructions, 98-npm-shared + 99-go-shared | `false` |
 | `public` | 54-crowdsec | `false` |
+| `cluster` | 65-bmcluster (preparation only; no Docker/Go dependency) | `false` |
 | `woodpecker` | RETIRED — 45-woodpecker-local.disabled (local agent runs as deploy user via ci repo) | `false` |
 
 Always-run root-tier steps (no `.requires`): 01-apt, 05-packages, 10-user,
@@ -324,7 +326,7 @@ and set to `true`. Unlisted capabilities are disabled; host confs can omit
 disabled features. `example.bootstrap.conf.yml` defines the valid names. Both
 runners reject missing configs or `capabilities:` blocks, unknown/duplicate
 names, malformed entries, and unknown active `.requires` names before running
-any steps. Other sections (`versions`, `skills`, `caddy`, `github`, `portal`)
+any steps. Other sections (`versions`, `skills`, `caddy`, `github`, `portal`, `cluster`)
 remain optional and retain their existing defaults.
 
 A hostname-specific override (`<hostname>.conf.yml` in the repo root) takes
@@ -400,6 +402,25 @@ Ruff is deliberately outside `versions:` and upgrades unpinned via uv.
 | `go` | `EE_GO_VERSION` | Go toolchain |
 | `node` | `EE_NODE_VERSION` | Node.js (via nvm) |
 | `caddy` | `CADDY_VERSION` | Central Caddy builder, binary, and runtime (exact version or `"latest"`) |
+| `bmcluster` | None | YAML `versions.bmcluster`: exact signed prebuilt release tag (required only when `cluster: true`; no latest fallback) |
+
+### Cluster host preparation
+
+The opt-in root-tier `65-bmcluster` prepares a password-locked, no-sudo,
+no-Docker service account and private system state after verifying a pinned
+architecture-specific binary against a signed SHA256 manifest. The publisher
+key is operator-provisioned out of band. The unit is installed **disabled**
+and requires a separate activation marker; sshd enforces a forced deny for
+the account, and the UFW rule is deny-only. It does not initialize or join a
+cluster, open multicast or control ingress, or change Avahi. The cluster
+executable has locally tested operator-socket and SSH-dispatcher paths, but
+neither the service nor cluster-managed SSH is live. A real signed release,
+two-host privilege checks and operator review remain prerequisites; opted-in
+hosts must supply their own gitignored conf after review. The service owns
+`/var/lib/bmcluster/state/sshcontrol/{id_ed25519,ssh_host_ed25519_key,binding.json,authorized_keys,known_hosts}`;
+bootstrap never creates or activates these SSH files. See the exact ownership,
+sshd handoff and enablement order in [docs/cluster.md](docs/cluster.md) before
+preparing any host. Existing live Caddy/container stacks are not affected.
 
 ### GitHub credential role
 
@@ -510,7 +531,8 @@ bootstrap/
 │   ├── 56-ssh-client/                # SSH client defaults + ControlMaster cleanup
 │   ├── 57-kvm/                       # qemu-kvm, libvirt, virtinst, bridge-utils
 │   ├── 58-mdns/                      # mDNS via nsswitch + private-interface Avahi config
-│   └── 59-gh-cli/                    # GitHub CLI from the official signed APT repository
+│   ├── 59-gh-cli/                    # GitHub CLI from the official signed APT repository
+│   └── 65-bmcluster/                 # signed prebuilt release, locked account, disabled unit (cluster-gated)
 ├── user/                   # USER-tier — runs as the deploy user, not as root
 │   ├── init.sh                       # user-tier runner — refuses root
 │   ├── init.d/
@@ -551,7 +573,7 @@ bootstrap/
 
 - **Root tier** (`./init.sh`) — refuses to run as non-root. Steps
   `20-groups`, `30-passwordless-sudo`, `40-profile`, `51-ssh-hardening`,
-  `55-lazydocker`, `56-ssh-client`, and `57-kvm` resolve the deploy user
+  `55-lazydocker`, `56-ssh-client`, `57-kvm`, and `65-bmcluster` resolve the deploy user
   via `init.d/lib/user.sh` (`require_deploy_user`): `BOOTSTRAP_USER`
   first, then `SUDO_USER`; empty, `root`, an invalid account name, or a
   nonexistent user is a hard error. The remaining steps work as plain
@@ -582,6 +604,7 @@ Every step in both tiers is designed to be safe to re-run:
 - `50-docker` — `apt-get install -y` is idempotent; `daemon.json` is rewritten each run.
 - `55-lazydocker` — version is detected; reinstall only on mismatch.
 - `59-gh-cli` — the official APT keyring and repository are compared before write; package installation is idempotent. Authentication remains a separate per-user operation.
+- `65-bmcluster` — verifies a pinned binary against a signed manifest before installation; rejects unexpected account privilege and active/enabled units, compares managed files, validates sshd atomically before reload with rollback, reconciles the first-match UFW deny, and never enables the service or opens ingress.
 - `60-caddy` — syncs stack files with compare-before-write; idempotent seeding of `.env`; rendered Caddyfile compared before write; reconcile hash-skip avoids redundant `/load` pushes. Runs as the deploy user (docker group); `cscli` bouncer-key generation is idempotent and fail-open. Starts a stopped container when ports 80/443 are free; recreates it for image or Compose changes and hot-reloads Caddyfile-only changes.
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — checks uv's version and only uv-managed CPython; matching numeric major/minor/exact requests are reused without patch upgrades. Resolves Python `latest` from the selected uv's catalog after uv setup, with no hardcoded fallback.

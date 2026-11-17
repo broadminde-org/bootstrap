@@ -1,0 +1,14 @@
+[Unit]
+Description=Broadminde cluster local operator socket (activation gated)
+ConditionPathExists=/etc/bmcluster/activated
+
+[Socket]
+ListenStream=/run/bmcluster.sock
+SocketUser=bmcluster
+SocketGroup=bmcluster-operators
+SocketMode=0660
+RemoveOnStop=yes
+Service=bmcluster.service
+
+[Install]
+WantedBy=sockets.target

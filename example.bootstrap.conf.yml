@@ -50,6 +50,10 @@
 #   woodpecker  RETIRED — 45-woodpecker-local is .disabled. The local
 #           backend agent runs as the deploy user via a user systemd unit
 #           provisioned by the ci repo's init.d/20-agent-local.
+#
+#   cluster Root-owned bmcluster binary, locked account, private state and
+#           disabled systemd unit. No Docker or Go dependency. Does not
+#           initialize/join a cluster or open the firewall. See docs/cluster.md.
 
 capabilities:
   docker: true
@@ -58,6 +62,7 @@ capabilities:
   dev: false
   public: false
   woodpecker: false
+  cluster: false
 
 # ── Versions ─────────────────────────────────────────────────────────────────
 #
@@ -74,12 +79,14 @@ capabilities:
 # from the selected uv's stable CPython catalog after uv installation/update,
 # failing if no candidate is available rather than using a hardcoded fallback.
 # uv, kilo, and caddy accept "latest" or a fully-specified version.
-# Omit a tool (or delete the versions: section) to default to "latest".
+# Omit a user tool or caddy (or delete versions:) to default to "latest".
 # Ruff has no pin or versions key: user/22-python-dev uses uv tool install
 # --upgrade with an explicit existing managed Python and --no-python-downloads,
 # never --force. uv resolves the latest compatible Ruff on each dev-enabled run.
+# bmcluster requires an exact vMAJOR.MINOR.PATCH release tag (never latest).
+# bmcluster has no latest fallback: cluster: true requires its exact pin.
 #
-# Supported tools: uv, python, kilo, go, node, caddy
+# Supported tools: uv, python, kilo, go, node, caddy, bmcluster
 
 versions:
   uv: "latest"
@@ -88,6 +95,27 @@ versions:
   go: "latest"
   node: "latest"
   caddy: "2.11.7"
+  bmcluster: ""  # Required only when cluster: true; set a published signed tag
+
+# Cluster release trust and host binding. All fields are required for an
+# opted-in installation, except discovery (off by default). Keep these empty
+# until signed release assets and an out-of-band public key are available.
+# release_base_url: HTTPS directory for the exact pinned tag's release assets.
+# signing_key_file: absolute path to a root-owned (not group/world writable)
+#   PEM Ed25519 public key provisioned out-of-band; never download it with
+#   the release. Assets: bmcluster_<version>_linux_{amd64,arm64}, SHA256SUMS,
+#   SHA256SUMS.sig (raw Ed25519 signature of SHA256SUMS).
+# trusted_interface: existing private interface with the configured IP.
+# control_ip: private IPv4 or ULA IPv6 address assigned to that interface.
+# control_port: unprivileged TCP port 1024..65535. No UFW allow is created.
+# discovery: off until two-host DNS-SD tests authorize enabling it.
+cluster:
+  release_base_url: ""
+  signing_key_file: ""
+  trusted_interface: ""
+  control_ip: ""
+  control_port: ""
+  discovery: "off"
 
 # ── Agent skills ─────────────────────────────────────────────────────────────
 # Space-separated npx skills agent targets. Supported targets are defined by

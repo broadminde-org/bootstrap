@@ -37,6 +37,7 @@
 #   get_caddy_conf <key> [def]       returns caddy section value or default
 #   get_github_conf <key> [def]      returns github section value or default
 #   get_portal_conf <key> [def]      returns portal section value or default
+#   get_cluster_conf <key> [def]     returns cluster section value or default
 #
 # When no config_file is provided, load_conf resolves the default in order:
 #   1. $BOOTSTRAP_CONFIG_FILE (environment) — exported by both init.sh runners
@@ -65,6 +66,7 @@ declare -gA _SKILLS_CONF
 declare -gA _CADDY_CONF
 declare -gA _GITHUB_CONF
 declare -gA _PORTAL_CONF
+declare -gA _CLUSTER_CONF
 _CONF_LOADED=0
 
 # Infer default config path from this file's own location.
@@ -249,6 +251,10 @@ load_conf() {
   while IFS='=' read -r key val; do
     [[ -n "$key" ]] && _PORTAL_CONF["$key"]="$val"
   done < <(_parse_section "$config_file" "portal")
+
+  while IFS='=' read -r key val; do
+    [[ -n "$key" ]] && _CLUSTER_CONF["$key"]="$val"
+  done < <(_parse_section "$config_file" "cluster")
 }
 
 # cap_enabled <name>
@@ -379,5 +385,17 @@ get_portal_conf() {
     echo "${_PORTAL_CONF[$key]}"
   else
     echo "$default"
+  fi
+}
+
+get_cluster_conf() {
+  local key="$1" default="${2:-}"
+  if [[ "$_CONF_LOADED" == "0" ]]; then
+    load_conf
+  fi
+  if [[ -v _CLUSTER_CONF[$key] && -n "${_CLUSTER_CONF[$key]}" ]]; then
+    printf '%s\n' "${_CLUSTER_CONF[$key]}"
+  else
+    printf '%s\n' "$default"
   fi
 }
