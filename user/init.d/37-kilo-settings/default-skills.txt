@@ -5,6 +5,7 @@
 # doubly listed skill.
 debug-with-logs
 go
+gpt-6-sol-execution-plans
 init-d
 package-version-lookup
 ponytail
