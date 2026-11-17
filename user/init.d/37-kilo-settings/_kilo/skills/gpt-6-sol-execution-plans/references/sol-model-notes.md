@@ -37,7 +37,7 @@ Default new substantial Sol execution plans to GPT-6.1 Sol at `medium`, standard
 
 ### Documented facts
 
-In the [function-calling flow](https://developers.openai.com/api/docs/guides/function-calling), the model emits a tool call, the **application executes it**, and the application returns the result with the original `call_id`. Continuing tool-driven work must preserve returned output and reasoning items. A plan can authorize a capability, but only the harness can constrain and execute it.
+In the [function-calling flow](https://developers.openai.com/api/docs/guides/function-calling), the model emits a tool call, the **application executes it**, and the application returns the result with the original `call_id`. Continuing tool-driven work must preserve returned output and reasoning items. Plans record intended capabilities and reference actual authority; current user grants, runtime permissions, and the instruction hierarchy govern execution. A plan cannot grant permission.
 
 The [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model) and linked tool guides add these constraints:
 
@@ -47,7 +47,9 @@ The [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model) an
 
 ### Planning recommendations
 
-Give the application explicit job tracking, bounded retries, dependent waits, and recovery for side effects. Use checkpoints and idempotent actions where possible. Keep tool definitions stable and expose only stage-appropriate tools with `allowed_tools`; use strict, clear function schemas. Disable parallel function calls where ordering or shared state requires serialization. Put approval interruptions at the tool creating the side effect.
+Use job tracking/dependent waits only in harnesses that actually need asynchronous or side-effecting execution, and recovery appropriate to real side effects. Stop unchanged failures; retry only authorized, materially justified attempts with a new hypothesis or changed evidence under actual operation limits. Do not invent deadlines, attempt ceilings, or one-milestone sessions. Idempotency is not authorization. Keep tool definitions stable and expose stage-appropriate tools with `allowed_tools`; use strict schemas, serialize shared/dependent work, and put approval interruptions at the side-effecting tool.
+
+An ordinary non-denial read-only diagnostic error does not consume an otherwise applicable grant at unchanged scope/risk. Denial, unexpected sensitive state/data, changed scope/risk, or a warning affecting authority/safety requires reassessment, not a tool workaround.
 
 When software consumes plans or reports, consider [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) with JSON Schema. Still handle refusals and `incomplete`, and independently validate semantics, authorization, and business rules: schema compliance does not prove execution succeeded. See [Guardrails and human review](https://developers.openai.com/api/docs/guides/agents/guardrails-approvals).
 
@@ -57,13 +59,13 @@ When software consumes plans or reports, consider [Structured Outputs](https://d
 
 For GPT-6.1 Sol, `reasoning.context: "all_turns"` can make compatible earlier reasoning available again. The request must contain earlier response items through `previous_response_id`, a conversation, or a complete manual replay. Inspect the response's effective `reasoning.context`; requesting the option neither creates missing reasoning nor exposes raw chain-of-thought. Incompatible reasoning is omitted when switching model families. See [Preserve reasoning across calls](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-across-calls).
 
-For both models, an append-only integration is safest. Changing earlier instructions, history, tools, or tool outputs can break cache prefixes and cause newer frontier models to drop subsequent reasoning items; see [Keep the prefix unchanged](https://developers.openai.com/api/docs/guides/preserved-reasoning). `previous_response_id` does **not** carry forward top-level `instructions`; resend stable instructions on every request, as described in the [Responses migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses).
+For both models, preserving earlier API request prefixes/history is safest for cache and reasoning continuity. Changing earlier instructions, history, tools, or tool outputs can break cache prefixes and cause newer frontier models to drop subsequent reasoning items; see [Keep the prefix unchanged](https://developers.openai.com/api/docs/guides/preserved-reasoning). This API-history guidance does not require an append-only operational plan. `previous_response_id` does **not** carry forward top-level `instructions`; resend stable instructions on every request, as described in the [Responses migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses).
 
 [Compaction](https://developers.openai.com/api/docs/guides/compaction) can preserve opaque state for long runs but changes cache prefixes and has feature-compatibility limits, including [Multi-agent limitations](https://developers.openai.com/api/docs/guides/responses-multi-agent#limitations) and [configuration-update limitations](https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation).
 
 ### Planning recommendations
 
-Keep a versioned human-readable plan, decision log, artifact list, approval record, and acceptance state outside opaque reasoning. Append dated amendments rather than silently rewriting history. Place stable instructions and reference material before dynamic run state, preserve tool ordering, and keep untrusted content out of privileged instruction text. Use supported `configuration_update` mechanisms for mid-conversation effort changes instead of rewriting request history, while observing their compatibility limits.
+Keep concise current execution state separate from historical decisions and evidence outside opaque reasoning. Replace the current queue as work changes without erasing decision history; do not require extra logs/artifacts or reconstruct old handoffs when focused current-state reads suffice. Lead continuation with capability demonstrated, usable entry point or missing components, next action/blocker, and actual authority, followed by relevant checks/evidence. Place stable API instructions/references before dynamic state and preserve tool ordering where applicable. Do not change the active Kilo model or reasoning settings mid-session; API configuration-update support does not authorize such a change.
 
 ## 4. API context versus ChatGPT Work and Codex
 
@@ -78,6 +80,8 @@ Codex reads `AGENTS.md` with nearer files taking precedence; see [Custom instruc
 ### Planning recommendations
 
 Confirm the actual model picker, client, workspace, and harness instead of assuming API features exist in a product surface. Audit loaded instructions and skills for conflicts. Enforce network, write, credential, and approval boundaries in the runtime. Keep parallel chats or agents from writing to the same connected source; isolate coding work where necessary.
+
+Order integration around the first real usable slice and minimum safety prerequisites; new interfaces need the production implementation/caller required by the task. Separate required core/final checks from optional matrices and research. Name the blocker and next execution enabled before unplanned substantial support; ordinary required follow-on work needs no extra ceremony. Design-only tasks use their actual deliverable. Scale observed evidence to the milestone, retaining all applicable project-required acceptance gates; independent evidence need not mean a separate reviewer or model run.
 
 ## 5. Delegation and prompting limits
 

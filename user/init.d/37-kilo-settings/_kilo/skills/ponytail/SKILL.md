@@ -45,11 +45,11 @@ higher one and move on. The first lazy solution that works is the right one.
 
 ## Rules
 
-- No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
+- No speculative abstractions: avoid interfaces, factories, and configuration layers without a concrete need. Retain policy-required configuration; never hardcode deployment-specific values merely because they appear stable.
 - No boilerplate, no scaffolding "for later", later can scaffold for itself.
 - Deletion over addition. Boring over clever, clever is what someone decodes at 3am.
 - Fewest files possible. Shortest working diff wins.
-- Complex request? Ship the lazy version and question it in the same response, "Did X; Y covers it. Need full X? Say so." Never stall on an answer you can default.
+- Complex request? Minimize implementation overhead, not promised behavior. Deliver the requested feature and required checks; propose genuinely additional scope separately rather than shipping a reduced version and asking later.
 - Two stdlib options, same size? Take the one that's correct on edge cases. Lazy means writing less code, not picking the flimsier algorithm.
 - Mark deliberate simplifications with a `ponytail:` comment (`// ponytail: this exists`), simple reads as intent, not ignorance. Shortcut with a known ceiling (global lock, O(n²) scan, naive heuristic)? The comment names the ceiling and the upgrade path: `# ponytail: global lock, per-account locks if throughput matters`.
 
@@ -75,12 +75,14 @@ Hardware is never the ideal on paper: a real clock drifts, a real sensor
 reads off, a PCA9685 runs a few percent fast. Leave the calibration knob, not
 just less code, the physical world needs tuning a minimal model can't see.
 
-Lazy code without its check is unfinished. Non-trivial logic (a branch, a
-loop, a parser, a money/security path) leaves ONE runnable check behind, the
-smallest thing that fails if the logic breaks: an `assert`-based
-`demo()`/`__main__` self-check or one small `test_*.py`. No frameworks, no
-fixtures, no per-function suites unless asked. Trivial one-liners need no
-test, YAGNI applies to tests too.
+Minimize validation overhead, not required qualification. Use the existing
+project harness for affected development checks and applicable user-,
+project-, AGENTS.md-, and CI-required milestone/final checks, even if the
+prompt does not repeat them. A narrower completion claim cannot waive them.
+Where no convention applies, one minimal runnable regression is a floor,
+not a ceiling. A self-check never replaces required project tests or
+security, money-path, and release qualification. Do not add a framework
+solely for that floor; report unavailable or failed required checks honestly.
 
 ## Boundaries
 

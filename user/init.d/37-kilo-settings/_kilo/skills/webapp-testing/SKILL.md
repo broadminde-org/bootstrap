@@ -21,6 +21,21 @@ metadata:
 
 Two toolkits may be available in this environment. Pick per the decision tree.
 
+## Authorization Boundary
+
+MCP transport denial/unavailability does not itself deny the underlying
+documentation or testing action. An already-available CLI/project harness
+is permissible only when that action, Bash, network, and every required side
+effect are independently authorized. Denial of the underlying action,
+Bash, or network must be reported, not circumvented.
+
+`npx` package resolution and `uv run --with ...` environment/package/cache
+preparation are separate side effects. Do not install tools/browsers,
+prepare environments, start servers, or write artifacts without applicable
+authority. Inspect local availability and invocation effects first; report
+missing checks rather than treating a fallback as permission. Screen
+console/network evidence and screenshots for secrets before reporting.
+
 ## Host Capability Baseline
 
 Bootstrap separates MCP configuration, per-user binaries, and system libraries:
@@ -45,10 +60,11 @@ validating the current deploy-user environment:
 - Run `command -v playwright` and `playwright --version` as the deploy user.
   If absent from PATH, inspect `~/.nvm/alias/default` and source
   `~/.nvm/nvm.sh` to select `nvm use default` before concluding it is absent.
-  Restart an editor server that predates `12-bashrc`/`35-node` provisioning.
+  An editor server predating provisioning may need an operator restart;
+  do not restart it without specific authority.
 - Inspect `~/.cache/ms-playwright` for the current user. The cache may have
   been cleared by maintenance; a directory alone does not prove launch works.
-- If availability matters, try launching a browser and report its actual error.
+- If availability matters and launch side effects are authorized, try launching a browser and report its actual error.
   Missing shared libraries require the operator to run root-tier provisioning;
   agents must not attempt privilege escalation.
 
@@ -57,8 +73,9 @@ Distinguish these failures explicitly:
 - **Not provisioned for this user:** `dev` is disabled or step `39-playwright`
   has not completed, and the executable/cache are absent.
 - **MCP unavailable:** inspect live config, agent permissions, and startup error;
-  use the installed Node Playwright CLI or a project test when MCP access is
-  denied. Do not treat MCP permission denial as a missing browser install.
+  use an already-available Node Playwright CLI or project test only under the
+  independent authorization boundary above. Do not treat MCP permission
+  denial as a missing browser install or authority to bypass action denial.
 - **System libraries missing:** browser binaries exist but launch reports
   missing shared libraries; root-tier `06-playwright-deps` must be run manually
   by the operator on a supported distro.
@@ -66,8 +83,9 @@ Distinguish these failures explicitly:
   executable/cache; report the launch error.
 - **App/server blocked:** browser is installed, but the dev server or backend
   cannot start; do not report Playwright as missing.
-- **Python Playwright absent:** expected by design; use
-  `uv run --with playwright` for Python automation.
+- **Python Playwright absent:** bootstrap does not provision this package;
+  use existing Node/project tooling where independently authorized. Python
+  environment/package preparation requires separate specific authority.
 
 ## Toolkit 1 (preferred): Playwright MCP browser tools
 
@@ -81,8 +99,9 @@ capturing screenshots, reading console logs and network requests.
 
 **Workflow (reconnaissance-then-action):**
 
-1. Make sure the dev server is running (e.g. Vite's default port 5173).
-   If not, start it as a background process or ask the user to start it.
+1. Discover the actual app URL/port from project configuration or observed
+   server output. If the server is not running, start it through the available
+   tracked process tool only when authorized, or report the server blocker.
 2. `playwright_browser_navigate` to the URL.
 3. `playwright_browser_snapshot` — returns the accessibility tree with a
    `ref` for every interactive element. **Act on these refs, never on
@@ -99,9 +118,11 @@ capturing screenshots, reading console logs and network requests.
 Use only when the run must be saved and re-executed: CI-style checks,
 regression scripts, or multi-server lifecycle management.
 
-**The Python `playwright` package is NOT pre-installed** (the environment
-installs Node `@playwright/test` via `35-node`, and `20-python` provides
-only uv + interpreter). Run scripts through uv's ephemeral environment:
+**Bootstrap does not pre-install Python `playwright`** (`39-playwright`
+provisions Node tooling on dev hosts; `20-python` provides uv + interpreter).
+Prefer an existing project/Node test harness or already-prepared Python
+environment. The following example is permissible only with specific
+authority for uv environment/package preparation and the test's side effects:
 
 ```bash
 uv run --with playwright python your_automation.py
@@ -110,63 +131,55 @@ uv run --with playwright python your_automation.py
 **Helper scripts available**:
 - `scripts/with_server.py` - Manages server lifecycle (supports multiple servers)
 
-**Always run scripts with `--help` first** to see usage. DO NOT read the source until you try running the script first and find that a customized solution is absolutely necessary. These scripts can be very large and thus pollute your context window. They exist to be called directly as black-box scripts rather than ingested into your context window.
+Inspect relevant source/local usage before execution when needed to establish
+side effects. Use `--help` only when known safe and authorized; do not treat
+scripts as opaque black boxes when their effects are uncertain.
 
 ## Decision Tree: Choosing Your Approach
 
 ```
-User task → Must the run be saved/repeated? (CI, regression, multi-server)
-    ├─ No, MCP permitted → Playwright MCP tools (Toolkit 1)
-    │         1. Start dev server if needed
-    │         2. Navigate → snapshot → act on refs → verify
-    │
-    └─ Yes, or MCP unavailable → Python script path (Toolkit 2)
-              ├─ Server already running? → write script, run with
-              │   uv run --with playwright python your_automation.py
-              └─ Need server lifecycle? →
-                   ./scripts/with_server.py --help  (executable, stdlib-only)
-                   then wrap: ./scripts/with_server.py \
-                     --server "npm run dev" --port 5173 -- \
-                     uv run --with playwright python your_automation.py
+Underlying test action and side effects authorized?
+  No -> report blocker; do not switch transport to bypass it.
+  Yes -> one-off and MCP permitted -> MCP snapshot/action/verify.
+      -> repeatable or MCP unavailable -> existing project/Node harness,
+         or already-prepared Python environment with independently allowed Bash/network.
+      -> package/environment preparation needed -> obtain specific authority
+         or report unavailable; no implicit npx/uv installation.
 ```
 
-## Example: with_server.py (single server)
+## Server Lifecycle Examples
+
+Only after inspecting the helper and authorizing both server lifecycle and
+environment preparation, adapt these examples to the project's actual
+commands and configured ports. The variables below are operator-supplied
+example placeholders, not new shared-runner configuration keys:
 
 ```bash
-./scripts/with_server.py --server "npm run dev" --port 5173 -- \
+./scripts/with_server.py --server "$FRONTEND_DEV_CMD" --port "$FRONTEND_PORT" -- \
   uv run --with playwright python your_automation.py
 ```
 
 **Multiple servers (e.g., backend + frontend):**
 ```bash
 ./scripts/with_server.py \
-  --server "cd backend && python server.py" --port 3000 \
-  --server "cd frontend && npm run dev" --port 5173 -- \
+  --server "$BACKEND_DEV_CMD" --port "$BACKEND_PORT" \
+  --server "$FRONTEND_DEV_CMD" --port "$FRONTEND_PORT" -- \
   uv run --with playwright python your_automation.py
 ```
 
-Script template — include only Playwright logic (servers are managed):
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True) # Always launch chromium in headless mode
-    page = browser.new_page()
-    page.goto('http://localhost:5173') # Server already running and ready
-    page.wait_for_load_state('networkidle') # CRITICAL: Wait for JS to execute
-    # ... your automation logic
-    browser.close()
-```
+In scripts, include only the required Playwright logic when server lifecycle
+is managed by the helper. Obtain the app URL from project configuration or
+observed output, use readiness assertions appropriate to that app, and close
+the browser. A script is not required for a one-off authorized MCP check.
 
 ## Common Pitfalls
 
-- ❌ **Don't** write a Python script for a one-off interactive check — use
-  the MCP browser tools instead.
-- ❌ **Don't** assume the Python `playwright` package exists — use
-  `uv run --with playwright python …`. This warning does not mean that the
-  bootstrap-managed Node Playwright package or browser binaries are missing.
-  (`with_server.py` itself is stdlib-only and executable: `./scripts/with_server.py`
-  works directly.)
+- ❌ **Don't** require a Python script for a one-off interactive check;
+  prefer authorized MCP or independently authorized existing tooling.
+- ❌ **Don't** assume Python `playwright` exists or prepare it implicitly.
+  Inspect existing tooling first. Missing Python tooling does not mean that
+  bootstrap-managed Node packages or browser binaries are missing; a
+  stdlib-only helper can still start mutating server/test operations.
 - ❌ **Don't** inspect the DOM before waiting for `networkidle` on dynamic
   apps (script path) — or before taking a fresh snapshot (MCP path).
 - ✅ **Do** wait for `page.wait_for_load_state('networkidle')` before
@@ -174,7 +187,7 @@ with sync_playwright() as p:
 
 ## Best Practices (script path)
 
-- **Use bundled scripts as black boxes** - To accomplish a task, consider whether one of the scripts available in `scripts/` can help. These scripts handle common, complex workflows reliably without cluttering the context window. Use `--help` to see usage, then invoke directly.
+- Use bundled scripts only when their invocation effects are understood and authorized; read relevant source when needed rather than executing first by default.
 - Use `sync_playwright()` for synchronous scripts
 - Always close the browser when done
 - Use descriptive selectors: `text=`, `role=`, CSS selectors, or IDs

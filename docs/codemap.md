@@ -139,7 +139,7 @@ tools installed; unconditional `20-python` still ensures uv and managed CPython.
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js plus non-Playwright global npm packages. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
-| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`; provisions private `~/.tmpdir/` for cross-workspace agent scratch files. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. The managed bash command denials are the privilege policy for chat LLM sessions; elevated work is handed to the operator as manual commands. |
+| `37-kilo-settings` | Syncs managed global agents/commands/rules and default/selected optional skills, overwriting managed edits while preserving destination-only additions. Seeds absent `kilo.json` and bootstrap `.kilocodeignore`, preserving existing customizations with diff guidance; migrates only recognized JSONC policy with validation/JSONC-only rollback. Provisions private `~/.tmpdir/` and a user tmpfiles cleanup timer. Includes always-on `execution-focus.md`; source changes require separately approved rollout and fresh-session discovery. Managed Bash denials retain the manual operator boundary for elevated work; rollout is nontransactional. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `39-playwright` | Requires `dev`; installs global `@playwright/test` into the deploy user's default nvm Node tree and browser binaries into `~/.cache/ms-playwright`. Re-running restores a cleared cache; disabling `dev` does not uninstall prior browsers. |
 | `40-npx-skills` | Installs the configured general and UI engineering skills through `npx skills` for explicit agents. |
@@ -151,11 +151,20 @@ tools installed; unconditional `20-python` still ensures uv and managed CPython.
 **User-tier step count: 17** (10, 12, 15, 20, 22, 25, 30, 35, 36, 37, 38, 39, 40,
 60, 97, 98, 99).
 
-Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
-agents, commands, and rules update through `sync_dir_preserve`, so managed
-context reaches existing hosts while destination-only context survives.
-`kilo.json` remains create-once and receives a diff when its
-managed source changes. For `kilo.jsonc`, a focused migration helper recognizes
+Step 37 configures `~/.config/kilo/rules/*.md` as always-on instructions.
+`execution-focus.md` favors the smallest safe authorized integrated result,
+separating optional expansion from mandatory behavior/checks and retaining
+approval boundaries. Source edits alone are not live: rollout requires
+separate approval, then operator-chosen reload/restart and discovery of the
+rule and updated context in a fresh session. Prose is not runtime enforcement.
+
+Managed agents, commands, rules, default skills, and explicitly selected
+optional skills update through `sync_dir_preserve`: managed destination
+modifications are overwritten, while destination-only additions survive.
+Unselected optional skills are neither installed nor refreshed and installed
+copies can remain stale. `kilo.json` and bootstrap `.kilocodeignore` remain
+create-once with diff/manual-merge guidance for existing customizations.
+For `kilo.jsonc`, a focused migration helper recognizes
 the root instructions property and a `permission.bash` object with at most one
 `"*": "allow"` anchor (anchor-less allowlists are migrated too), then
 adds only the managed instructions glob and missing managed denials. It
@@ -163,7 +172,17 @@ preserves unrelated permissions, comments, indexing settings, formatting, and
 local customization; atomically installs a same-directory candidate; validates
 the effective live configuration; and restores the original on failure or
 interruption. Unfamiliar, ambiguous, or conflicting JSONC is left unchanged for
-manual review. The command denials are the privilege policy for chat LLM
+manual review. This policy needs no source JSON edits, but a rollout may
+still create live JSON or perform the managed JSONC migration.
+
+The runner is nontransactional: scratch/tmpfiles configuration and timer
+effects occur early; agents/commands/rules synchronize and retired
+`rules/privilege-escalation.md` and `commands/standards.md` are removed before
+JSONC migration; skills deploy only after migration succeeds. JSONC rollback
+restores only JSONC, not earlier managed overwrites, deletions, newly created
+`kilo.json`, or timer/scratch effects. Review all affected live destinations
+and recovery before rollout approval, not just the source policy diff.
+The command denials are the privilege policy for chat LLM
 sessions: they block common direct invocations and require operator handoff
 for elevated work, but they are not a complete security sandbox.
 
