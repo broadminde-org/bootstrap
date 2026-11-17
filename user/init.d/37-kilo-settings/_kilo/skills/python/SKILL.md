@@ -19,6 +19,7 @@ Extract to shared only when ALL hold: used in 2+ places, no app-data-model depen
 - UV_ONLY: `uv add <pkg>`, `uv sync`, `uv run <cmd>`. Never `pip install`. Never bare `python` for tooling.
 - Toolchain: ruff (format + lint + import sort), mypy strict (pyright acceptable if already configured), pytest (+pytest-asyncio, pytest-cov). Config in `pyproject.toml`.
 - DONE_GATE: work is complete only when `uv run ruff check && uv run ruff format --check && uv run mypy && uv run pytest` all pass (swap `pyright` for `mypy` if that is the project's checker).
+- FAILURE_BOUNDARY: Report unrelated pre-existing failures; do not expand scope to fix them.
 
 ## Style
 - 88-char lines, 4-space indent. snake_case files/functions/vars, PascalCase classes, UPPER_CASE constants.

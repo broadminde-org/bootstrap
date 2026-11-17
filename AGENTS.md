@@ -70,7 +70,7 @@ capabilities:
   docker: true      # 50-docker, 55-lazydocker
   caddy: true       # user/60-caddy (also requires docker → .requires lists both)
   kvm: false        # 57-kvm
-  dev: false        # 06-playwright-deps + user/25-go, user/39-playwright,
+  dev: false        # 06-playwright-deps + user/22-python-dev, user/25-go, user/39-playwright,
                     # user/97-gh-auth-instructions, user/98-npm-shared, user/99-go-shared
   public: false     # 54-crowdsec (internet-facing hosts only)
 ```
@@ -92,17 +92,40 @@ Current capability map (verify against `*/.requires` files before editing):
 | `docker` | `init.d/50-docker`, `init.d/55-lazydocker`, `user/init.d/60-caddy` |
 | `caddy` | `user/init.d/60-caddy` (with `docker`) |
 | `kvm` | `init.d/57-kvm` |
-| `dev` | `init.d/06-playwright-deps`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
+| `dev` | `init.d/06-playwright-deps`, `user/init.d/22-python-dev`, `user/init.d/25-go`, `user/init.d/39-playwright`, `user/init.d/97-gh-auth-instructions`, `user/init.d/98-npm-shared`, `user/init.d/99-go-shared` |
 | `public` | `init.d/54-crowdsec` |
 | `woodpecker` | RETIRED — `init.d/45-woodpecker-local.disabled`; the local backend agent runs as the deploy user via a user systemd unit provisioned by the ci repo's `init.d/20-agent-local` |
 
 The conf file also has `versions:` (toolchain pins: uv, python, kilo, go,
-node, caddy — `"latest"` or exact versions; partial versions for go/node), `skills:` (npx skills
+node, caddy — `"latest"` or exact versions; partial versions for python/go/node), `skills:` (npx skills
 agent targets), `caddy:` (wildcard zone config + `acme_email` for the ACME
 account, written to `~/infra/caddy/.env` by user/60-caddy), `github:` (host credential
 role for the access walk), and `portal:` (`mode: dev | image`, published to
 `central.json` for app deployment steps).
 See `example.bootstrap.conf.yml` for the annotated template.
+
+### Python tooling
+
+- `user/init.d/20-python` is unconditional: install/update uv under its existing
+  version policy, then ensure uv-managed CPython. Python accepts numeric major,
+  major.minor, or exact requests; reuse a matching managed interpreter without
+  a patch upgrade. System Python cannot satisfy this check. Resolve `latest`
+  from the selected uv's stable CPython catalog only after uv installation;
+  fail if no candidate is available, with no hardcoded fallback.
+- `user/init.d/22-python-dev` requires only `dev` and provisions only Ruff.
+  Use `uv tool install --upgrade --python "$managed_python" --no-python-downloads ruff`
+  with an explicit existing managed interpreter matching the Python request
+  (installed managed CPython discovery for `latest`). Do not download Python,
+  fall back to system Python, invoke step 20, or use `--force`. Missing uv or
+  managed Python must fail with guidance to run `./user/init.sh 20-python`.
+- Ruff is unpinned: uv resolves the latest compatible release on each enabled
+  run, without unnecessarily reinstalling an already-current tool. Add no Ruff
+  version key or pin. Registry, installation, and executable-collision failures
+  remain nonzero. Disabling or omitting `dev` skips provisioning but leaves
+  existing tools installed.
+- Tool environments stay isolated under the deploy user's home. mypy, pytest,
+  coverage, and project dependencies remain project-owned; do not modify
+  project environments or lockfiles, or prune older managed interpreters.
 
 ## Configuration & secrets
 
@@ -206,6 +229,30 @@ must be safe to re-run. The operator manually tests both selectors:
 sudo ./init.sh 50-docker     # single step
 sudo ./init.sh --from 50     # resume from a point
 ```
+
+For Python, manually run as the non-root deploy user from the repository root
+on a disposable development host with `dev: true`:
+
+```bash
+./user/init.sh 20-python
+./user/init.sh 22-python-dev
+uv python list --only-installed --managed-python
+uv tool list
+ruff --version
+ruff check --help
+ruff format --help
+./user/init.sh 20-python
+./user/init.sh 22-python-dev
+uv python list --only-installed --managed-python
+uv tool list
+ruff --version
+```
+
+Compare inventories and Ruff's version between runs: an already-current rerun
+should retain the version. With an isolated config where `dev` is false or
+omitted, verify step 22 is skipped and the existing Ruff still appears in the
+inventory and runs. Verify tools through their CLI and uv inventory, not Python
+imports or an `uv run` command that could create a project environment.
 
 ## Conventions
 

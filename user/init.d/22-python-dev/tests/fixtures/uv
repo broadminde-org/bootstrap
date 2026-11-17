@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'uv %s\n' "$*" >> "$TEST_LOG"
+has() { [[ " $* " == *" $flag "* ]]; }
+require_flag() { local flag="$1"; shift; has "$@" || exit 90; }
+case "$*" in
+  --version) echo "uv ${TEST_UV_VERSION:-0.13.5}" ;;
+  'python list '*)
+    require_flag --only-downloads "$@"
+    require_flag --all-versions "$@"
+    [[ "${TEST_CATALOG_FAIL:-0}" == 0 ]] || exit 1
+    printf '%s\n' "${TEST_CATALOG:-cpython-3.15.1-linux-x86_64-gnu}"
+    ;;
+  'python find '*)
+    for flag in --no-project --system --managed-python --no-python-downloads --no-config; do
+      require_flag "$flag" "$@"
+    done
+    request="${!#}"
+    while IFS= read -r version; do
+      wanted="${request#cpython@}"
+      if [[ "$request" == cpython || "$version" == "$wanted" || "$version" == "$wanted".* ]]; then
+        printf '%s\n' "$TEST_STATE/python"
+        exit 0
+      fi
+    done < "$TEST_STATE/managed"
+    echo "No matching managed CPython (system Python is ignored)" >&2
+    exit 1
+    ;;
+  'python install '*)
+    [[ "${TEST_PYTHON_INSTALL_FAIL:-0}" == 0 ]] || exit 1
+    request="${!#}"
+    [[ "$request" == cpython@* ]] || exit 91
+    version="${request#cpython@}"
+    [[ "$version" == *.*.* ]] || version="$version.5"
+    [[ "${TEST_NO_MANAGED_AFTER_INSTALL:-0}" == 0 ]] || exit 0
+    printf '%s\n' "$version" >> "$TEST_STATE/managed"
+    ;;
+  'tool install '*)
+    for flag in --upgrade --python --managed-python --no-python-downloads --no-config; do
+      require_flag "$flag" "$@"
+    done
+    [[ " $* " != *' --force '* && " $* " != *' --reinstall '* && "${!#}" == ruff ]] || exit 92
+    [[ " $* " == *" --python $TEST_STATE/python "* ]] || exit 93
+    [[ "${TEST_TOOL_FAIL:-0}" == 0 ]] || { echo 'registry failure' >&2; exit 1; }
+    if [[ -e "$HOME/.local/bin/ruff" && ! -f "$TEST_STATE/receipt" ]]; then
+      echo 'Executable already exists (not managed by uv)' >&2
+      exit 1
+    fi
+    if [[ ! -f "$TEST_STATE/receipt" || "$(< "$TEST_STATE/receipt")" != ruff ]]; then
+      echo reinstall >> "$TEST_STATE/installs"
+    fi
+    printf 'ruff\n' > "$TEST_STATE/receipt"
+    cp "$TEST_FIXTURES/ruff" "$HOME/.local/bin/ruff"
+    chmod +x "$HOME/.local/bin/ruff"
+    ;;
+  'tool dir '*) require_flag --bin "$@"; echo "$HOME/.local/bin" ;;
+  *) echo "Unexpected uv command: $*" >&2; exit 99 ;;
+esac
