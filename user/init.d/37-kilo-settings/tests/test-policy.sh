@@ -149,6 +149,15 @@ require_literal "$MAINTAINER" 'current non-root identity'
 require_literal "$MAINTAINER" 'Approval never authorizes you to execute `sudo`'
 require_literal "$MAINTAINER" 'Give the user exact manual commands'
 require_literal "$RUNNER" 'for dir in agents commands rules; do'
+# The retired profile-temp policy must not return on fresh installs or reruns.
+[[ ! -e "$STEP_DIR/_config/kilo/rules/workspace-temp.md" ]] || fail "profile-temp rule is still shipped"
+# shellcheck disable=SC2016
+require_literal "$RUNNER" 'rm -f "$KILO_CONFIG/rules/workspace-temp.md"'
+# shellcheck disable=SC2016
+require_literal "$RUNNER" 'rm -f "$HOME/.config/user-tmpfiles.d/kilo-agent-tmp.conf"'
+if grep -Eq 'AGENT_TMP|\.tmpdir|systemctl --user enable --now systemd-tmpfiles-clean.timer' "$RUNNER"; then
+  fail "runner still provisions profile scratch or its cleanup timer"
+fi
 # shellcheck disable=SC2016
 require_literal "$RUNNER" '"$STEP_DIR/migrate-kilo-jsonc.sh" "$cfg_src" "$cfg_dst"'
 require_literal "$REPO_ROOT/AGENTS.md" 'Chat LLM sessions must never execute privilege escalation'

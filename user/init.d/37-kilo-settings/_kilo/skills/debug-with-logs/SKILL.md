@@ -12,7 +12,7 @@ description: Debugging errors, failing tests, non-2xx fetches, missing files, an
 - REPORT: Present safe relevant evidence, error codes, and timestamps before proposing fixes; do not quote a secret-bearing excerpt.
 
 ## Log Locations
-- Use authorized read-only log access such as `docker compose logs --tail=100 <service>`; avoid capturing secret-bearing logs. If safe disposable output is needed and writing it is authorized, use `$HOME/.tmpdir/`.
+- Use authorized read-only log access such as `docker compose logs --tail=100 <service>`; avoid capturing secret-bearing logs. If safe disposable output is needed and writing it is authorized, use a unique temporary path (for example, created with `mktemp`).
 - For init/pipeline failures, inspect existing output, scripts, and state. Repeatability/idempotency is not authorization: never rerun provisioning or another state-changing operation merely to obtain traces. State-changing reruns need separate specific authority; privileged provisioning is operator-only.
 - Trace only when the operation is specifically authorized and after checking its command and environment for secret exposure. Do not trace if secrets could be printed. Use authorized browser console/network evidence for applicable frontend failures, with the same screening.
 

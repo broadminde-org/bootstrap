@@ -62,37 +62,6 @@ BOOTSTRAP_ROOT="$(cd "$STEP_DIR/../../.." && pwd)"
 
 KILO_CONFIG="$HOME/.config/kilo"
 KILO_HOME="$HOME/.kilo"
-AGENT_TMP="$HOME/.tmpdir"
-
-if [[ -L "$AGENT_TMP" ]]; then
-  echo "ERROR: refusing symlink at $AGENT_TMP" >&2
-  exit 1
-fi
-mkdir -p "$AGENT_TMP"
-if [[ ! -O "$AGENT_TMP" ]]; then
-  echo "ERROR: $AGENT_TMP must be owned by the current user." >&2
-  exit 1
-fi
-chmod 700 "$AGENT_TMP"
-
-# Prune agent scratch older than 14 days via the systemd user tmpfiles
-# timer. Agent shell deletion is denied by policy, so this timer is the
-# cleanup mechanism the workspace-temp rule refers to. Best-effort: the
-# user manager must be running (linger is not enabled by default), so the
-# timer fires during active deploy-user sessions.
-TMPFILES_DIR="$HOME/.config/user-tmpfiles.d"
-TMPFILES_CONF="$TMPFILES_DIR/kilo-agent-tmp.conf"
-mkdir -p "$TMPFILES_DIR"
-tmpfiles_content='d %h/.tmpdir 0700 - - 14d'
-if [[ ! -f "$TMPFILES_CONF" ]] || ! printf '%s\n' "$tmpfiles_content" | cmp -s - "$TMPFILES_CONF"; then
-  printf '%s\n' "$tmpfiles_content" > "$TMPFILES_CONF"
-  echo "  deployed $(basename "$TMPFILES_CONF") (prune $AGENT_TMP older than 14d)"
-fi
-if systemctl --user enable --now systemd-tmpfiles-clean.timer >/dev/null 2>&1; then
-  systemd-tmpfiles --user --create >/dev/null 2>&1 || true
-else
-  echo "  WARNING: systemd user manager unavailable; $AGENT_TMP will not be pruned automatically" >&2
-fi
 
 # Each step runs in a separate shell, so 36-kilo's nvm PATH does not carry
 # over. Select the same Node version before validating the effective config.
@@ -138,6 +107,11 @@ done
 # on re-run to converge previously provisioned hosts.
 rm -f "$KILO_CONFIG/rules/privilege-escalation.md"
 rm -f "$KILO_CONFIG/commands/standards.md"
+
+# Retire the profile-temp policy without deleting existing scratch data or
+# disabling the shared user tmpfiles timer used by other cleanup rules.
+rm -f "$KILO_CONFIG/rules/workspace-temp.md"
+rm -f "$HOME/.config/user-tmpfiles.d/kilo-agent-tmp.conf"
 
 # ---------------------------------------------------------------------------
 # 3. Deploy kilo.json / kilo.jsonc
@@ -282,7 +256,6 @@ fi
 
 echo ""
 echo "37-kilo-settings: context set deployed."
-echo "  Agent scratch:    $AGENT_TMP (private, user-owned, pruned >14d via user tmpfiles timer)"
 echo "  ~/.config/kilo/:  agents/ commands/ rules/ kilo.json (MCP) kilo.jsonc"
 echo "  ~/.kilo/:         skills/"
 echo "  Optional skills:  KILO_OPTIONAL_SKILLS=all or a comma-separated skill list"
