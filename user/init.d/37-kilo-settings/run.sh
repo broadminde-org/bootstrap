@@ -34,17 +34,8 @@ if ! command -v kilo >/dev/null 2>&1; then
   exit 1
 fi
 
-# Semantic feature admission precedes all context writes/retirement/receipts.
-# This protocol is implemented by the corrected client, not inferred from a
-# package version or permissively accepted unknown frontmatter. Never echo probe
-# output: an unsupported executable may emit local configuration or credentials.
-# pipefail requires BOTH successful client status and exact bytes. No arbitrary
-# client output enters shell variables/arguments, including under inherited -x.
-if ! kilo capabilities strict-custom-roles-v1 2>/dev/null |
-    cmp -s - <(printf '%s\n' 'kilo-capability:strict-custom-roles-v1'); then
-  echo 'ERROR: corrected strict-custom-roles-v1 client required; no context deployed. Installation and qualification require separate approval.' >&2
-  exit 1
-fi
+# Use the official client already supplied by step 36. No private capability
+# protocol or implicit client installation; normal JSONC validation stays below.
 
 mkdir -p "$KILO_CONFIG" "$KILO_HOME"
 python3 "$STEP_DIR/context-files.py" config
