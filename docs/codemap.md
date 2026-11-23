@@ -191,35 +191,71 @@ bytes/modes on failure. Ambiguous/conflicting structures receive screened manual
 merge guidance. These permissions do not prove visibility, connection state,
 arbitrary-server closure or an OS sandbox.
 
-Architect, Code Reviewer and Mapper opt in with `permission_mode: strict`.
-`run.sh` admits the corrected `strict-custom-roles-v1` client protocol before
-deployment, retirement or receipt writes, requiring an exact successful capability
-receipt rather than version metadata. A nonprinting byte comparator plus pipeline
-status avoids arbitrary client output in traced shell variables. Old clients fail
-closed; no implicit client
-installation/upgrade occurs. The client schema/agent assembly projects ordered
-inherited rules onto safe native capabilities and retains role/inherited ceilings
-through permission dispatch, pending-request drains and session-wide grants.
-Tool writes admit both patch endpoints; strict tools suppress internal formatter,
-config-validator, LSP and skill-shell calls. Grep result content, initial/attached
-instructions and fresh skill metadata/bodies receive read admission for all
-transitive file leaves and fd-resolved aliases. Strict missing/denied includes
-fail loudly; opaque environment expansion is not a strict content capability.
-Strict catalogs bypass custom-module imports
-and dependency preparation; shell/command expansion is guarded, and explicit
-subtasks use caller task-admission policy rather than incorrectly attributing
-delegation to the strict target. Caller/session ordered read snapshots use optional
-`Rule.ceiling` tags in existing permission JSON, preserved across API grants,
-toggles and resumed strict children. Strict-profile global allow-everything uses
-memory grants without rewriting configuration read policy. Role-triggered
-chat/task/model/text/compaction hooks are guarded; unscoped external event hooks
-are unsupported while directly imported platform/auth startup remains admitted
-separately. Canonical JSONC need not copy sensitive-path
-blacklists; migration preserves unrelated ordered read rules. Capability admission
-is not effective-backend qualification: configuration-definition prompt/template
-expansion is still a separately unresolved source boundary, not a trusted-startup
-waiver. Shared startup effects, capability-probe containment, native utilities and
-concurrent path replacement also remain qualification limitations.
+### Official-client permission configuration and evidence limits
+
+`37-kilo-settings/run.sh` uses the official client supplied by step 36, with no
+private capability gate or implicit client installation. File/selection/state
+preflight and JSONC structural preflight precede deployment writes; nvm/client
+availability checks remain. Config files deploy and receipt-owned retirement runs
+before create-once `kilo.json`, JSONC migration/validation, workspace ignore
+seeding and skill deployment. Client diagnostics from JSONC validation are neither
+relayed nor retained. The existing `kilo config check` command is unchanged; its
+availability on an identified official release is not established by stub tests.
+
+The three affected `_config/kilo/agents/*.md` files use documented YAML
+`permission` overrides. [Official permission rules](https://kilo.ai/docs/customize/agent-permissions)
+are last-match-wins in configuration order, including top-level keys; file-tool
+paths are checked relative to the worktree. No unsupported strict-mode key is
+required. Read/search rules are left inherited without broad agent allowances,
+rather than attempting to reproduce or replace sensitive-path asks/denials.
+Migration's ordered-read preservation checks are serialization regressions, not
+proof of effective policy composition. Built-in `.env` protections documented by
+Kilo do not establish universal sensitive-content admission for attached context,
+search results or alternate transports.
+
+| Agent file | Edit declaration | Other explicit declarations |
+|---|---|---|
+| `architect.md` | Deny `*`, then allow `.kilo/plans/*.md`, `plans/*.md`, `.plans/*.md` | Common denials/approvals below; `open_plan: allow` when the active client provides it. An unsupported exact reminder-selected path must be reported, not redirected. |
+| `code-reviewer.md` | `edit: deny` | Common denials/approvals below. Review-only findings and unavailable checks do not authorize writes or execution. |
+| `mapper.md` | Deny `*`, then allow `docs/*.md`, `*/docs/*.md` | Common denials/approvals below. Write only assigned documentation; review-only drift is a finding. |
+
+Common declarations deny Bash, task, Agent Manager, goal, LSP and skill requests;
+allow web fetch/search and questions; and ask for external-directory access.
+Scoped edit fallbacks precede exceptions. External-directory approval does not
+expand the permitted edit scope. Skills are denied because [trusted skills can
+execute embedded shell commands](https://kilo.ai/docs/customize/skills), not
+because skill loading is assumed execution-free.
+
+Plan-only, documentation-only, review-only and non-execution are prompt-level
+scope instructions alongside these permissions. They are not inherited policy
+ceilings, an OS sandbox, or proof of closure of every patch/move, MCP/custom-tool
+or execution mechanism. Bash/LSP denials do not guarantee suppression of internal
+formatters, validators, language-server warm-up, plugins or automatic context.
+Prompts prohibit bypassing inherited sensitive-file protections or exceeding role
+scope through other tools; arbitrary-tool closure is not claimed as enforced.
+
+Current official new-platform documentation is the reference, not evidence of
+compatibility in every client release. Zero internal execution or complete path
+confinement requires an explicit operator acceptance of the limitation or revised
+requirement before equivalent enforcement may be declared. Runtime compatibility
+requires separate authorization, an identified official release and authentic
+receipts. Source changes/local fixtures do not authorize deployment or establish
+live qualification.
+
+`tests/test-policy.sh` checks exact bounded permission blocks and source order,
+absence of unsupported frontmatter/private runner commands, and isolated JSONC
+migration/rollback. `tests/test-deployment.sh` copies the runner, reverse wrapper
+and step into disposable non-root state. Its nvm stub does nothing and its client
+stub accepts only the existing JSONC validation command, recording/rejecting any
+unexpected invocation. Coverage includes normal deployment, invalid-selection
+preflight before writes, corrected agent copies, optional refresh/retention,
+receipt-owned retirement, reverse-import baselines, JSONC-only rollback and
+screened failure diagnostics with/without tracing. Receipts generated there are
+fixture ownership evidence, not live official-client receipts. Neither test
+qualifies permission matching/enforcement, visibility or connection state. They
+currently rely on GNU-style `sha256sum`, `stat -c` and migration utilities;
+stock macOS portability is unverified. Local execution requires existing tools,
+not installation under this bounded patch. See the [README local-check commands](../README.md#official-client-role-permissions-step-37).
 
 The runner is nontransactional: earlier context writes/receipts, owned retirement
 and new `kilo.json` survive a later JSONC failure; skills follow successful JSONC

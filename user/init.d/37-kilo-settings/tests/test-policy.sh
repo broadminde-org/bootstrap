@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Runtime migration tests require separate authorization and disposable non-root
-# state. The validator is a stub, not proof of actual tool permission enforcement.
+# Local regression checks use disposable non-root state and a stub validator.
+# They do not invoke an installed client or prove tool permission enforcement.
 [[ $EUID -ne 0 ]] || { echo 'Run as a non-root user.' >&2; exit 1; }
 
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -273,10 +273,61 @@ chmod 0640 "$HOME/.config/kilo/kilo.jsonc"
 # Nested prefix-named Python tests need a separate worktree-relative pattern.
 # This source assertion is not qualification of the client's matcher or tools.
 require_literal "$STEP_DIR/_config/kilo/agents/test-engineer.md" '"*/test_*.py": allow'
-for agent in architect code-reviewer mapper; do
-  require_literal "$STEP_DIR/_config/kilo/agents/$agent.md" 'permission_mode: strict'
-done
-require_literal "$RUNNER" 'kilo capabilities strict-custom-roles-v1'
+# Compare the bounded permission declarations and their serialization order.
+# This deliberately handles only these checked-in blocks, not arbitrary YAML,
+# glob evaluation, effective inherited policy, or actual client enforcement.
+python3 - "$STEP_DIR" <<'PY'
+import sys
+from pathlib import Path
+
+step = Path(sys.argv[1])
+common = [
+    'bash: deny', 'task: deny', 'agent_manager: deny', 'goal: deny',
+    'lsp: deny', 'skill: deny', 'webfetch: allow', 'websearch: allow',
+    'external_directory: ask',
+]
+expected = {
+    'architect': common + [
+        'edit:', '  "*": deny', '  ".kilo/plans/*.md": allow',
+        '  "plans/*.md": allow', '  ".plans/*.md": allow',
+        'question: allow', 'open_plan: allow',
+    ],
+    'code-reviewer': ['edit: deny'] + common + ['question: allow'],
+    'mapper': common + [
+        'question: allow', 'edit:', '  "*": deny',
+        '  "docs/*.md": allow', '  "*/docs/*.md": allow',
+    ],
+}
+for name, rules in expected.items():
+    text = (step / f'_config/kilo/agents/{name}.md').read_text()
+    sections = text.split('---', 2)
+    assert len(sections) == 3 and not sections[0].strip(), f'{name}: frontmatter missing'
+    frontmatter = sections[1]
+    assert 'permission_mode:' not in frontmatter, f'{name}: unsupported mode'
+    assert frontmatter.count('\npermission:\n') == 1, f'{name}: permission block missing/duplicated'
+    block = frontmatter.split('\npermission:\n', 1)[1]
+    actual = []
+    for line in block.splitlines():
+        if not line.strip() or line.lstrip().startswith('#'):
+            continue
+        assert line.startswith('  '), f'{name}: unexpected block shape'
+        actual.append(line[2:])
+    assert actual == rules, f'{name}: permission scope/order changed'
+    # No broad read/search override: inherited sensitive-path policy is retained.
+    assert not any(line.lstrip().startswith(('read:', 'grep:', 'glob:')) for line in actual)
+    assert 'prompt-level' in sections[2], f'{name}: scope distinction missing'
+    assert 'operator decision' in sections[2], f'{name}: unresolved boundary not surfaced'
+runner = (step / 'run.sh').read_text()
+assert 'kilo capabilities' not in runner, 'private capability command returned'
+assert 'strict-custom-roles-v1' not in runner, 'private protocol returned'
+repo = step.parents[2]
+for relative in ('README.md', 'docs/codemap.md'):
+    text = (repo / relative).read_text()
+    for obsolete in ('permission_mode: strict', 'strict-custom-roles-v1', 'Rule.ceiling'):
+        assert obsolete not in text, f'{relative}: obsolete private-client requirement returned'
+    for limitation in ('prompt-level', 'identified official', 'OS sandbox'):
+        assert limitation in text, f'{relative}: evidence/scope distinction missing'
+PY
 # shellcheck disable=SC2016
 require_literal "$MAINTAINER" 'current non-root identity'
 # shellcheck disable=SC2016

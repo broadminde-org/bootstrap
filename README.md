@@ -591,43 +591,73 @@ Every step in both tiers is designed to be safe to re-run:
 
 - `39-playwright` — requires `dev`; installs `@playwright/test` into the deploy user's default nvm Node version if absent and restores missing browser binaries in `~/.cache/ms-playwright` without privilege escalation. Disabling `dev` does not remove prior installs.
 
-Architect, Code Reviewer and Mapper now declare `permission_mode: strict` and
-require the corrected client's `strict-custom-roles-v1` protocol. Before any
-step-owned context deployment, retirement or receipt write, step 37 requires the exact
-successful `kilo capabilities strict-custom-roles-v1` receipt, compared as exact
-bytes through a nonprinting comparator with pipeline status checked. Untrusted
-client output never enters traced shell variables/arguments. Unsupported clients
-fail closed without installing or upgrading anything. This production capability
-entrypoint exercises composition/evaluation, not package-version metadata, but is
-not qualification of the executing backend's whole permission surface. Unmodified
-v7.8.17 does not support it. Isolated client qualification, installation and host
-rollout remain separate approval gates; these source declarations are not live.
-Strict role rules narrow inherited ordered configuration policy, including arbitrary sensitive
-read prompts/denials and wildcard permission keys. Execution/delegation/unknown
-tools stay outside the safe capability boundary, and broad saved/session grants
-cannot widen strict ceilings. Corrected tool writes admit both patch endpoints
-and suppress internal formatter/config-validator/LSP and skill-shell execution.
-Search results, initial/attached safety instructions and skill metadata/bodies
-require content-path admission, including all transitive file leaves and resolved
-fd aliases. Strict missing/denied includes fail loudly, not as inert text; skill
-bodies are materialized fresh instead of using a pre-expanded cache. Opaque process
-environment expansion is not a strict content capability.
-Strict catalogs avoid custom-tool imports/dependency preparation; prompt shell and
-command shell/MCP expansion cannot bypass the role. Explicit allowed callers can
-still delegate to strict target roles under the caller's task-admission policy.
-Independent ordered caller/session read ceilings use optional `Rule.ceiling`
-tags in existing session permission storage; API grants, toggles and resumed
-children cannot replace prior snapshots. In a configuration opting into strict
-roles, global allow-everything remains a memory grant rather than rewriting
-ordered configuration permissions. Non-strict-only configurations retain legacy
-composition. Role-triggered chat/task/model/text/compaction hooks are guarded;
-unscoped external event callbacks are unsupported with strict profiles, while
-directly imported platform/auth startup is not broadly disabled.
-Configuration-definition prompt/template expansion remains a separate unresolved
-source boundary, not a blanket trusted-startup waiver. Shared startup effects,
-capability-probe containment, native utilities, filesystem races and MCP connection
-state still require qualification. This source work is not an OS sandbox or proof
-of full Q2 effective enforcement.
+### Official-client role permissions (step 37)
+
+Step 37 uses the official Kilo client already supplied by step 36. It has no
+private capability prerequisite and does not install or modify a client. Existing
+file/JSONC preflight, deployment ordering, receipt-owned retirement and JSONC
+validation/rollback remain in place.
+
+Architect, Code Reviewer and Mapper use the documented YAML `permission` key,
+not a private strict-mode extension. See [Agent Permissions](https://kilo.ai/docs/customize/agent-permissions)
+and [Skills](https://kilo.ai/docs/customize/skills). Rules are ordered overrides:
+the last matching rule wins, including top-level permission keys. File-tool
+patterns are worktree-relative. Scoped edit rules put `"*": deny` first and
+exceptions afterward; they must not be reversed.
+
+| Agent | Matching edit requests | Role instructions |
+|---|---|---|
+| Architect | Plan Markdown under `.kilo/plans/`, `plans/`, or `.plans/` | Plan only; no implementation or execution. An exact reminder-selected path outside the permitted scope is a blocker, not authority to redirect or broaden access. |
+| Code Reviewer | `edit: deny` | Review only; no writes or execution. Unavailable checks are reported, not bypassed. |
+| Mapper | Markdown under `docs/`, including nested/module documentation paths | Only the assigned documentation; no source edits or execution. Review-only findings do not authorize writes. |
+
+All three deny matching Bash, task, Agent Manager, goal, LSP and skill requests;
+allow web fetch/search and questions; and use `external_directory: ask`.
+Architect also allows `open_plan` when available in the active client. External
+approval is not permission to write outside the role's edit scope. Read/search
+policy is left inherited rather than replaced with broad allowances, preserving
+configured sensitive-path asks/denials. Kilo documents additional protection for
+`.env`/`.env.*` reads; agents must not bypass protections through another tool or
+attached context. These overrides are **not inherited policy ceilings**.
+
+Plan-only, documentation-only, review-only and non-execution requirements are
+prompt-level instructions alongside tool permissions. Bash/LSP denials do not
+prove that internal formatters, configuration validators, language-server warm-up,
+plugins, automatic context or other execution mechanisms are suppressed. Skills
+are denied because trusted skills can execute embedded shell commands; allowing
+skills is not execution-free. Permissions do not establish an OS sandbox,
+complete path confinement across every patch/move endpoint, or closure of
+arbitrary MCP/custom tools. The prompts prohibit using inherited or newly exposed
+tools to exceed scope; this is not a runtime guarantee.
+
+If complete confinement or zero internal execution is required as enforced
+behavior, the operator must explicitly accept the documented limitation or revise
+the requirement before equivalent enforcement can be declared. Current official
+new-platform documentation is the configuration reference, not proof of support
+in every release. Tool availability, effective permission composition and runtime
+behavior require a separately authorized check against an identified official
+release with authentic receipts. The existing `kilo config check` invocation is
+retained; its availability and acceptance on that release remain unverified here.
+No source or stubbed-test result is live qualification or deployment authority.
+
+Local checks (non-root, existing dependencies only):
+
+```bash
+bash user/init.d/37-kilo-settings/tests/test-policy.sh
+bash user/init.d/37-kilo-settings/tests/test-deployment.sh
+```
+
+The policy test checks exact declarations/order and isolated JSONC migration. The
+deployment test operates on a copied repository and disposable HOME, with stubbed
+nvm and a client accepting only the existing JSONC validation command. It checks
+normal deployment without a capability API, preflight rejection before writes,
+agent copying, optional-skill retention/refresh, receipt-owned retirement,
+selected reverse import, JSONC-only rollback and screened validator diagnostics
+(including tracing). Neither invokes an installed Kilo client or proves matcher,
+permission enforcement, tool visibility or server connection behavior. These
+scripts currently use GNU-style `sha256sum`, `stat -c` and migration utilities;
+stock macOS execution is not established. Do not install tools to run them under
+this bounded patch authorization.
 
 `./user/sync-kilo-context.sh` defaults to a value-free preview. To apply, select
 reviewed known non-sensitive canonical paths, for example
