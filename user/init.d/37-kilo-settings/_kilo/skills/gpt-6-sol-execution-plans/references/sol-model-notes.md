@@ -65,7 +65,7 @@ For both models, preserving earlier API request prefixes/history is safest for c
 
 ### Planning recommendations
 
-Keep concise current execution state separate from historical decisions and evidence outside opaque reasoning. Replace the current queue as work changes without erasing decision history; do not require extra logs/artifacts or reconstruct old handoffs when focused current-state reads suffice. Lead continuation with capability demonstrated, usable entry point or missing components, next action/blocker, and actual authority, followed by relevant checks/evidence. Place stable API instructions/references before dynamic state and preserve tool ordering where applicable. Do not change the active Kilo model or reasoning settings mid-session; API configuration-update support does not authorize such a change.
+Place stable API instructions/references before dynamic operational state and preserve tool ordering where applicable; API history/cache continuity and replaceable plan documents are distinct. Do not change the active Kilo model or reasoning settings mid-session; API configuration-update support does not authorize such a change.
 
 ## 4. API context versus ChatGPT Work and Codex
 

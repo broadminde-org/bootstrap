@@ -1,85 +1,31 @@
 # Execution plan: <short name>
 
-> Copy only useful fields. Step essentials are objective/action, exact scope, acceptance evidence, and proportionate failure handling; IDs, budgets, deadlines, retries, and tracking are optional metadata, not universal requirements. Record only real limits. This plan records intent and references actual authority; current user grants, runtime permissions, and instructions govern actions, including separate commit/push/deployment gates.
+> Copy only useful fields; omit empty sections. Follow the global plan-lifecycle contract: replace current state, not append reports. This plan records intent, not permission; reference governing instructions and actual grants, including separate commit/push/deployment gates.
 
-**Plan ID / version:** <stable identifier and version>
-**Owner / date:** <accountable person, ISO date>
-**Executor:** <ChatGPT Work | Codex surface | API agent>
-**Target model:** <gpt-6-sol | gpt-6.1-sol>
-**Reasoning settings:** <valid effort; standard/pro mode where applicable>
-**Actual limits, if any:** <only applicable token/cost/time/operation limits; no invented ceiling>
+**Disposition:** <draft | active | blocked | completed | historical; successor link if superseded>
+**Objective:** <single observable result, intended recipient and exact artifacts; usable entry point where needed>
+**Optional runtime metadata:** <only needed executor/model/reasoning/history/tool settings, identifiers, owner/date, or actual limits; no invented ceilings>
 
-## 1. Objective
+## Current Inputs And Constraints
 
-**Single observable outcome:** <resulting state, not an activity>
-**Intended recipient / artifacts:** <user and exact artifact paths, records, or outputs>
-**Non-goals:** <explicitly excluded work and side effects>
-**First slice:** <smallest safe authorized integrated result, production implementation/caller and usable entry point where needed; actual deliverable for design/review/docs>
-**Minimum prerequisites:** <blocking scope, safety, authority, or feasibility decisions; reversible assumptions separately>
+**Sources / contracts:** <focused links with required versions, source/receipt identities, and conflict precedence>
+**Current state:** <observed baseline or demonstrated capability; brief completed-work summary and evidence links; distinguish source/offline from live results>
+**Scope / safety:** <exact writes and relevant reads/network/credentials, non-goals, unchanged compatibility, approval boundaries; reference applicable policies instead of repeating them>
+**Dependencies / decisions:** <minimum prerequisites for the first slice, still-applicable decisions and reversible assumptions; recovery and concurrency constraints only where needed>
 
-## 2. Authoritative inputs and current state
+## Remaining Ordered Actions
 
-**Sources:** <path, URL, or record with version/date>
-**Current state / reproduction:** <observed baseline and exact reproduction where applicable>
-**Source precedence:** <order used to resolve conflicts>
-**Allowed assumptions:** <only documented, reversible, in-scope assumptions>
-**Current execution queue:** <replaceable next actions/dependencies, separate from historical decisions/evidence; preserve stable API prefixes where applicable>
+1. <Concrete action and exact scope toward the first safe integrated slice; actual deliverable for design/review/docs. State dependencies, expected result and acceptance-check reference, plus proportionate failure/recovery handling where needed.>
+2. <Required follow-on work and qualification; label optional expansion separately.>
 
-## 3. Constraints
+## Blockers
 
-**Compatibility / output requirements:** <schemas, interfaces, formats, platforms>
-**Must remain unchanged:** <behavior, data, files, or public contracts>
-**Forbidden approaches:** <specific disallowed implementations or actions>
-**Required versus optional lanes:** <required behavior and smoke/core/final checks versus additional matrices, research, harnesses, and hardening>
-**Supporting work:** <for unplanned substantial support or displaced priorities, concrete blocker/uncertainty and next execution enabled; no ceremony for normal required follow-on work>
+<Concrete failed check, missing executor, decision, or permission; evidence link and next authorized resolution. Remove resolved blockers. Stop affected actions for denial or material safety/authority conflict; retry only with a new hypothesis or changed evidence under actual limits.>
 
-## 4. Tools, permissions, and recovery
+## Acceptance
 
-**Allowed reads:** <exact sources>
-**Allowed writes:** <exact paths or records>
-**Allowed network destinations:** <exact destinations or none>
-**Credentials / sensitive-data boundary:** <permitted scope, prohibited discovery/disclosure>
-**Required human or configured reviews:** <actions that stop at an approval gate>
-**Forbidden actions:** <including unchanged retries, denial workarounds, wider permissions, and fabricated results>
-**Delegation / parallelism rule:** <independent work only, concurrency limit, shared-state isolation>
-**Rollback / recovery:** <specific method for every side effect; steering/cancellation is not rollback>
+- [ ] <Objective/artifacts and required compatibility, safety, and scope checks: expected result and observed evidence link.>
+- [ ] <Each applicable user/project/AGENTS.md/CI-required milestone/final check mapped to its purpose; record permitted overlapping evidence reuse, explicit separate runs, and invalidation conditions.>
+- [ ] <Final inspected state and report agree; disclose failed, omitted, unavailable, or `incomplete` checks and remaining risks. Do not claim completion while required qualification is unfinished.>
 
-## 5. Ordered steps
-
-### Step <ID> — <short action>
-
-**Depends on:** <step IDs or none>
-**Action:** <one concrete operation>
-**Tool and exact scope:** <tool plus permitted paths, records, commands, or destinations>
-**Expected output / saved state:** <artifact or observable state>
-**Acceptance evidence:** <observed output or inspected state and expected result at this milestone; independent evidence need not require another reviewer>
-**On failure / escalation:** <proportionate handling under actual authority/limits; stop unchanged failures, retry only with a new hypothesis or materially changed evidence; recovery where needed>
-
-<Order required steps toward the first integrated result before optional expansion. Continue required follow-on checks after success. Use waits/job tracking only if the harness actually needs async or side-effecting execution. Omit empty ceremony.>
-
-## 6. Global acceptance checks
-
-- [ ] The objective-level observable result is present and correct.
-- [ ] Required compatibility, source, schema, output, and non-goal checks pass.
-- [ ] Affected regressions and unauthorized-change inspection pass; all applicable user/project/AGENTS.md/CI-required milestone/final gates remain mandatory regardless of a narrower claim. Report unrelated pre-existing failures separately without silently fixing them.
-- [ ] Every required artifact exists at its named location.
-- [ ] Independently inspected final state matches the completion report.
-- [ ] No required check is failed, omitted, or represented by an `incomplete` result.
-
-## 7. Stop and escalation
-
-**Stop for:** <material ambiguity, conflicting authority, out-of-scope work, unexpected sensitive data, destructive or unapproved external action, denial, warning affecting risk/authority, unchanged failure, or unrecoverable acceptance failure>
-**Escalation recipient / evidence:** <recipient plus commands, outputs, current diff/state, failed checks, and exact missing decision or permission>
-**Safe partial state to preserve:** <artifacts, logs, checkpoints, and recovery state>
-**When blocked:** <only bounded authorized work removing the blocker or obtaining necessary evidence; no unrelated safe lane or unsafe smoke>
-**Diagnostic versus denial:** <ordinary non-denial read-only error at unchanged scope/risk does not invalidate a still-applicable grant; denial or materially changed risk/authority stops the affected action>
-
-## 8. Continuation / completion report
-
-**Capability demonstrated:** <usable entry point, or missing concrete executor/components; distinguish offline/component progress and source-only evidence>
-**Next action / blocker and authority:** <next required action under the current grant, concrete blocker, or none if acceptance passed; no permission inferred from a plan/handoff/peer>
-**Completed step IDs / artifacts:** <IDs and exact links or paths>
-**Checks and exact results:** <commands or inspections, pass/fail results, and independent evidence>
-**Deviations / assumptions / failed checks:** <all limitations, including tool failures and unrun checks>
-**Approvals / remaining risks:** <specific approvals and unresolved risks>
-<Do not require a successor plan, model-backed run, or experiment merely to accept source-only work.>
+<On completion, replace current state with a concise outcome and required identifiers/evidence links, set disposition to completed, and leave no executable queue. No successor plan or model experiment is required for source-only acceptance.>

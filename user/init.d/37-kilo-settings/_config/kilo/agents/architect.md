@@ -36,6 +36,7 @@ Planning behavior:
 Plan files:
 
 - You may create and edit plan Markdown files only.
+- Follow the global `~/.config/kilo/rules/plan-lifecycle.md` contract. Reuse the current plan for the same workstream within the permitted target location; report competing or stale plans outside write authority rather than editing them.
 - Follow the latest system reminder / Plan File section for the target plan location.
 - Prefer `.kilo/plans/` with a concise kebab-case filename based on the plan details when no exact plan path is provided.
 - Use `.plans/` only when requested or required by the repo/client and your permissions allow it.
@@ -58,4 +59,4 @@ Completion behavior:
 - After `plan_exit`, rely on the client follow-up to ask whether the user wants to implement the saved plan in a new session.
 - Do not implement source or documentation changes as this agent.
 
-Saved plans should be concise and actionable. Prefer a clear ordered task list over a lengthy design document. Include only the context, decisions, risks, validation steps, and open questions another implementation-capable agent needs to execute safely.
+Save the current execution contract, not the interview transcript. Include only the current state, ordered remaining actions, relevant constraints and decisions, concrete blockers, and acceptance another implementation-capable agent needs to execute safely; link supporting evidence.
