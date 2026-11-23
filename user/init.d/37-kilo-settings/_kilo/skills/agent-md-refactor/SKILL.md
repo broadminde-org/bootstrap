@@ -17,6 +17,27 @@ metadata:
 
 Refactor bloated agent instruction files (AGENTS.md, CLAUDE.md, COPILOT.md, etc.) to follow **progressive disclosure principles** - keeping essentials at root and organizing the rest into linked, categorized files.
 
+## Preservation Contract
+
+Inspect the baseline, dirty worktree, instruction owners, and actual client
+loading/scope before editing. Do not commit, stage, or overwrite unrelated work
+to obtain a clean baseline. Refactoring does not authorize permission changes,
+runtime qualification, new documentation outside the assignment, or Git writes.
+
+Preserve security/secrets rules, permission and approval gates, trust boundaries,
+task-specific checks, and acceptance requirements. A model's presumed knowledge,
+deprecation label, line budget, or existing source syntax is not a replacement.
+Remove a requirement only when it is genuinely inapplicable or has a verified
+authoritative replacement actually loaded at the point of use; record that
+disposition. For portable/external executors, keep essential guidance
+self-contained rather than assuming host-global rules will be present.
+
+A Markdown link does not automatically load instructions. Before moving a rule,
+verify the supported loader/explicit read route and preserve its scope,
+precedence, and trust level. Do not move binding policy into lower-trust fetched
+content, examples, or an unselected skill. If loading cannot be verified under
+current authority, retain the binding rule and report that limitation.
+
 ---
 
 ## Triggers
@@ -65,13 +86,17 @@ Identify any instructions that conflict with each other.
 **Question:** Which should take precedence, or should both be conditional?
 ```
 
-Ask the user to resolve before proceeding.
+Resolve precedence already established by applicable instructions; ask only for
+an actual unresolved user decision. Do not turn conflicting safety policy into
+a stylistic choice or infer approval to weaken it.
 
 ---
 
 ### Phase 2: Identify the Essentials
 
-Extract ONLY what belongs in the root agent file. The root should be minimal - information that applies to **every single task**.
+Keep universal requirements and the essential routing needed for task-specific
+requirements in the root. Minimize only after satisfying the preservation
+contract; instructions need not apply to every task to require an effective route.
 
 **Essential content (keep in root):**
 | Category | Example |
@@ -82,7 +107,7 @@ Extract ONLY what belongs in the root agent file. The root should be minimal - i
 | Critical overrides | Things that MUST override defaults |
 | Universal rules | Applies to 100% of tasks |
 
-**NOT essential (move to linked files):**
+**Candidates for scoped files, only with verified loading:**
 - Language-specific conventions
 - Testing guidelines
 - Code style details
@@ -110,7 +135,7 @@ Organize remaining instructions into logical categories.
 
 **Grouping rules:**
 1. Each file should be self-contained for its topic
-2. Aim for 3-8 files (not too granular, not too broad)
+2. Choose the smallest useful grouping; file counts are advisory, not acceptance gates
 3. Name files clearly: `{topic}.md`
 4. Include only actionable instructions
 
@@ -186,16 +211,18 @@ Brief context for when these guidelines apply.
 
 ### Phase 5: Flag for Deletion
 
-Identify instructions that should be removed entirely.
+Flag candidates, mapping each binding requirement to its retained home or exact
+reason it no longer applies. Never delete secret/permission/security/trust or
+required-check guidance merely because it seems obvious.
 
 **Delete if:**
 | Criterion | Example | Why Delete |
 |-----------|---------|------------|
-| Redundant | "Use TypeScript" (in a .ts project) | Agent already knows |
+| Redundant | A repeated non-binding explanation | Same effective authoritative home retained |
 | Too vague | "Write clean code" | Not actionable |
 | Overly obvious | "Don't introduce bugs" | Wastes context |
 | Default behavior | "Use descriptive variable names" | Standard practice |
-| Outdated | References deprecated APIs | No longer applies |
+| Outdated | An API removed from the supported project version | Verified obsolete; preserve still-supported APIs |
 
 **Output format:**
 ```markdown
@@ -204,8 +231,8 @@ Identify instructions that should be removed entirely.
 | Instruction | Reason |
 |-------------|--------|
 | "Write clean, maintainable code" | Too vague to be actionable |
-| "Use TypeScript" | Redundant - project is already TS |
-| "Don't commit secrets" | Agent already knows this |
+| Repeated non-binding explanation | Same authoritative loaded home retained |
+| "Don't commit secrets" | KEEP: binding safety rule, not a deletion candidate |
 | "Follow best practices" | Meaningless without specifics |
 ```
 
@@ -215,12 +242,14 @@ Identify instructions that should be removed entirely.
 
 ```
 [ ] Phase 1: All contradictions identified and resolved
-[ ] Phase 2: Root file contains ONLY essentials
+[ ] Phase 2: Root retains essentials and effective task-specific routing
 [ ] Phase 3: All remaining instructions categorized
 [ ] Phase 4: File structure created with proper links
 [ ] Phase 5: Redundant/vague instructions removed
 [ ] Verify: Each linked file is self-contained
-[ ] Verify: Root file is under 50 lines
+[ ] Verify: Permission/security/trust/approval and acceptance requirements preserved
+[ ] Verify: Moved requirements load with the intended scope and precedence
+[ ] Verify: External-executor essentials remain self-contained
 [ ] Verify: All links work correctly
 ```
 
@@ -233,7 +262,7 @@ Identify instructions that should be removed entirely.
 | Keeping everything in root | Bloated, hard to maintain | Split into linked files |
 | Too many categories | Fragmentation | Consolidate related topics |
 | Vague instructions | Wastes tokens, no value | Be specific or delete |
-| Duplicating defaults | Agent already knows | Only override when needed |
+| Deleting safety as "obvious" | Weakens binding requirements | Retain or verify an authoritative loaded replacement |
 | Deep nesting | Hard to navigate | Flat structure with links |
 
 ---
@@ -286,11 +315,12 @@ React dashboard for real-time analytics visualization.
 
 After refactoring, verify:
 
-1. **Root file is minimal** - Under 50 lines, only universal info
+1. **Root file is focused** - Size is advisory; preserve binding rules and routing
 2. **Links work** - All referenced files exist
 3. **No contradictions** - Instructions are consistent
 4. **Actionable content** - Every instruction is specific
-5. **Complete coverage** - No instructions were lost (unless flagged for deletion)
+5. **Complete coverage** - Map every requirement to its retained loaded home or verified inapplicability; flagging alone does not justify deletion
 6. **Self-contained files** - Each linked file stands alone
+7. **Evidence limits** - Inspect the intended diff and available static checks; loader/runtime qualification requires separate authority. Report unverified loading, not inferred savings or behavioral equivalence.
 
 ---

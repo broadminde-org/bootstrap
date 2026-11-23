@@ -41,8 +41,11 @@ init.d/
   Steps without `.requires` always run.
 - Steps must be **non-interactive** by default. Interaction only in special,
   documented circumstances.
-- Steps are executed with `chmod +x` applied by the runner; failures are
-  collected, reported by name at the end, and cause a non-zero exit.
+- Inspect the actual runner before describing failure behavior or executing it.
+  In bootstrap, the root runner applies `chmod +x` and stops on the first failed
+  step (including chmod failure); the user runner collects step-script failures
+  and exits nonzero after the summary. User-runner preflight/chmod failures can
+  stop it earlier under `set -e`. Other projects must declare their own policy.
 
 ## Runner contract (`init.sh`)
 
@@ -52,25 +55,45 @@ init.d/
   - *User mode* — refuses to run as root. For per-user dev tooling installed
     into `$HOME` (python, node, shell config). Never mixes: if a step needs
     root, it belongs in the root-mode init.d, and vice versa.
+- Root mode describes manual operator provisioning, not agent authority to
+  escalate. Chat agents must never execute sudo or equivalent direct/indirect
+  escalation; provide exact operator commands, working directory, expected
+  result, and non-privileged verification when root access is required.
 - **Standard CLI** (adhere to this exact set):
   - `./init.sh` — run all steps in numeric order
   - `./init.sh --from N` — run from step N onward
   - `./init.sh N` — run only step N
   - `./init.sh --help` — print usage
+- Bootstrap also accepts a step name such as `50-docker`. Compare numbers
+  numerically (`5` selects `05-...`); reject unmatched bare selectors, unknown
+  arguments, and missing/non-numeric `--from` operands rather than falling back
+  to all steps or a silent no-op.
 - Discovery uses `find ... -maxdepth 1` on `init.d`, skipping `*.disabled`,
   collecting both flat files and dirs into a map keyed by numeric prefix.
 - Loads capability config before running steps; prefers a
   `$(hostname).conf.yml` over the default conf when both exist (optional).
+- In bootstrap, config and its `capabilities:` block are required; unlisted
+  capabilities are disabled. Validate names, duplicates, requirements, and
+  enabled features' prerequisites before steps. Disabling a capability skips
+  provisioning, never uninstalls existing state. Both tiers export the same
+  runner-selected `BOOTSTRAP_CONFIG_FILE` to step subshells.
 
 ## Configuration and secrets
 
-- Steps that need project-specific parameters read them from an **`.env` file**
-  at the project root. Nothing project-specific is hardcoded in steps.
+- Resolve deployment parameters through the project's existing environment/config
+  interface, with portable defaults where documented. Bootstrap reads required
+  inputs from the environment or parsed repo-root `.env`; do not shell-source
+  untrusted dotenv files or add an incompatible parser.
 - If `.env` is required, ship an **`.env.example`** template alongside it.
-- Internal secrets (passwords, tokens, keys the system needs) are **generated
-  by the init step itself**, never prompted for or committed.
-- Generated secrets are written to a **`secrets/`** folder: create it if
-  missing, `chmod 700` the directory and `chmod 600` the files inside.
+- Distinguish operator-supplied credentials from secrets the step is explicitly
+  responsible for generating. Use the established protected credential store;
+  do not generate replacements or add a secret store to a generic helper.
+  Bootstrap's `.env` never contains tokens/PATs; use its credential-owner path.
+- When generation is required, generate non-interactively, retain existing valid
+  secrets on reruns, and write outside the repository or under an explicitly
+  gitignored `secrets/` path. Protect directories/files with 0700/0600 from
+  creation, refuse redirected paths, and never print or commit secret values.
+  Do not create this directory unless the step actually needs generated secrets.
 
 ## Adding a new step
 
@@ -79,5 +102,6 @@ init.d/
    moment the step needs any supporting file.
 3. Write the step to be idempotent and non-interactive; fail loudly
    (`set -euo pipefail`, non-zero exit on error).
-4. Read parameters from `.env`; generate secrets into `secrets/`.
+4. Resolve supplied parameters through the existing interface; generate secrets
+   only when required, using protected external or explicitly gitignored storage.
 5. Add a `.requires` file only if the step depends on an optional capability.

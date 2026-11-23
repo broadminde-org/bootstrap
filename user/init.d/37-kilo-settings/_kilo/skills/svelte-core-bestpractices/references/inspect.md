@@ -1,3 +1,5 @@
+Source: [official inspect reference](https://svelte.dev/docs/svelte/$inspect), verified 2026-11-23. `$inspect.trace` requires 5.14+; do not inspect secret-bearing state or emit sensitive values in development logs.
+
 > [!NOTE] `$inspect` only works during development. In a production build it becomes a noop.
 
 The `$inspect` rune is roughly equivalent to `console.log`, with the exception that it will re-run whenever its argument changes. `$inspect` tracks reactive state deeply, meaning that updating something inside an object or array using fine-grained reactivity will cause it to re-fire:
@@ -53,8 +55,8 @@ This rune, added in 5.14, causes the surrounding function to be _traced_ in deve
 	import { doSomeWork } from './elsewhere';
 
 	$effect(() => {
-		+++// $inspect.trace must be the first statement of a function body+++
-		+++$inspect.trace();+++
+		// $inspect.trace must be the first statement of a function body
+		$inspect.trace();
 		doSomeWork();
 	});
 </script>

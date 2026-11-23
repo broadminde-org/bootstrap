@@ -12,6 +12,15 @@ In repositories that use or require `github.com/broadminde-org/go-shared`, inspe
 3. EVALUATE: meets the need → reuse. Partial → report a possible shared extension; inventory is not authorization to edit another repository or open a PR. Neither → write the smallest in-scope implementation.
 4. In applicable apps, do not reimplement an existing suitable go-shared package. Preserve intentional `GOPRIVATE=github.com/broadminde-org/*` settings; do not widen or remove them.
 
+## Module Versions And Private Access
+- Load `package-version-lookup` for version/CLI facts and `debug-with-logs` for failures. Inspect `go.mod`, `go.sum`, `go.work`, replacements, vendoring, and available dependency source first; a local replacement is not evidence that a published version works.
+- Look up the module path declared by its `go.mod`, not an import's package subdirectory or an SSH alias. Major v2+ modules normally include `/vN`; respect exceptions such as `gopkg.in` and legacy `+incompatible` versions rather than rewriting the path blindly. Proxy paths also require Go's uppercase escaping (`A` becomes `!a`).
+- Proxy version lists are unordered, may omit pseudo-versions, and are not a latest-release guarantee. Use Go module-aware version/query semantics, distinguish prereleases and retractions, and report the query and source; never take the last line or lexical maximum as latest.
+- Classify privacy before any remote lookup. Inspect effective `GOPRIVATE`, `GONOPROXY`, `GONOSUMDB`, `GOPROXY`, and `GOSUMDB` through authorized, value-screened evidence. `GOPRIVATE` supplies defaults that explicit overrides can defeat. A proxy's fallback rules do not make a private lookup safe.
+- Never send private module paths to public proxies, checksum databases, registry HTTP endpoints, or public search. For `go-shared`, load `go-shared-access` and follow its existing read-only SSH routing; other private modules require their own approved route. Missing access is a blocker, not permission to provision credentials, change global routing, or retry publicly.
+- Reject failed HTTP responses, malformed bodies, invalid module/version results, and mismatched identities; do not parse an error page as a version or guess after failure. Record unavailable verification without exposing credentials or private request URLs.
+- `go list`, version queries, builds, and tests can contact proxies, VCS hosts, checksum services, or download toolchains and write module/build caches. A cached result is not fresh network evidence, and a warm cache can mask broken private routing. Inspect network/cache policy before authorized execution; do not clear shared caches or run commands under source/static-only authority.
+
 ## Backend Structure (codemap standard)
 For ee Go backend apps governed by `ee/docs/standards/backend-structure.md`, follow these conventions. Do not impose this layout on unrelated repositories or standalone helpers:
 - HANDLER_STRUCT: `backend/handler.go` defines one `Handler` struct whose named fields are sub-handlers (`Projects *ProjectHandler`). Field name = route group; type name = domain.
@@ -21,10 +30,10 @@ For ee Go backend apps governed by `ee/docs/standards/backend-structure.md`, fol
 
 ## Tooling
 - Workspace-aware: inspect `go.mod`, any `go.work`, and project instructions; run checks from the applicable module/workspace roots rather than assuming every repo uses a workspace.
-- VALIDATION: use affected formatting, vet, and regression checks during development, then all applicable user-, project-, AGENTS.md-, and CI-required milestone/final checks. A narrower completion claim cannot waive them. Use the existing harness; where no convention applies, a minimal relevant regression and formatting check is a floor, not a ceiling or replacement for security, money-path, or release qualification.
+- VALIDATION: retain affected Go formatting, vet, and regression checks plus applicable project/milestone gates under the governing execution policy. Use the existing harness; absent a convention, relevant formatting and a minimal regression are a floor, not a replacement for security, money-path, or release qualification. Execution needs actual authority; report blocked checks rather than running them under source/static-only scope.
 - FAILURE_BOUNDARY: Report unrelated pre-existing failures; do not expand scope to fix them.
 - Host tooling may include golangci-lint, gosec, and govulncheck (`~/go/bin`); verify availability without installing merely for a narrow correction.
-- GOWORK_CHECK: when claiming a versioned dependency consumer works, verify with `GOWORK=off go build ./...` and applicable consumer tests so an accidental local workspace copy cannot satisfy the claim.
+- GOWORK_CHECK: before claiming a published dependency consumer works, inspect `replace`/vendor selection and verify the intended version with `GOWORK=off go build ./...` and applicable consumer tests under authorized network/cache policy. Disabling the workspace alone does not disable module replacements or vendoring.
 - In the ee repo use the `tests [app]` script (on PATH via direnv; auto-detects the app from `$PWD`) instead of assembling lint/test invocations by hand.
 
 ## Error Handling
@@ -34,7 +43,7 @@ For ee Go backend apps governed by `ee/docs/standards/backend-structure.md`, fol
 
 ## Testing
 - Table-driven tests with named cases; `*_test.go` beside the source file.
-- Run per-module respecting `go.work`; verify with `GOWORK=off` before concluding a versioned dependency works.
+- Run per-module respecting `go.work`; use the published-consumer check above for versioned dependency claims.
 
 ## Anti-Patterns
 The shared-module and route/layout anti-patterns below apply only where those project conventions govern the code.

@@ -1,3 +1,77 @@
+Bootstrap local adaptation/provenance record
+
+Upstream: https://github.com/ComposioHQ/awesome-claude-skills, skill-creator.
+Original LICENSE and LICENSE.txt retained unchanged (Apache-2.0).
+The historical unified diff below records the 2026-04-07 Claude-to-Kilo port.
+It is historical evidence, NOT a complete patch for the current repaired tree.
+
+2026-11-23 source repair (authoritative implementation: sibling source files):
+- SKILL.md: conditional authoring/initialization/distribution, truthful static
+  claims, explicit uv preparation versus no-install invocation, reviewed inventory,
+  failure/race limits, and required blocked isolated qualification.
+- scripts/quick_validate.py: pinned delayed YAML parsing, recursive duplicate/key
+  checks, decoded field types/name-directory matching, explicit local references,
+  nonredirected regular-file reads, and value-free errors.
+- Integration screens urllib resource-URL errors before reporting them, including
+  credential-bearing malformed netlocs; a synthetic negative CLI case is UNRUN.
+- Reviewed inventory names are checked with the recognizable-content signature
+  matcher before ZIP construction; a synthetic credential-name case is UNRUN.
+- scripts/init_skill.py: prewrite name/path admission; existing parent/absent
+  destination; quoted YAML name; instruction-only template; exclusive creation
+  and owned cleanup. YAML-ambiguous names have UNRUN production CLI cases.
+- Q6 ownership-gap repair: require Linux/single-thread masking, sigtimedwait and
+  dir_fd/no-follow
+  primitives before writes; defer SIGINT/SIGTERM across directory reservation and
+  exclusive file-open bookkeeping, delivering pending interruption under cleanup
+  protection. Direct/partial descriptor writes remain interruptible; prior
+  handlers/masks are restored without introducing a duplicate-descriptor gap.
+  Signal callbacks record rather than raise; explicit checkpoints deliver the
+  first interruption so already queued callbacks/repeated signals cannot abandon
+  cleanup. Masked cleanup avoids output/content writes and restores signal state.
+  Bounded native pending drains and a post-handler-restoration checkpoint precede
+  final original-mask handoff, while authenticated cleanup is still available.
+  Inherited ignored/blocked handled signals fail before writes with original
+  handlers/masks/pending state unchanged; default/custom/unrelated-mask states are
+  admitted. After final mask handoff, newly arriving signals follow caller policy.
+  Keep directory/file descriptors open to authenticate cleanup identities, preserve
+  replacements/extras, and screen incomplete-cleanup reporting. No unsupported
+  platform fallback/dependency, packaging redesign, or parser/pin change.
+- Q6 UNRUN prepared-interpreter production-CLI faults from owned project/unrelated
+  CWDs cover both signals before reservation/open bookkeeping, deferred delivery,
+  writing, signal-after-replacement/extras, open/write/cleanup failure, unsupported
+  primitives, previous signal-state restoration, success and cleaned-failure retry.
+  Follow-up source review added combined-pending and second/queued cleanup/
+  restoration callback/native DFL/custom pending cases, unchanged ignored/blocked
+  state/pending refusal, plus descriptor-close/native-wait admission and teardown
+  failure (no buffered flush). A failed native wait cannot skip original handler
+  restoration; cleanup remains authenticated and errors are screened.
+  Parent descriptor acquisition now also lies inside immediate cleanup/release
+  guards and short masked assignment; UNRUN signals/open failures verify exact
+  parent-descriptor release before emitting the prior-state-restored receipt.
+  SIGKILL/unhandled termination, final original-state handoff and host/race limits are
+  documented in SKILL.md; runtime qualification remains separately blocked.
+- scripts/package_skill.py: exact hash-reviewed external inventory; link/special
+  file/local/generated/secret/output denial; retained license/provenance notices;
+  screened-byte staging, integrity check, no-clobber publication/owned rollback.
+- Final review expanded secret-name refusal to plural filenames; synthetic
+  singular/plural inventory refusal cases remain UNRUN.
+- Quick review repair scans Markdown extensions case-insensitively during
+  packaging. An uppercase guide with missing/omitted/included dependencies has
+  an UNRUN production-CLI regression in tests/test_creator_runtime.py.
+- scripts/requirements.txt: explicit PyYAML==6.0.3 preparation pin (no transitive
+  runtime dependencies; registry metadata checked 2026-11-23).
+- tests/test_creator_static.py: nonexecuting source assertions, not runtime proof.
+- tests/test_creator_runtime.py: focused UNRUN production-CLI unittest fixtures;
+  explicitly prepared interpreter/parser prerequisite, isolated scratch/HOME,
+  metadata/init/inventory/refusal and injected staged-write failure checks.
+
+Refresh contract: preserve this record and both licenses; reconcile ALL listed
+production/test files with the authoritative bootstrap source rather than applying
+the historical patch alone or replacing helpers with upstream originals. Current
+repair qualification is source/static only; do not infer runtime acceptance.
+
+Historical adaptation follows:
+
 diff -ruN a/skill-creator/SKILL.md b/skill-creator/SKILL.md
 --- a/skill-creator/SKILL.md	2026-04-07 14:51:41
 +++ b/skill-creator/SKILL.md	2026-04-07 14:50:09

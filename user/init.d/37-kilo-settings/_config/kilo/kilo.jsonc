@@ -69,7 +69,15 @@
       "docker network prune *": "deny",
       "docker builder prune *": "deny",
       "docker volume rm *": "deny"
-    }
+    },
+    // v7.8.17 session/tools.ts asks named tool keys and read mcp:<server>:<uri>.
+    // These defaults do not disable servers or promise lazy connection/visibility.
+    "read": {
+      "mcp:playwright:*": "deny",
+      "mcp:svelte:*": "deny"
+    },
+    "playwright_*": "deny",
+    "svelte_*": "deny"
   },
   "indexing": {
     "enabled": true,

@@ -13,7 +13,11 @@ Over time, agent instruction files like `CLAUDE.md`, `AGENTS.md`, or `COPILOT.md
 - **Contradictions**: Conflicting guidelines accumulate without being noticed
 - **Signal-to-noise ratio**: Important rules get buried among obvious or vague statements
 
-This skill solves these problems by applying **progressive disclosure** - keeping only essential, universal instructions in the root file while organizing everything else into focused, linked documentation files.
+This skill applies **progressive disclosure** while preserving binding safety,
+permissions, trust, approval gates, and required checks. Read `SKILL.md` for the
+preservation contract before editing: links alone do not load instructions,
+external executors need self-contained essentials, and size is advisory rather
+than proof of savings or an acceptance gate.
 
 ## When to Use
 
@@ -91,7 +95,7 @@ Identifies instructions that should be removed entirely:
 
 - **Contradiction detection**: Surfaces conflicting instructions before restructuring
 - **Intelligent categorization**: Groups related instructions into logical files
-- **Root file minimization**: Targets under 50 lines for the main file
+- **Root file focus**: Retains binding requirements and effective task-specific routing without a line quota
 - **Deletion recommendations**: Identifies instructions wasting context tokens
 - **Template-driven output**: Consistent structure across all generated files
 - **Link verification**: Ensures all references between files are valid
@@ -128,7 +132,7 @@ agent instructions...
 
 After running the skill, you get:
 
-**Minimal root file (~50 lines or less):**
+**Focused root file (illustrative structure, not a size requirement):**
 ```markdown
 # Project Name
 
@@ -183,22 +187,22 @@ Brief context for when these guidelines apply.
 
 ### Before Refactoring
 
-1. **Commit current state** - Have a clean git state so you can review changes
+1. **Inspect current state** - Review status/diff and instruction loading; preserve unrelated work. Commit/stage only with explicit user authority
 2. **Identify your goals** - Know what problems you want to solve
 3. **Gather all instruction files** - Some projects have instructions scattered across multiple locations
 
 ### During Refactoring
 
 1. **Resolve contradictions first** - Do not proceed until conflicts are addressed
-2. **Be aggressive about root minimization** - When in doubt, move it out
-3. **Aim for 3-8 linked files** - Not too granular, not too broad
-4. **Delete liberally** - Vague instructions waste tokens without providing value
+2. **Preserve effective loading** - Move requirements only after verifying their scope, precedence, trust, and point-of-use loading
+3. **Group by need** - File counts are advisory, not a reason to fragment or delete requirements
+4. **Record dispositions** - Retain safety/checks or verify an authoritative loaded replacement; presumed model knowledge is not sufficient
 
 ### After Refactoring
 
 1. **Verify all links work** - Test that referenced files exist
 2. **Check for lost instructions** - Ensure nothing important was dropped
-3. **Test with real tasks** - Run a few typical tasks to verify the agent can find needed instructions
+3. **Qualify loading when authorized** - Real task/client tests require separate applicable runtime authority; source/static review alone cannot establish equivalent behavior
 
 ## Anti-Patterns to Avoid
 
@@ -207,20 +211,20 @@ Brief context for when these guidelines apply.
 | Keeping everything in root | Bloated, hard to maintain | Split into linked files |
 | Too many categories | Fragmentation, navigation overhead | Consolidate related topics |
 | Vague instructions | Wastes tokens, no value | Be specific or delete |
-| Duplicating defaults | Agent already knows | Only override when needed |
+| Deleting "obvious" safety rules | Removes binding protection | Retain or verify an authoritative loaded replacement |
 | Deep nesting | Hard to navigate | Flat structure with links |
 
 ## Verification Checklist
 
 After refactoring, verify:
 
-- [ ] Root file is under 50 lines
-- [ ] Root contains ONLY universal information
+- [ ] Root retains essential binding rules and task-specific routing; size is advisory
 - [ ] All links to sub-files work correctly
 - [ ] No contradictions remain between files
 - [ ] Every instruction is specific and actionable
-- [ ] No instructions were lost (unless intentionally deleted)
+- [ ] Every requirement has a retained loaded home or verified inapplicability
 - [ ] Each linked file is self-contained for its topic
+- [ ] External-executor essentials, permissions, trust, approval gates, and acceptance checks remain intact
 
 ## License
 

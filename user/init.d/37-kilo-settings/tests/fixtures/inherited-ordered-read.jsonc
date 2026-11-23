@@ -1,0 +1,17 @@
+{
+  "permission": {
+    "r*": {
+      "*": "allow",
+      "private/*": "deny",
+      "private/review.md": "ask",
+      "private/public.md": "allow"
+    },
+    "bash": { "*": "allow" },
+    "read": {
+      "credential/token.txt": "ask",
+      "private/key.pem": "deny",
+      "*.env": "ask",
+      "*.env.example": "allow"
+    }
+  }
+}

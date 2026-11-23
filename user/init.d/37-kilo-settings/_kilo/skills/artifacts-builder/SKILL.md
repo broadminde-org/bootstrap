@@ -1,10 +1,11 @@
 ---
 name: artifacts-builder
 description: >-
-  Suite of tools for creating elaborate, multi-component HTML
-  artifacts using modern frontend web technologies (React, Tailwind CSS,
-  shadcn/ui). Use for complex artifacts requiring state management, routing, or
-  shadcn/ui components - not for simple single-file HTML/JSX artifacts.
+  Create complex multi-component HTML artifacts with React, TypeScript,
+  Tailwind CSS and bundled shadcn/ui sources. Use when state management,
+  routing or reusable components warrant a project, not for simple single-file
+  HTML/JSX. Initialization prepares local dependencies; bundling requires that
+  prepared workspace and does not install dependencies.
 license: Complete terms in LICENSE.txt
 metadata:
   category: development
@@ -16,69 +17,177 @@ metadata:
 
 # Artifacts Builder
 
-To build powerful frontend HTML artifacts, follow these steps:
-1. Initialize the frontend repo using `scripts/init-artifact.sh`
-2. Develop your artifact by editing the generated code
-3. Bundle all code into a single HTML file using `scripts/bundle-artifact.sh`
-4. Display artifact to user
-5. (Optional) Test the artifact
+Use the existing project's design system and the user's intent. For a new UI,
+avoid interchangeable centered layouts, excessive gradients and uniform cards;
+choose typography, hierarchy and interaction deliberately. Preserve accessibility
+and responsive behavior. Use a simpler single-file implementation when a project
+is unnecessary.
 
-**Stack**: React 18 + TypeScript + Vite + Parcel (bundling) + Tailwind CSS + shadcn/ui
+## Entry Points
 
-## Design & Style Guidelines
+Resolve this loaded skill's directory as `SKILL_DIR`; do not assume its scripts
+exist in the project or in the current working directory. These examples use
+placeholder paths and require appropriate execution/dependency authority:
 
-VERY IMPORTANT: To avoid what is often referred to as "AI slop", avoid using excessive centered layouts, purple gradients, uniform rounded corners, and Inter font.
-
-## Quick Start
-
-### Step 1: Initialize Project
-
-Run the initialization script to create a new React project:
 ```bash
-bash scripts/init-artifact.sh <project-name>
-cd <project-name>
+SKILL_DIR=/absolute/path/to/artifacts-builder
+# Run from the intended existing, nonredirected parent directory.
+bash "$SKILL_DIR/scripts/init-artifact.sh" artifact-demo
+# After editing the generated project, bundle from any working directory.
+bash "$SKILL_DIR/scripts/bundle-artifact.sh" /absolute/path/to/artifact-demo
 ```
 
-This creates a fully configured project with:
-- ✅ React + TypeScript (via Vite)
-- ✅ Tailwind CSS 3.4.1 with shadcn/ui theming system
-- ✅ Path aliases (`@/`) configured
-- ✅ 40+ shadcn/ui components pre-installed
-- ✅ All Radix UI dependencies included
-- ✅ Parcel configured for bundling (via .parcelrc)
-- ✅ Node 18+ compatibility (auto-detects and pins Vite version)
+The initializer accepts exactly one simple lowercase project name, not a path.
+The destination must be absent, including empty directories and dangling links.
+The bundler accepts exactly one prepared project directory; parent traversal and
+redirected ancestors, source paths, configuration and owned state are rejected.
+Do not use these helpers to adopt or overwrite an existing project. A copied
+marker is insufficient: admission also checks directory identities, canonical
+configurations, pinned manifests, the prepared lock and installed package versions.
 
-### Step 2: Develop Your Artifact
+## Preparation And Editing
 
-To build the artifact, edit the generated files. See **Common Development Tasks** below for guidance.
+Use the host's configured Node toolchain, not an implicit upgrade. This stack
+requires Node **22.9 or newer** and existing **npm 11.20.0**. Missing/incompatible
+tooling is a blocker; the helper never installs global tooling. Direct package
+pins are in `scripts/stack.json`: React 18.3.1, TypeScript 5.9.3, Vite 6.4.1,
+React plugin 4.7.0, Tailwind 3.4.17 and single-file plugin 2.3.0. This is a local
+deterministic scaffold, not an unpinned `create-vite` download. Both development
+and artifact bundling use Vite; Parcel/html-inline are no longer used.
 
-### Step 3: Bundle to Single HTML File
+Initialization first checks arguments, existing Node/npm, the absent destination,
+required archive assets, checksums, path containment and tar entry/link types.
+Only then does it create the workspace and prepare dependencies locally with
+npm. Registry access and dependency lifecycle scripts belong to this explicit
+preparation step and need authorization. npm configuration/cache/temp are reserved
+under `.artifact-output`; distinct `user.npmrc` and `global.npmrc` files are admitted
+and fingerprinted together. Installation explicitly uses the new project as its
+`--prefix` and disables workspaces with `--workspaces=false`, rather than selecting
+an ancestor monorepo. No global install or HOME-config write is requested.
+Failed preparation leaves the incomplete new directory for inspection, without
+a prepared receipt or a successful-initialization claim. A retry does not erase
+or reuse it: inspect it and choose a new absent destination.
 
-To bundle the React app into a single HTML artifact:
+Edit `src/App.tsx`, other source files, CSS and `index.html`. Import components
+using `@/components/ui/button`, for example. Import local images/fonts from source
+so Vite can process them; the artifact bundler disables `public/` copying.
+Generated `src/vite-env.d.ts` references `vite/client` for asset and URL/raw import
+types. Keep that declaration available to the all-source TypeScript check.
+Manifest, lock and managed configuration edits invalidate admission. To change
+the stack/configuration, review this skill's source and initialize a new absent
+workspace; do not recompute receipts from current files to bypass a rejection.
+Keep the generated lock with the project: exact direct pins do not freeze every
+transitive resolution before initialization.
+
+For authorized interactive development, run the prepared project's `npm run dev`
+using the available process supervisor. Development server output/ports are not
+part of the offline artifact. No host/domain/port is forced by this skill.
+
+## Prepared-Only Bundling
+
+The bundler imports installed local packages and runs the local TypeScript
+compiler across `src` without emitting files. It does not use npm/pnpm/npx, dependency
+installation, registry resolution or manifest/lock/config writes. Missing or
+mismatched preparation is a failure, not permission to install. It disables Vite
+config loading and `.env` loading, supplies the reviewed build configuration, and
+stages build output, cache and temporary files inside a newly owned
+`.artifact-output/stage-*` directory. It does not clean root `dist/` or root
+`bundle.html`. The workspace, output directory and ownership receipt must remain
+private. Compiler/install diagnostics are suppressed by the helper to avoid
+publishing source/environment/credential-bearing errors; reproduce a diagnostic
+only with authorized project tooling and screen it before reporting.
+
+The published file is **`<project>/.artifact-output/bundle.html`**. Publication
+requires a nonempty inlined HTML build with no additional emitted assets and a
+conservative remaining-reference check. Repeated publication requires the prior
+file to match its recorded successful hash. Modified, unknown, redirected or
+missing recorded outputs are refused rather than overwritten. Unknown extras
+outside the newly owned stage are preserved. Build/inlining failure leaves the
+prior bundle intact. Rollback snapshots are read before stage reservation; all
+postreservation setup is cleanup-guarded. Cleanup removes only the stage matching
+its captured directory identity; failure to capture that identity or a replacement
+stage leaves unknown state for manual review, never an unauthenticated deletion.
+Ordinary receipt-publication failure attempts restoration
+only if the just-published bytes still match. Interrupted publication or concurrent
+changes can leave an unknown baseline requiring manual review. Receipts are local
+ownership evidence, not an adversarial sandbox; avoid concurrent workspace writers.
+
+Vite's single-file plugin is intended to inline build-generated JavaScript and
+CSS, with imported assets converted to data URLs. This is **not** proof that
+arbitrary application code is offline, that all fonts/chunks work, or that the
+result can be rendered as a native artifact by the active client. Dynamic fetches,
+navigation, remote embeds and other application behavior need explicit review and
+offline qualification. Do not describe a file as fully self-contained solely
+because bundling returned success.
+
+## Verification And Presentation
+
+Before declaring the artifact finished, qualify the generated all-component
+source build and the final file's interactions, accessibility, desktop/mobile
+layout and offline assets/chunks/fonts using an authorized executor. Preserve
+required checks from the project and frontend/testing skills. If execution,
+dependency preparation or browser access is unavailable, report the source-only
+result and the exact missing qualification instead of skipping it as optional.
+
+The original component archive is retained unchanged. Static inspection found
+calendar `DayButton`/`DayPicker` imports and resizable `PanelGroup`/
+`PanelResizeHandle` references; a build/export mismatch has **not** been
+reproduced. Do not patch those APIs without reproducing against the selected
+prepared stack. API correction and functional/offline qualification remain pending.
+
+Return the published file path through the client's supported file/link surface.
+Use a native artifact renderer only if the active client actually provides one;
+Kilo conversation text alone does not guarantee inline HTML rendering. Distinguish
+source work, produced files and verified behavior in the final report.
+
+Future qualification cases are inventoried in `scripts/qualification-cases.json`.
+Runnable, **UNRUN** Node built-in regression source is in `tests/artifact.test.mjs`.
+It calls the production wrappers, with synthetic archive/admission fixtures and
+no-mutation assertions. An installer stub records arguments and generated scaffold
+files in new synthetic projects, including ancestor workspace/lock/dependency/script
+sentinels, then deliberately fails without preparing dependencies or a receipt.
+That contract test is not real npm workspace/install qualification.
+It never automatically initializes or installs the
+prepared bundle fixture. The lifecycle requires a fresh production-initialized
+synthetic workspace directly under the executor's temporary parent, named
+`artifact-regression-prepared-...`, with all pinned/native dependencies available.
+Do not copy/rewrite receipts to create that prerequisite. Use an existing Node
+>=22.9 and non-root Linux `/bin/bash`/`/usr/bin/dirname` inside a separately authorized
+network-denied executor. An environment flag alone is not network isolation.
+
+After that separate authorization and manual preparation, the invocation is:
+
 ```bash
-bash scripts/bundle-artifact.sh
+ARTIFACT_TEST_OFFLINE_EXECUTOR=1 \
+ARTIFACT_TEST_OLD_NODE=/absolute/existing-node-below-22.9 \
+ARTIFACT_TEST_PREPARED_WORKSPACE=/absolute/disposable-temp/artifact-regression-prepared-case \
+TMPDIR=/absolute/disposable-temp \
+node --test "$SKILL_DIR/tests/artifact.test.mjs"
 ```
 
-This creates `bundle.html` - a self-contained artifact with all JavaScript, CSS, and dependencies inlined. This file can be directly shared in Kilo sessions as an artifact.
+The harness changes only dedicated synthetic fixtures and the supplied disposable
+workspace, leaving that workspace's last valid bundle for inspection. Missing
+prepared/offline prerequisites fail the lifecycle rather than trigger preparation.
+The required real below-minimum Node case fails with prerequisite guidance unless
+an existing `ARTIFACT_TEST_OLD_NODE` binary is explicitly supplied; missing
+executors do not waive qualification. Tests check type/build and
+post-inlining refusal, repeat publication, modified/unknown/missing outputs,
+redirected paths, forged config baselines, missing dependencies, unchanged
+manifests/locks/config (including both npm config files), unknown extras and incidental
+scratch writes. Added asset cases exercise imported SVG/font URLs, URL/raw queries
+and CSS URLs through the prepared type/build path; synthetic font bytes do not
+qualify font decoding or rendering. Private copied-helper fault cases inject early
+rollback-read and stage-setup failures and check that no stage or changed baseline
+remains. All of these tests remain UNRUN. They do not
+provide a browser executor or prove arbitrary app networking is absent.
 
-**Requirements**: Your project must have an `index.html` in the root directory.
+Required remaining qualification includes a forced all-component runtime import
+build, offline browser assets/chunks/fonts/interactions/accessibility/mobile cases,
+real npm installation under an ancestor monorepo with unchanged ancestor sentinels,
+missing transitive/native dependencies and injected inliner/receipt-rename/
+interruption/concurrent-writer failures. These need the prepared toolchain and an
+authorized offline browser/fault-injection executor; the API mismatch remains
+unreproduced. Original license/provenance and dated local changes are retained in
+`LICENSE`, `LICENSE.txt` and `local.patch`.
 
-**What the script does**:
-- Installs bundling dependencies (parcel, @parcel/config-default, parcel-resolver-tspaths, html-inline)
-- Creates `.parcelrc` config with path alias support
-- Builds with Parcel (no source maps)
-- Inlines all assets into single HTML using html-inline
-
-### Step 4: Share Artifact with User
-
-Finally, share the bundled HTML file in conversation with the user so they can view it as an artifact.
-
-### Step 5: Testing/Visualizing the Artifact (Optional)
-
-Note: This is a completely optional step. Only perform if necessary or requested.
-
-To test/visualize the artifact, use available tools (including other Skills or built-in tools like Playwright or Puppeteer). In general, avoid testing the artifact upfront as it adds latency between the request and when the finished artifact can be seen. Test later, after presenting the artifact, if requested or if issues arise.
-
-## Reference
-
-- **shadcn/ui components**: https://ui.shadcn.com/docs/components
+Reference: https://ui.shadcn.com/docs/components

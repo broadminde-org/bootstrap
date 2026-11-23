@@ -4,14 +4,11 @@ description: For when you need your code criticized like nobody's business
 options:
   displayName: Code Skeptic
 permission:
-  read: allow
   edit:
     "*": deny
     "*.md": allow
     "*.mdc": allow
     "*.mdx": allow
-  bash: allow
-  mcp: allow
   question: allow
 ---
 

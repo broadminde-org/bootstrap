@@ -1,0 +1,20 @@
+{
+  "permission": {
+    "bash": {
+      "sudo": "deny",
+      "sudo *": "deny",
+      "*": "allow",
+      "s*": "allow",
+      "git status": "allow"
+    },
+    "read": {
+      "mcp:playwright:*": "deny",
+      "*": "allow",
+      "*.env": "ask"
+    },
+    "playwright_*": "deny",
+    "svelte_*": "deny",
+    "playwright_browser_*": "allow",
+    "svelte_get_*": "allow"
+  }
+}

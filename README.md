@@ -587,8 +587,65 @@ Every step in both tiers is designed to be safe to re-run:
 - `20-python` — checks uv's version and only uv-managed CPython; matching numeric major/minor/exact requests are reused without patch upgrades. Resolves Python `latest` from the selected uv's catalog after uv setup, with no hardcoded fallback.
 - `22-python-dev` — requires only `dev`; unpinned `uv tool install --upgrade` resolves Ruff against an explicit existing managed interpreter with Python downloads disabled and no `--force`. Already-current tools are not unnecessarily reinstalled; failures remain nonzero. Disabling `dev` leaves existing tools installed.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
-- `37-kilo-settings` — synchronizes managed agents, commands, rules, default skills, and explicitly selected optional skills with `sync_dir_preserve`: managed destination modifications are overwritten, while destination-only additions survive. Unselected optional skills are neither installed nor refreshed; existing copies may remain stale. The always-on `execution-focus.md` rule favors the smallest safe authorized end-to-end result while preserving required behavior/checks and approval boundaries. Source edits are not live until a separately approved rollout; reload/restart at an operator-chosen time and verify discovery in a fresh session. Agents may use normal OS temporary paths such as `/tmp` (standard ownership `root:root`, mode `1777`); the step no longer provisions `~/.tmpdir/` or a cleanup timer, and removes the retired `workspace-temp.md` and `kilo-agent-tmp.conf` on reruns. Existing scratch data and the shared user tmpfiles timer are left untouched; session-wide `TMPDIR` is not changed. Existing `kilo.json` and bootstrap `.kilocodeignore` customizations are preserved with manual diff guidance; absent files may be created. Recognized `kilo.jsonc` receives only the managed instructions/denial migration, preserving unrelated permissions, comments, indexing, formatting, and customization, with `kilo config check` and JSONC rollback on failure. No source JSON edit is needed for this policy, but rollout can still create/migrate live JSON. Rollout is nontransactional: context synchronization and retired-path deletion precede JSONC migration, skills follow it, and JSONC rollback does not undo earlier context effects. Review affected live destinations and recovery before approval; unfamiliar/conflicting JSONC is rejected for manual review.
+- `37-kilo-settings` — deploys canonical agents, commands, rules, default skills and explicitly selected optional skills, preserving destination-only extras. Managed destination edits are overwritten on an approved deployment. Deselected installed optionals are reported and retained without refresh, not uninstalled. Per-file deployment receipts live outside loaded context at `~/.local/state/bootstrap/kilo-context/` (directory `0700`, files `0600`), advancing after each successful write/comparison. Roots, paths, manifests, selections and receipts are preflighted before deployment. Explicit retired files are deleted only when authentic deployment receipts identify unchanged content; modified files, unknown legacy ownership and nested extras are preserved. The step does not provision scratch directories or timers. Existing `kilo.json` and bootstrap `.kilocodeignore` remain user-maintained, with filename-only manual-merge notices, never raw diffs. Recognized JSONC receives managed instructions and ordered Bash/named seeded-MCP denials, with validation and exact JSONC-only rollback. Tool permissions, visibility and server connections are distinct; no startup or sandbox guarantee follows. Rollout is nontransactional: earlier file writes/receipts/retirement survive a later JSONC failure. Source edits are not live until separately approved rollout and operator-chosen reload; review the complete destination/receipt recovery set and verify fresh-session discovery.
+
 - `39-playwright` — requires `dev`; installs `@playwright/test` into the deploy user's default nvm Node version if absent and restores missing browser binaries in `~/.cache/ms-playwright` without privilege escalation. Disabling `dev` does not remove prior installs.
+
+Architect, Code Reviewer and Mapper now declare `permission_mode: strict` and
+require the corrected client's `strict-custom-roles-v1` protocol. Before any
+step-owned context deployment, retirement or receipt write, step 37 requires the exact
+successful `kilo capabilities strict-custom-roles-v1` receipt, compared as exact
+bytes through a nonprinting comparator with pipeline status checked. Untrusted
+client output never enters traced shell variables/arguments. Unsupported clients
+fail closed without installing or upgrading anything. This production capability
+entrypoint exercises composition/evaluation, not package-version metadata, but is
+not qualification of the executing backend's whole permission surface. Unmodified
+v7.8.17 does not support it. Isolated client qualification, installation and host
+rollout remain separate approval gates; these source declarations are not live.
+Strict role rules narrow inherited ordered configuration policy, including arbitrary sensitive
+read prompts/denials and wildcard permission keys. Execution/delegation/unknown
+tools stay outside the safe capability boundary, and broad saved/session grants
+cannot widen strict ceilings. Corrected tool writes admit both patch endpoints
+and suppress internal formatter/config-validator/LSP and skill-shell execution.
+Search results, initial/attached safety instructions and skill metadata/bodies
+require content-path admission, including all transitive file leaves and resolved
+fd aliases. Strict missing/denied includes fail loudly, not as inert text; skill
+bodies are materialized fresh instead of using a pre-expanded cache. Opaque process
+environment expansion is not a strict content capability.
+Strict catalogs avoid custom-tool imports/dependency preparation; prompt shell and
+command shell/MCP expansion cannot bypass the role. Explicit allowed callers can
+still delegate to strict target roles under the caller's task-admission policy.
+Independent ordered caller/session read ceilings use optional `Rule.ceiling`
+tags in existing session permission storage; API grants, toggles and resumed
+children cannot replace prior snapshots. In a configuration opting into strict
+roles, global allow-everything remains a memory grant rather than rewriting
+ordered configuration permissions. Non-strict-only configurations retain legacy
+composition. Role-triggered chat/task/model/text/compaction hooks are guarded;
+unscoped external event callbacks are unsupported with strict profiles, while
+directly imported platform/auth startup is not broadly disabled.
+Configuration-definition prompt/template expansion remains a separate unresolved
+source boundary, not a blanket trusted-startup waiver. Shared startup effects,
+capability-probe containment, native utilities, filesystem races and MCP connection
+state still require qualification. This source work is not an OS sandbox or proof
+of full Q2 effective enforcement.
+
+`./user/sync-kilo-context.sh` defaults to a value-free preview. To apply, select
+reviewed known non-sensitive canonical paths, for example
+`./user/sync-kilo-context.sh --apply config/rules/execution-focus.md` from the
+repository root (the absolute wrapper path also works from another CWD).
+No JSON/JSONC, unknown skills, feature-owned resources, retired names, deletions,
+binary inputs or changed agent frontmatter are imported. Each changed import
+requires a current source deployment baseline; secret screening is conservative,
+not proof of absence. Every selected file is validated before writes. Import
+does not advance deployment receipts; an identical repeated import is a no-op,
+but another change requires deployment of the new canonical baseline. Failed
+imports attempt exact source/mode rollback with receipts unchanged. Recovery
+continues across independent files when a conflict or restore failure occurs,
+preserves external changes, and reports incomplete recovery without live values.
+Back up both source and receipts before authorized operations; filesystem races and
+rollback I/O failure cannot be made transactional by these checks. Unknown
+ownership on older installations must be reviewed, never inferred from names
+or current live bytes. Both wrappers require existing Python 3.10+ and non-root use.
 
 ---
 

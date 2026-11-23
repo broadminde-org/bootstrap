@@ -3,12 +3,36 @@ name: svelte-core-bestpractices
 description: >-
   Svelte 5 runes-mode best practices — $state, $derived, $effect, $props,
   events, snippets, keyed each blocks, scoped styling, context, and async
-  Svelte, plus modern replacements for legacy features (no $:, export let,
-  on:, slots, stores). USE FOR writing or reviewing Svelte 5 components to
-  keep them idiomatic and runes-first. DO NOT USE FOR Svelte 4 or earlier.
+  Svelte, with version-aware alternatives for new runes-mode work. USE FOR
+  writing or reviewing Svelte 5 components. Preserve valid stores/actions
+  and existing component modes; not a conversion or upgrade mandate.
+  DO NOT USE FOR Svelte 4 or earlier.
 ---
 
 # Svelte Core Best Practices
+
+## Version And Scope
+
+Use `svelte-code-writer` for the authorized documentation/autofixer workflow
+when available. Keep the portable minimum here: inspect project metadata,
+lockfile, installed Svelte version, component mode, and compiler configuration
+before choosing APIs. Do not assume a package range is the installed version,
+upgrade dependencies, enable async, or convert existing components merely to
+follow this skill. Read only relevant bundled/official reference sections.
+Autofixer plus applicable project checks remain required for component edits
+under execution authority; report denied/unavailable validation explicitly.
+
+| API | Minimum Svelte Version | Supported Older-Version Choice |
+|---|---|---|
+| Override a `let` derived value | 5.25 | Keep derived read-only; separate explicit state if needed |
+| `{@attach ...}` / `svelte/attachments` | 5.29 | `use:action` with its existing lifecycle |
+| `createContext` | 5.40 | Typed `getContext` / `setContext` with a shared key |
+| Component await expressions | 5.36 plus existing `experimental.async` | Existing async event/load logic and `{#await}` blocks |
+| Function bindings | 5.9 | Supported bindings/event handlers |
+| `$inspect.trace` | 5.14 | Existing debugging tools / `$inspect` |
+| Array/object `class` values | 5.16 | String `class` or `class:` directives |
+
+Official sources (verified 2026-11-23): [derived overrides](https://svelte.dev/docs/svelte/$derived#Overriding-derived-values), [attachments](https://svelte.dev/docs/svelte/@attach), [createContext](https://svelte.dev/docs/svelte/svelte#createContext), [await expressions](https://svelte.dev/docs/svelte/await-expressions), [bindings](https://svelte.dev/docs/svelte/bind#Function-bindings), [inspect](https://svelte.dev/docs/svelte/$inspect), and [classes](https://svelte.dev/docs/svelte/class). Current documentation may include still newer APIs: verify each affected one against the project's supported version.
 
 ## `$state`
 
@@ -34,7 +58,9 @@ $effect(() => {
 
 > [!NOTE] `$derived` is given an expression, _not_ a function. If you need to use a function (because the expression is complex, for example) use `$derived.by`.
 
-Deriveds are writable — you can assign to them, just like `$state`, except that they will re-evaluate when their expression changes.
+Since Svelte 5.25, a derived declared with `let` can be temporarily overridden by
+assignment; dependency changes cause recalculation. Before 5.25 deriveds are
+read-only, and `const` derived declarations cannot be reassigned.
 
 If the derived expression is an object or array, it will be returned as-is — it is _not_ made deeply reactive. You can, however, use `$state` inside `$derived.by` in the rare cases that you need this.
 
@@ -42,7 +68,7 @@ If the derived expression is an object or array, it will be returned as-is — i
 
 Effects are an escape hatch and should mostly be avoided. In particular, avoid updating state inside effects.
 
-- If you need to sync state to an external library such as D3, it is often neater to use [`{@attach ...}`](references/attach.md)
+- If you need to sync state to an external library such as D3, consider [`{@attach ...}`](references/attach.md) on 5.29+ when appropriate; `use:action` remains valid, including on older versions
 - If you need to run some code in response to user interaction, put the code directly in an event handler or use a [function binding](references/bind.md) as appropriate
 - If you need to log values for debugging purposes, use [`$inspect`](references/inspect.md)
 - If you need to observe something external to Svelte, use [`createSubscriber`](references/svelte-reactivity.md)
@@ -161,15 +187,25 @@ If this is impossible (for example, the child component comes from a library) yo
 
 Consider using context instead of declaring state in a shared module. This will scope the state to the part of the app that needs it, and eliminate the possibility of it leaking between users when server-side rendering.
 
-Use `createContext` rather than `setContext` and `getContext`, as it provides type safety.
+On 5.40+, consider `createContext` for a type-safe context contract. On earlier
+versions, use typed `getContext` / `setContext` with the same shared key. Existing
+keyed contexts remain valid on newer versions; do not migrate them unnecessarily.
 
 ## Async Svelte
 
-If using version 5.36 or higher, you can use [await expressions](references/await-expressions.md) and [hydratable](references/hydratable.md) to use promises directly inside components. Note that these require the `experimental.async` option to be enabled in `svelte.config.js` as they are not yet considered fully stable.
+On 5.36+ with the project's existing `experimental.async` enabled, component
+[await expressions](references/await-expressions.md) are available. Preserve
+existing async configuration and supported `{#await}`/event/load patterns.
+`hydratable` is a separate low-level serialization API, not a prerequisite for
+await; consult [its reference](references/hydratable.md) only when needed and
+verify its availability in the installed version. Never serialize secrets or
+server-only data into client HTML.
 
-## Avoid legacy features
+## New Runes-Mode Work
 
-Always use runes mode for new code, and avoid features that have more modern replacements:
+Prefer runes for new Svelte 5 components where consistent with the project.
+Existing legacy components remain supported; do not mix incompatible modes
+within a component or perform unsolicited migration. For runes-mode code:
 
 - use `$state` instead of implicit reactivity (e.g. `let count = 0; count += 1`)
 - use `$derived` and `$effect` instead of `$:` assignments and statements (but only use effects when there is no better solution)
@@ -178,6 +214,6 @@ Always use runes mode for new code, and avoid features that have more modern rep
 - use `{#snippet ...}` and `{@render ...}` instead of `<slot>` and `$$slots` and `<svelte:fragment>`
 - use `<DynamicComponent>` instead of `<svelte:component this={DynamicComponent}>`
 - use `import Self from './ThisComponent.svelte'` and `<Self>` instead of `<svelte:self>`
-- use classes with `$state` fields to share reactivity between components, instead of using stores
-- use `{@attach ...}` instead of `use:action`
-- use clsx-style arrays and objects in `class` attributes, instead of the `class:` directive
+- use `$state` objects/classes for appropriate new shared reactive logic in `.svelte.js`/`.svelte.ts`; [stores](https://svelte.dev/docs/svelte/stores) remain valid for existing contracts, streams, and manual subscription control. Scope user state per request/component tree for SSR
+- consider `{@attach ...}` on 5.29+ when its lifecycle/composition fits; [actions](https://svelte.dev/docs/svelte/use) remain supported and must not be converted solely for style
+- use arrays/objects in `class` on 5.16+ where useful; string classes and `class:` remain valid, especially on earlier versions
