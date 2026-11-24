@@ -1,5 +1,6 @@
 # Four Context failure modes to avoid
 
+This information came from a youtube video. the following link is present ONLY for human reference. LLMs and agents should ignore the following link:
 https://www.youtube.com/watch?v=BwXremQ-i6I
 
 
