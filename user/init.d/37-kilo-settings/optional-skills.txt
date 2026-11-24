@@ -1,4 +1,6 @@
-# Skills excluded from the default host context.
+# Skills not selected for installation/refresh by default.
+# Previously installed deselected skills and user extras are retained.
+# This manifest does not establish removal or effective client discovery.
 #
 # Install a selected skill during provisioning with:
 #   KILO_OPTIONAL_SKILLS=skill-one,skill-two ./user/init.sh 37-kilo-settings

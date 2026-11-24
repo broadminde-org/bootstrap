@@ -1,9 +1,18 @@
-# Context Set Gap Analysis — Recommendations
+# Context Set Gap Analysis — Historical Recommendations and Retained R6 Policy
 
-> **Status: RESOLVED (2026-10-27) — historical reference.** All recommendations below
-> have been executed: R2/R3 (skills restored as defaults), R4 (`rules/config-hygiene.md`
-> added), R5 (mcp-server step removed from `run.sh`). R6 remains the standing policy:
-> do not re-add the purged rules/skills. The body below is kept for the rationale.
+> **Historical disposition:** The preceding record reported RESOLVED (2026-10-27):
+> R2/R3 restored as defaults, R4 (`rules/config-hygiene.md`) added, and R5's
+> mcp-server step removed from `run.sh`. These are historical source/status claims,
+> not current deployment, effective loading, or behavioral-validation receipts.
+> R2–R5 and the summary/ordering below are non-executable historical rationale,
+> not a current work queue. Validate consequential claims against relevant current
+> source and authorized evidence before relying on them.
+>
+> **Authority exception retained in place:** R6 remains the standing policy:
+> do not re-add the purged rules/skills. Its substantive policy has not been
+> removed, relocated, or changed. Historical research and implementation rationale
+> below is not proof of current prompt coverage or runtime loading. Changing R6's
+> policy or authority requires an explicit ownership/disposition decision.
 
 Date: 2026-09-02
 Scope: Cross-reference of salvaged opencode context set (`_salvage/opencode/`) against the
@@ -22,8 +31,11 @@ a problem that worsens as models age between releases. The salvaged skill had co
 live registry recipes for 9 ecosystems (PyPI, npm, Go proxy, RubyGems, crates, Debian,
 Alpine, DockerHub, GHCR) and a hard rule: never pin from memory.
 
-**Why a skill, not a rule:** It is needed only when touching dependencies. A `SKILL.md`
-loads on demand at zero always-on context cost. The salvaged file
+**Why a skill, not a rule (historical rationale):** It is needed only when touching
+ dependencies. Kilo's skills documentation describes metadata discovery/prompt
+ inclusion and on-demand loading of full instructions and optional references;
+ this does not support a “zero always-on context cost” claim. Effective loading
+ in a particular client/session remains unverified here. The salvaged file
 (`_salvage/opencode/skills/package-version-lookup/SKILL.md`) is already skill-shaped and
 generic — restoring it is close to a copy operation.
 
@@ -54,9 +66,11 @@ no hardcoded domains/ports/URLs/credentials. Only "never stage `.env`" survives 
 when few and short — this one qualifies. Alternatively fold into `workspace-temp.md` as
 a second section to keep the rules/ directory at one file.
 
-**Note:** the live `~/.config/kilo/rules/` directory does not currently exist — the
-`instructions` glob in kilo.jsonc matches nothing until a rule file is deployed. Any new
-rule must actually be synced to take effect.
+**Historical note (not revalidated host evidence):** The original assessment claimed
+that the live `~/.config/kilo/rules/` directory did not exist and the `instructions`
+glob matched nothing. This is not a current host-state claim. Source deployment
+alone does not prove effective client loading; current configuration/client evidence
+is required before asserting that a rule takes effect.
 
 ## R5 — Resolve the mcp-server/standards apparatus in `run.sh` (MEDIUM)
 
@@ -75,7 +89,11 @@ comments promise infrastructure that does not exist.
 its content that still matters (version pinning, log debugging) returns via R2/R3 as
 skills, which is the cheaper delivery mechanism.
 
-## R6 — Do NOT restore the rest (validated by research)
+## R6 — Do NOT restore the rest (standing policy retained)
+
+The exclusions below remain policy. Their original “baked in”, “absorbed”, and
+research-support explanations are historical rationale, not verified current
+client/system-prompt coverage. No R6 disposition change is authorized here.
 
 The purge was directionally correct. Keep these out:
 
@@ -104,7 +122,7 @@ The purge was directionally correct. Keep these out:
 
 ---
 
-## Summary table
+## Historical Summary Table — Not an Execution Queue
 
 | # | Recommendation | Priority | Effort | Form |
 |---|----------------|----------|--------|------|
@@ -114,5 +132,10 @@ The purge was directionally correct. Keep these out:
 | 5 | Remove mcp-server step from `run.sh` | Medium | Delete a block | Script edit |
 | 6 | Keep everything else purged | — | None | — |
 
-**Ordering:** R2 and R3 are independent and can be done together. R4 is trivial. R5 is
-cleanup that prevents the run.sh comments from lying about the environment.
+**Historical ordering (non-executable):** The original recommendation treated R2/R3
+as independent, R4 as small, and R5 as comment/implementation cleanup. This does not
+authorize renewed restoration, script edits, provisioning, or qualification.
+
+Documentation basis for the loading distinction: [Kilo Code Skills](https://kilo.ai/docs/customize/skills)
+(describes metadata discovery/prompt inclusion and on-demand full-instruction loading).
+This is documentation support, not proof of the effective context on a development host.

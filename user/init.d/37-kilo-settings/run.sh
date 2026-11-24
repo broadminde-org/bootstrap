@@ -4,6 +4,8 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 
 # Step 37: deploy canonical file inventory, retain extras and deselected skills.
+# Selection controls installation/refresh, not removal or effective client
+# discovery. Successful deployment is not proof of the active context set.
 # JSONC rollback is file-scoped; earlier writes and their receipts remain.
 STEP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_CONFIG="$STEP_DIR/_config/kilo"
