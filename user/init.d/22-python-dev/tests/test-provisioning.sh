@@ -4,8 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 export TEST_FIXTURES="$REPO_ROOT/user/init.d/22-python-dev/tests/fixtures"
 [[ "$EUID" != 0 ]] || { echo 'Run these tests as a non-root user.' >&2; exit 1; }
-[[ -d "$HOME/.tmpdir" ]] || { echo "${HOME}/.tmpdir must exist." >&2; exit 1; }
-scratch="$(mktemp -d "$HOME/.tmpdir/python-provisioning.XXXXXX")"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/python-provisioning.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 
 # Only these real steps and libraries are copied: --from never provisions the host.

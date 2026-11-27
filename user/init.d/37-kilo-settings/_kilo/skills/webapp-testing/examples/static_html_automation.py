@@ -1,33 +1,27 @@
-from playwright.sync_api import sync_playwright
-import os
+"""Exercise reviewed local HTML with supplied action/result locators.
 
-# Example: Automating interaction with static HTML files using file:// URLs
+Bootstrap local repair, 2026-11-23, of ComposioHQ/awesome-claude-skills;
+original licenses retained. Local HTML may run scripts and issue network calls.
+"""
 
-html_file_path = os.path.abspath('path/to/your/file.html')
-file_url = f'file://{html_file_path}'
+from _support import arguments, exercise, run, save_counts
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page(viewport={'width': 1920, 'height': 1080})
 
-    # Navigate to local HTML file
-    page.goto(file_url)
+def main() -> None:
+    args = arguments(__doc__, local=True)
+    if not args.action_selector:
+        raise ValueError("static interaction requires action/result selectors")
+    from playwright.sync_api import sync_playwright
 
-    # Take screenshot
-    page.screenshot(path='/mnt/user-data/outputs/static_page.png', full_page=True)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            exercise(page, args)
+        finally:
+            browser.close()
+    save_counts(args.output, {"interaction_verified": 1})
 
-    # Interact with elements
-    page.click('text=Click Me')
-    page.fill('#name', 'John Doe')
-    page.fill('#email', 'john@example.com')
 
-    # Submit form
-    page.click('button[type="submit"]')
-    page.wait_for_timeout(500)
-
-    # Take final screenshot
-    page.screenshot(path='/mnt/user-data/outputs/after_submit.png', full_page=True)
-
-    browser.close()
-
-print("Static HTML automation completed!")
+if __name__ == "__main__":
+    run(main)

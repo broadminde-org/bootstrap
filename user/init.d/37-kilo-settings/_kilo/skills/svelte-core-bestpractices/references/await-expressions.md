@@ -1,3 +1,5 @@
+Source: [official await reference](https://svelte.dev/docs/svelte/await-expressions), verified 2026-11-23. This resource is selective guidance, not permission to upgrade or enable async. Match the installed version and existing compiler configuration; ordinary async functions and `{#await}` blocks do not require this experimental component-await feature.
+
 As of Svelte 5.36, you can use the `await` keyword inside your components in three places where it was previously unavailable:
 
 - at the top level of your component's `<script>`
@@ -114,6 +116,13 @@ Errors in `await` expressions will bubble to the nearest [error boundary](https:
 
 ## Server-side rendering
 
+This section requires Svelte 5.39+ with the project's existing async configuration;
+async SSR was [introduced in 5.39](https://github.com/sveltejs/svelte/releases/tag/svelte%405.39.0),
+not with component await in 5.36. On 5.36-5.38 retain the supported synchronous
+SSR path and use boundaries with pending snippets for component await expressions;
+awaiting a synchronous `render(...)` result does not enable async SSR. Do not
+upgrade the project merely to follow this reference.
+
 Svelte supports asynchronous server-side rendering (SSR) with the `render(...)` API. To use it, simply await the return value:
 
 ```js
@@ -121,7 +130,7 @@ Svelte supports asynchronous server-side rendering (SSR) with the `render(...)` 
 import { render } from 'svelte/server';
 import App from './App.svelte';
 
-const { head, body } = +++await+++ render(App);
+const { head, body } = await render(App);
 ```
 
 > [!NOTE] If you're using a framework like SvelteKit, this is done on your behalf.
@@ -133,6 +142,10 @@ If a `<svelte:boundary>` with a `pending` snippet is encountered during SSR, tha
 ## Forking
 
 The [`fork(...)`](https://svelte.dev/docs/svelte/svelte/llms.txt#fork) API, added in 5.42, makes it possible to run `await` expressions that you _expect_ to happen in the near future. This is mainly intended for frameworks like SvelteKit to implement preloading when (for example) users signal an intent to navigate.
+
+The example below requires 5.42+, not merely 5.36 or the async flag. On older
+versions retain the project's supported loading/preloading path; do not import
+`fork` or upgrade merely because the earlier await examples are supported.
 
 ```svelte
 <script>

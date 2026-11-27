@@ -1,3 +1,5 @@
+Source: [official snippet reference](https://svelte.dev/docs/svelte/snippet), verified 2026-11-23. Exported snippets require 5.5+; preserve existing legacy slots/components unless conversion is explicitly in scope. Examples are illustrative and do not waive project checks.
+
 ```svelte
 <!--- copy: false  --->
 {#snippet name()}...{/snippet}
@@ -150,7 +152,7 @@ Within the template, snippets are values just like any other. As such, they can 
 	<td>{d.qty * d.price}</td>
 {/snippet}
 
-<Table data={fruits} +++{header} {row}+++ />
+<Table data={fruits} {header} {row} />
 ```
 
 ```svelte

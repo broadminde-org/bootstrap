@@ -1,3 +1,57 @@
+# Historical upstream-to-local patch, preserved verbatim below as original evidence.
+# Current canonical repair sources supersede this dated patch; do not blindly
+# replay it over the repaired helpers during an upstream refresh.
+#
+# 2026-11-23 source/static repair:
+# - scripts/{init-artifact.sh,bundle-artifact.sh} are thin guarded wrappers.
+#   They clear ambient Node preload/compile-cache settings and disable compile
+#   caching before startup; regression fixtures request an external cache, UNRUN.
+# - scripts/artifact.mjs implements preflight archive/path/engine admission,
+#   deterministic scaffold preparation and prepared-only local all-source tsc
+#   checking plus staged Vite publication; cache/temp stay in the reserved output.
+#   Quick source fixes use distinct owned user/global npm configs admitted and
+#   fingerprinted together, explicit project --prefix and --workspaces=false,
+#   generated src/vite-env.d.ts referencing vite/client, and rollback reads before
+#   stage reservation with identity-guarded cleanup protecting subsequent setup.
+# - scripts/stack.json records exact direct dependency/engine/archive pins.
+# - scripts/qualification-cases.json records required future UNRUN cases.
+# - tests/artifact.test.mjs is runnable Node built-in regression source, UNRUN:
+#   production prerequisite/destination/archive/admission no-mutation assertions
+#   and an explicit already-prepared, externally network-denied bundle lifecycle.
+#   It performs no automatic preparation. Full browser/fault matrix remains pending.
+#   Integration requires the below-minimum real-Node executor explicitly; missing
+#   required executor cases fail with guidance instead of becoming optional skips.
+#   Added UNRUN installer-argument/scaffold and ancestor-sentinel stub cases do not
+#   qualify real npm installation. Prepared lifecycle source adds asset URL/raw/CSS
+#   cases, both npm-config admission checks and copied-helper early-read/setup faults.
+#   Synthetic font bytes do not qualify font rendering. Runtime checks remain blocked.
+# - SKILL.md documents actual paths, authorization and verification limitations.
+# Refresh must retain/review all of those canonical local files together, not
+# restore the historical global install, unpinned generator or destructive bundler.
+# Original Git blob identities (available from the pre-repair repository history):
+# init-artifact.sh: 7d1022d88bec529f00ef385e10ed6084601d710b
+# bundle-artifact.sh: 0375a3b97a16a4fdd34241fbb3a955116a67f4f6
+# shadcn-components.tar.gz: cdbe7cdd1e724a7c9840387e17a6a7f26d3477e1
+# LICENSE and LICENSE.txt: 7a4a3ea2424c09fbe48d455aed1eaa94d9124835
+# Original archive SHA256 (archive and both licenses unchanged):
+# 1296f069e825de7933de7e8ac63672495cacce3f88f2dc45554dbcddbcbca60f
+# Evidence: read-only tar listing and tar -xO source reads (no extraction writes),
+# Node --version v26.12.1, npm --version 11.20.0; example.bootstrap.conf.yml
+# versions.node="latest", no EE_NODE_VERSION in this process and no host conf found.
+# Exact direct npm registry version endpoints returned 200 on 2026-11-23.
+# https://registry.npmjs.org/<package>/<version> supplied engine/peer metadata:
+# Vite6.4.1: ^18 || ^20 || >=22; React plugin4.7.0 supports Vite6;
+# singlefile2.3.0: Node>18, Vite^5.4.11||^6||^7, Rollup^4.44.1;
+# Rollup4.44.1: Node>=18; npm11.20.0: ^20.17.0 || >=22.9.0;
+# all selected direct component peer ranges admit React18.3.1.
+# All exact direct pins are recorded in stack.json, not floating latest ranges.
+# Transitive install/lock resolution, effective future configured Node, all-component
+# builds, offline behavior and rollback are unqualified: no helpers/deps/tests ran.
+# Parcel/html-inline replaced deliberately by the same pinned Vite stack used
+# for development, avoiding two build pipelines and root-output deletion.
+# Original component source APIs are NOT patched: export mismatch NOT reproduced.
+# Local ownership receipts are not hostile-same-user/concurrent-writer confinement.
+#
 diff -ruN a/artifacts-builder/SKILL.md b/artifacts-builder/SKILL.md
 --- a/artifacts-builder/SKILL.md	2026-04-07 14:51:41
 +++ b/artifacts-builder/SKILL.md	2026-04-07 14:50:09

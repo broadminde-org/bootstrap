@@ -1,3 +1,9 @@
+Source: [official hydratable reference](https://svelte.dev/docs/svelte/hydratable), verified 2026-11-23. `hydratable` is a low-level serialization API, not required for component await. Verify this export and the relevant server APIs in the installed version before use; the component-await examples need 5.36+ and existing `experimental.async`. Do not enable async or upgrade implicitly.
+
+Only serialize data approved for the client: no secrets, credentials, or server-only
+records. The database-library import below is illustrative, not authorization to
+bundle a server-only dependency; use the project's protected server/data boundary.
+
 In Svelte, when you want to render asynchronous content data on the server, you can simply `await` it. This is great! However, it comes with a pitfall: when hydrating that content on the client, Svelte has to redo the asynchronous work, which blocks hydration for however long it takes:
 
 ```svelte

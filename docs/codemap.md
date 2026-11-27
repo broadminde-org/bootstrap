@@ -142,7 +142,7 @@ tools installed; unconditional `20-python` still ensures uv and managed CPython.
 | `30-scripts` | Syncs repository scripts to `$HOME/scripts/` (including the interactive `github-access` helper and the capability-driven `bootstrap-access` walk), installs their local wrappers, deploys the air skill, and ships the canonical `templates/air.toml.template`. |
 | `35-node` | Installs nvm and pinned Node.js plus non-Playwright global npm packages. |
 | `36-kilo` | Installs `@kilocode/cli` from npm and removes stale legacy Kilo installations. |
-| `37-kilo-settings` | Syncs global Kilo agents, commands, rules, skills, MCP configuration, permissions, and bootstrap `.kilocodeignore`; provisions private `~/.tmpdir/` for cross-workspace agent scratch files. It automatically migrates the recognized security-policy subset in existing JSONC, validates the effective configuration, and rolls back on failure. The managed bash command denials are the privilege policy for chat LLM sessions; elevated work is handed to the operator as manual commands. |
+| `37-kilo-settings` | Deploys canonical agents/commands/rules and default/selected optional skills with private per-file receipts, preserving destination-only extras and retaining deselected optionals without refresh. Retires explicit unchanged receipt-owned files only. Preflights roots/manifests/selection/state. Seeds absent JSON/ignore files; reports local differences without live values. Migrates ordered managed Bash/seeded-MCP denials with JSONC-only rollback. No scratch/timer provisioning. Source edits require separately approved rollout and fresh-session discovery; full rollout remains nontransactional. |
 | `38-woodpecker-cli` | Installs the pinned Woodpecker CLI into `~/.local/bin/`. |
 | `39-playwright` | Requires `dev`; installs global `@playwright/test` into the deploy user's default nvm Node tree and browser binaries into `~/.cache/ms-playwright`. Re-running restores a cleared cache; disabling `dev` does not uninstall prior browsers. |
 | `40-npx-skills` | Installs the configured general and UI engineering skills through `npx skills` for explicit agents. |
@@ -154,21 +154,119 @@ tools installed; unconditional `20-python` still ensures uv and managed CPython.
 **User-tier step count: 17** (10, 12, 15, 20, 22, 25, 30, 35, 36, 37, 38, 39, 40,
 60, 97, 98, 99).
 
-Step 37 loads `~/.config/kilo/rules/*.md` as always-on instructions. Managed
-agents, commands, and rules update through `sync_dir_preserve`, so managed
-context reaches existing hosts while destination-only context survives.
-`kilo.json` remains create-once and receives a diff when its
-managed source changes. For `kilo.jsonc`, a focused migration helper recognizes
-the root instructions property and a `permission.bash` object with at most one
-`"*": "allow"` anchor (anchor-less allowlists are migrated too), then
-adds only the managed instructions glob and missing managed denials. It
-preserves unrelated permissions, comments, indexing settings, formatting, and
-local customization; atomically installs a same-directory candidate; validates
-the effective live configuration; and restores the original on failure or
-interruption. Unfamiliar, ambiguous, or conflicting JSONC is left unchanged for
-manual review. The command denials are the privilege policy for chat LLM
-sessions: they block common direct invocations and require operator handoff
-for elevated work, but they are not a complete security sandbox.
+Step 37 configures `~/.config/kilo/rules/*.md` as always-on instructions.
+`execution-focus.md` favors the smallest safe authorized integrated result,
+separating optional expansion from mandatory behavior/checks and retaining
+approval boundaries. Source edits alone are not live: rollout requires
+separate approval, then operator-chosen reload/restart and discovery of the
+rule and updated context in a fresh session. Prose is not runtime enforcement.
+
+`37-kilo-settings/context-files.py` supplies one stdlib inventory/receipt path
+used by forward deployment and the reverse wrapper. Canonical source files and
+the two skill manifests are authoritative. Deployment overwrites managed edits,
+retains extras, and refreshes only default/selected skills; deselected installed
+optionals are reported and retained. Private receipts at
+`~/.local/state/bootstrap/kilo-context/` record each managed path and successfully
+deployed source/content hashes (`0700` directory, `0600` files). Interruption
+before receipt commit leaves new ownership unproven. Explicit retired files
+require an authentic matching receipt and unchanged content; modified/unknown
+legacy files are not deleted, and no directories are recursively removed.
+
+`user/sync-kilo-context.sh` defaults to value-free preview; `--apply` requires an
+explicit known non-sensitive file selection and current source deployment
+baselines. All selections are validated before source writes; JSON/JSONC,
+feature-owned resources, unknown/retired names, binary files, deletions and agent
+frontmatter changes are excluded. Source import never advances deployment
+receipts. Identical imports are no-ops, later changes need a new deployment
+baseline; failure attempts source/mode rollback while receipts stay paired.
+Recovery continues across independent files after a conflict or restore failure,
+preserving external changes and reporting incomplete rollback without live values.
+Feature skill owners/canonical resources are reported rather than imported.
+Secret screening is not proof of absence. Existing Python 3.10+ is required; no
+dependency preparation is performed by the file helper.
+
+`kilo.json` and bootstrap `.kilocodeignore` remain create-once/user-maintained,
+with filename-only manual-merge notices. The JSONC migrator admits a bounded
+recognized structure, orders managed Bash and named seeded-server tool/resource
+denials after overlapping local allows, preserves unrelated permissions and
+sensitive-read prompts, validates the effective config and restores exact JSONC
+bytes/modes on failure. Ambiguous/conflicting structures receive screened manual
+merge guidance. These permissions do not prove visibility, connection state,
+arbitrary-server closure or an OS sandbox.
+
+### Official-client permission configuration and evidence limits
+
+`37-kilo-settings/run.sh` uses the official client supplied by step 36, with no
+private capability gate or implicit client installation. File/selection/state
+preflight and JSONC structural preflight precede deployment writes; nvm/client
+availability checks remain. Config files deploy and receipt-owned retirement runs
+before create-once `kilo.json`, JSONC migration/validation, workspace ignore
+seeding and skill deployment. Client diagnostics from JSONC validation are neither
+relayed nor retained. The existing `kilo config check` command is unchanged; its
+availability on an identified official release is not established by stub tests.
+
+The three affected `_config/kilo/agents/*.md` files use documented YAML
+`permission` overrides. [Official permission rules](https://kilo.ai/docs/customize/agent-permissions)
+are last-match-wins in configuration order, including top-level keys; file-tool
+paths are checked relative to the worktree. No unsupported strict-mode key is
+required. Read/search rules are left inherited without broad agent allowances,
+rather than attempting to reproduce or replace sensitive-path asks/denials.
+Migration's ordered-read preservation checks are serialization regressions, not
+proof of effective policy composition. Built-in `.env` protections documented by
+Kilo do not establish universal sensitive-content admission for attached context,
+search results or alternate transports.
+
+| Agent file | Edit declaration | Other explicit declarations |
+|---|---|---|
+| `architect.md` | Deny `*`, then allow `.kilo/plans/*.md`, `plans/*.md`, `.plans/*.md` | Common denials/approvals below; `open_plan: allow` when the active client provides it. An unsupported exact reminder-selected path must be reported, not redirected. |
+| `code-reviewer.md` | `edit: deny` | Common denials/approvals below. Review-only findings and unavailable checks do not authorize writes or execution. |
+| `mapper.md` | Deny `*`, then allow `docs/*.md`, `*/docs/*.md` | Common denials/approvals below. Write only assigned documentation; review-only drift is a finding. |
+
+Common declarations deny Bash, task, Agent Manager, goal, LSP and skill requests;
+allow web fetch/search and questions; and ask for external-directory access.
+Scoped edit fallbacks precede exceptions. External-directory approval does not
+expand the permitted edit scope. Skills are denied because [trusted skills can
+execute embedded shell commands](https://kilo.ai/docs/customize/skills), not
+because skill loading is assumed execution-free.
+
+Plan-only, documentation-only, review-only and non-execution are prompt-level
+scope instructions alongside these permissions. They are not inherited policy
+ceilings, an OS sandbox, or proof of closure of every patch/move, MCP/custom-tool
+or execution mechanism. Bash/LSP denials do not guarantee suppression of internal
+formatters, validators, language-server warm-up, plugins or automatic context.
+Prompts prohibit bypassing inherited sensitive-file protections or exceeding role
+scope through other tools; arbitrary-tool closure is not claimed as enforced.
+
+Current official new-platform documentation is the reference, not evidence of
+compatibility in every client release. Zero internal execution or complete path
+confinement requires an explicit operator acceptance of the limitation or revised
+requirement before equivalent enforcement may be declared. Runtime compatibility
+requires separate authorization, an identified official release and authentic
+receipts. Source changes/local fixtures do not authorize deployment or establish
+live qualification.
+
+`tests/test-policy.sh` checks exact bounded permission blocks and source order,
+absence of unsupported frontmatter/private runner commands, and isolated JSONC
+migration/rollback. `tests/test-deployment.sh` copies the runner, reverse wrapper
+and step into disposable non-root state. Its nvm stub does nothing and its client
+stub accepts only the existing JSONC validation command, recording/rejecting any
+unexpected invocation. Coverage includes normal deployment, invalid-selection
+preflight before writes, corrected agent copies, optional refresh/retention,
+receipt-owned retirement, reverse-import baselines, JSONC-only rollback and
+screened failure diagnostics with/without tracing. Receipts generated there are
+fixture ownership evidence, not live official-client receipts. Neither test
+qualifies permission matching/enforcement, visibility or connection state. They
+currently rely on GNU-style `sha256sum`, `stat -c` and migration utilities;
+stock macOS portability is unverified. Local execution requires existing tools,
+not installation under this bounded patch. See the [README local-check commands](../README.md#official-client-role-permissions-step-37).
+
+The runner is nontransactional: earlier context writes/receipts, owned retirement
+and new `kilo.json` survive a later JSONC failure; skills follow successful JSONC
+migration. No scratch/timer changes occur. Review and back up all affected live
+destinations and receipt state before rollout, not just JSONC. Symlink preflight
+cannot eliminate concurrent filesystem races; failed rollback I/O can leave
+partial state. The current source/static milestone does not qualify runtime
+behavior or authorize host application.
 
 ## Version Pins and Shared Access
 

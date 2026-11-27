@@ -1,0 +1,2 @@
+# Prepared explicitly, never installed by helper invocation. No runtime dependencies.
+PyYAML==6.0.3

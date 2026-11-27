@@ -1,3 +1,5 @@
+Source: [official attachments reference](https://svelte.dev/docs/svelte/@attach), verified 2026-11-23. Use only on Svelte 5.29+; existing `use:action` contracts remain valid and need no conversion.
+
 Attachments are functions that run in an [effect](https://svelte.dev/docs/svelte/$effect/llms.txt) when an element is mounted to the DOM or when [state](https://svelte.dev/docs/svelte/$state/llms.txt) read inside the function updates.
 
 Optionally, they can return a function that is called before the attachment re-runs, or after the element is later removed from the DOM.
@@ -150,13 +152,13 @@ In the rare case that this is a problem (for example, if `foo` does expensive an
 
 ```js
 // @errors: 7006 2304 2552
-function foo(+++getBar+++) {
+function foo(getBar) {
 	return (node) => {
 		veryExpensiveSetupWork(node);
 
-+++		$effect(() => {
+		$effect(() => {
 			update(node, getBar());
-		});+++
+		});
 	}
 }
 ```
@@ -167,4 +169,5 @@ To add attachments to an object that will be spread onto a component or element,
 
 ## Converting actions to attachments
 
-If you're using a library that only provides actions, you can convert them to attachments with [`fromAction`](https://svelte.dev/docs/svelte/svelte-attachments/llms.txt#fromAction), allowing you to (for example) use them with components.
+On 5.29+, if the task actually needs attachment composition (for example, on a
+wrapper component), [`fromAction`](https://svelte.dev/docs/svelte/svelte-attachments/llms.txt#fromAction) can adapt an existing action. Otherwise keep valid actions and their lifecycle unchanged; this example does not authorize conversion or dependency upgrades.

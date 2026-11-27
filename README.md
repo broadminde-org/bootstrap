@@ -97,7 +97,7 @@ validation, not imports through `uv run --no-project -- python`, which do not
 verify isolated tools and can create an environment.
 
 Focused regression tests use stubbed uv/network commands and a disposable home
-under the existing `$HOME/.tmpdir/`; they do not provision the host:
+under `${TMPDIR:-/tmp}`; they do not provision the host:
 
 ```bash
 bash user/init.d/22-python-dev/tests/test-provisioning.sh
@@ -610,8 +610,95 @@ Every step in both tiers is designed to be safe to re-run:
 - `20-python` — checks uv's version and only uv-managed CPython; matching numeric major/minor/exact requests are reused without patch upgrades. Resolves Python `latest` from the selected uv's catalog after uv setup, with no hardcoded fallback.
 - `22-python-dev` — requires only `dev`; unpinned `uv tool install --upgrade` resolves Ruff against an explicit existing managed interpreter with Python downloads disabled and no `--force`. Already-current tools are not unnecessarily reinstalled; failures remain nonzero. Disabling `dev` leaves existing tools installed.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
-- `37-kilo-settings` — updates managed agents, commands, rules, and skills with `sync_dir_preserve`; destination-only additions survive. It provisions private, user-owned `~/.tmpdir/` for agent scratch files across workspaces without changing the session-wide `TMPDIR`. `kilo.json` remains create-once with manual diff guidance. Existing `kilo.jsonc` files are automatically migrated only when their instructions and `permission.bash` structure is recognized: the helper preserves unrelated permissions, comments, indexing, formatting, and local customization, validates the effective configuration with `kilo config check`, and rolls back on failure. Unfamiliar or conflicting JSONC is rejected with manual-review guidance.
+- `37-kilo-settings` — deploys canonical agents, commands, rules, default skills and explicitly selected optional skills, preserving destination-only extras. Managed destination edits are overwritten on an approved deployment. Deselected installed optionals are reported and retained without refresh, not uninstalled. Per-file deployment receipts live outside loaded context at `~/.local/state/bootstrap/kilo-context/` (directory `0700`, files `0600`), advancing after each successful write/comparison. Roots, paths, manifests, selections and receipts are preflighted before deployment. Explicit retired files are deleted only when authentic deployment receipts identify unchanged content; modified files, unknown legacy ownership and nested extras are preserved. The step does not provision scratch directories or timers. Existing `kilo.json` and bootstrap `.kilocodeignore` remain user-maintained, with filename-only manual-merge notices, never raw diffs. Recognized JSONC receives managed instructions and ordered Bash/named seeded-MCP denials, with validation and exact JSONC-only rollback. Tool permissions, visibility and server connections are distinct; no startup or sandbox guarantee follows. Rollout is nontransactional: earlier file writes/receipts/retirement survive a later JSONC failure. Source edits are not live until separately approved rollout and operator-chosen reload; review the complete destination/receipt recovery set and verify fresh-session discovery.
+
 - `39-playwright` — requires `dev`; installs `@playwright/test` into the deploy user's default nvm Node version if absent and restores missing browser binaries in `~/.cache/ms-playwright` without privilege escalation. Disabling `dev` does not remove prior installs.
+
+### Official-client role permissions (step 37)
+
+Step 37 uses the official Kilo client already supplied by step 36. It has no
+private capability prerequisite and does not install or modify a client. Existing
+file/JSONC preflight, deployment ordering, receipt-owned retirement and JSONC
+validation/rollback remain in place.
+
+Architect, Code Reviewer and Mapper use the documented YAML `permission` key,
+not a private strict-mode extension. See [Agent Permissions](https://kilo.ai/docs/customize/agent-permissions)
+and [Skills](https://kilo.ai/docs/customize/skills). Rules are ordered overrides:
+the last matching rule wins, including top-level permission keys. File-tool
+patterns are worktree-relative. Scoped edit rules put `"*": deny` first and
+exceptions afterward; they must not be reversed.
+
+| Agent | Matching edit requests | Role instructions |
+|---|---|---|
+| Architect | Plan Markdown under `.kilo/plans/`, `plans/`, or `.plans/` | Plan only; no implementation or execution. An exact reminder-selected path outside the permitted scope is a blocker, not authority to redirect or broaden access. |
+| Code Reviewer | `edit: deny` | Review only; no writes or execution. Unavailable checks are reported, not bypassed. |
+| Mapper | Markdown under `docs/`, including nested/module documentation paths | Only the assigned documentation; no source edits or execution. Review-only findings do not authorize writes. |
+
+All three deny matching Bash, task, Agent Manager, goal, LSP and skill requests;
+allow web fetch/search and questions; and use `external_directory: ask`.
+Architect also allows `open_plan` when available in the active client. External
+approval is not permission to write outside the role's edit scope. Read/search
+policy is left inherited rather than replaced with broad allowances, preserving
+configured sensitive-path asks/denials. Kilo documents additional protection for
+`.env`/`.env.*` reads; agents must not bypass protections through another tool or
+attached context. These overrides are **not inherited policy ceilings**.
+
+Plan-only, documentation-only, review-only and non-execution requirements are
+prompt-level instructions alongside tool permissions. Bash/LSP denials do not
+prove that internal formatters, configuration validators, language-server warm-up,
+plugins, automatic context or other execution mechanisms are suppressed. Skills
+are denied because trusted skills can execute embedded shell commands; allowing
+skills is not execution-free. Permissions do not establish an OS sandbox,
+complete path confinement across every patch/move endpoint, or closure of
+arbitrary MCP/custom tools. The prompts prohibit using inherited or newly exposed
+tools to exceed scope; this is not a runtime guarantee.
+
+If complete confinement or zero internal execution is required as enforced
+behavior, the operator must explicitly accept the documented limitation or revise
+the requirement before equivalent enforcement can be declared. Current official
+new-platform documentation is the configuration reference, not proof of support
+in every release. Tool availability, effective permission composition and runtime
+behavior require a separately authorized check against an identified official
+release with authentic receipts. The existing `kilo config check` invocation is
+retained; its availability and acceptance on that release remain unverified here.
+No source or stubbed-test result is live qualification or deployment authority.
+
+Local checks (non-root, existing dependencies only):
+
+```bash
+bash user/init.d/37-kilo-settings/tests/test-policy.sh
+bash user/init.d/37-kilo-settings/tests/test-deployment.sh
+```
+
+The policy test checks exact declarations/order and isolated JSONC migration. The
+deployment test operates on a copied repository and disposable HOME, with stubbed
+nvm and a client accepting only the existing JSONC validation command. It checks
+normal deployment without a capability API, preflight rejection before writes,
+agent copying, optional-skill retention/refresh, receipt-owned retirement,
+selected reverse import, JSONC-only rollback and screened validator diagnostics
+(including tracing). Neither invokes an installed Kilo client or proves matcher,
+permission enforcement, tool visibility or server connection behavior. These
+scripts currently use GNU-style `sha256sum`, `stat -c` and migration utilities;
+stock macOS execution is not established. Do not install tools to run them under
+this bounded patch authorization.
+
+`./user/sync-kilo-context.sh` defaults to a value-free preview. To apply, select
+reviewed known non-sensitive canonical paths, for example
+`./user/sync-kilo-context.sh --apply config/rules/execution-focus.md` from the
+repository root (the absolute wrapper path also works from another CWD).
+No JSON/JSONC, unknown skills, feature-owned resources, retired names, deletions,
+binary inputs or changed agent frontmatter are imported. Each changed import
+requires a current source deployment baseline; secret screening is conservative,
+not proof of absence. Every selected file is validated before writes. Import
+does not advance deployment receipts; an identical repeated import is a no-op,
+but another change requires deployment of the new canonical baseline. Failed
+imports attempt exact source/mode rollback with receipts unchanged. Recovery
+continues across independent files when a conflict or restore failure occurs,
+preserves external changes, and reports incomplete recovery without live values.
+Back up both source and receipts before authorized operations; filesystem races and
+rollback I/O failure cannot be made transactional by these checks. Unknown
+ownership on older installations must be reviewed, never inferred from names
+or current live bytes. Both wrappers require existing Python 3.10+ and non-root use.
 
 ---
 

@@ -3,7 +3,7 @@ name: neurodivergent-ux
 description: >-
   House standard for neurodivergent-friendly (ADHD, autistic,
   cognitive-accessible) UI/UX design. USE FOR: generating, critiquing, or
-  refining any user-facing interface; dashboard and shell layouts; forms and
+  refining application interfaces; dashboard and shell layouts; forms and
   multi-step workflows; loading, error, and validation states; choosing
   information density, color, and typography for app UIs. DO NOT USE FOR:
   marketing pages or visual/aesthetic direction (use frontend-design), or
@@ -12,14 +12,17 @@ description: >-
 
 # Neurodivergent-Friendly UI/UX Design Guidelines
 
-Apply these guidelines whenever designing, generating, or reviewing user-facing
-interfaces. Evaluate every design through an ADHD/autistic/cognitive-accessibility
-lens first, then general usability.
+Apply these guidelines to application interfaces, including interactive app
+workflows embedded in a marketing site, not to marketing art direction alone.
+Honor the user's design intent and existing design system while protecting
+ADHD/autistic/cognitive accessibility and general usability. Accessibility is
+not permission to impose a new aesthetic or remove required functionality.
 
 ## 1. Core Principle: Progressive Disclosure ("Simple Surface, Deep Hood")
 
-- **The Surface:** Interfaces must be clean, minimalist, and low-stimulus.
-  Eliminate visual noise, unnecessary decorations, and non-functional animations.
+- **The Surface:** Keep the default app surface legible, predictable, and
+  low-stimulus within the established design. Reduce distracting decoration and
+  non-functional motion; respect reduced-motion preferences.
 - **The Deep Hood:** Advanced data, complex settings, and technical details must
   never be deleted — only hidden.
 - **Implementation:** Use expandable accordions, "Show/Hide Details" toggles, and
@@ -30,8 +33,16 @@ lens first, then general usability.
 
 - **No Linear Traps:** Avoid rigid, multi-step wizards that block the user if they
   skip a step. Allow non-linear data entry wherever possible.
-- **State Persistence:** Never clear user input if they navigate away or make a
-  mistake. Auto-save everything locally.
+- **Draft Recovery:** Preserve appropriate non-sensitive input through validation
+  errors and accidental navigation using the app's existing recovery mechanism.
+  Persistent drafts require informed user consent, an allowlist of non-sensitive
+  fields, account/tenant isolation, defined retention/expiry, and visible clear
+  controls. Clear drafts on successful submission, explicit discard, logout,
+  account switch, and expiry; never restore one account's draft to another.
+  Never persist passwords, tokens, payment data, sensitive personal data, or
+  ephemeral authentication inputs in browser storage. Use transient state or an
+  explicitly approved protected recovery path when appropriate; no universal
+  local autosave or new storage subsystem merely for this guideline.
 - **Visual Anchors:** Clearly mark the current location in a workflow using
   persistent breadcrumbs or progress bars. Avoid relying on memory.
 - **Cognitive Load Reduction:** Group related tasks into small, digestible chunks.
@@ -41,9 +52,10 @@ lens first, then general usability.
 
 - **System Responsiveness:** Every user action must trigger an immediate visual
   response.
-- **Validation:** Provide inline, real-time input validation (e.g., green
-  checkmark or descriptive red error text *while* typing, not just upon hitting
-  "Submit").
+- **Validation:** Provide descriptive inline feedback at a useful time (such as
+  after blur or a completed input), without distracting errors on each keystroke.
+  Do not rely on color alone; announce relevant status accessibly without
+  flooding live regions.
 - **Micro-interactions:** Use clear loading skeletons instead of blank screens to
   reduce user anxiety during wait times.
 
@@ -54,18 +66,22 @@ lens first, then general usability.
 - **Color & Contrast:** High contrast for readability, but avoid blindingly bright
   saturated colors or flashing elements. Use muted, calming palettes by default,
   but allow easy theme toggling.
-- **Font Hierarchy:** Use clear, highly legible sans-serif fonts. Avoid blocks of
-  text longer than three sentences; break information down into punchy, bulleted
-  lists.
+- **Font Hierarchy:** Prioritize legibility within the user's typography and
+  design system. Break long text into meaningful headings and short sections
+  without imposing a font-family ban or deleting necessary explanations.
 
 ## 5. Output Format
 
-When generating UI advice, code snippets, or wireframes:
+Follow the requested report format. Where none is specified, for substantial UI
+advice or wireframes:
 
 1. Evaluate the design through an ADHD/autistic lens first.
 2. Provide a **Simple View** overview.
 3. Provide a separate **Technical / Under the Hood** breakdown for advanced
    implementation.
 
-When reviewing existing UI code, report findings as `file:line` references grouped
-by the guideline section above (1–4), with a concrete fix for each finding.
+When reviewing existing UI code, prioritize findings by severity with `file:line`
+references and concrete fixes; guideline sections can label findings but must
+not replace the requested review structure. Preserve applicable rendered,
+keyboard/focus, accessibility, responsive, and loading/error-state checks;
+report unavailable checks rather than treating source review as runtime proof.

@@ -3,6 +3,8 @@
 **Research snapshot:** 2026-11-16
 **Purpose:** Improve the whole execution configuration from representative evidence, not subjective prompt polishing.
 
+Use only when optimization of a Sol-targeted plan is explicitly requested. Runs, research, and configuration changes require their own authority; source/static review does not authorize evaluations or an active-session model/variant switch. Preserve the actual operation budgets and counting units, approval gates, and language/project checks in both baseline and candidate.
+
 Except for the explicitly labeled platform note and linked OpenAI guidance, this document contains **planning recommendations**, not documented guarantees. Optimize the plan together with higher-priority instructions, source context, tools, permissions, harness, model, reasoning mode/effort, and output budget. A longer plan can perform worse when it adds contradictions, irrelevant context, or unnecessary work.
 
 ## Controlled optimization loop
@@ -90,4 +92,4 @@ For repetitive planning or status outputs, use schemas to reduce formatting vari
 
 ## Prompt-optimizer platform note — 2026-11-16
 
-OpenAI documents the legacy Evals platform and its dataset-backed [prompt optimizer](https://developers.openai.com/api/docs/guides/prompt-optimizer) as **deprecated**, with shutdown scheduled for **2026-11-30**. Consult the current [deprecations page](https://developers.openai.com/api/docs/deprecations) before relying on that surface. Generated prompt revisions still require manual review and evaluation because they can regress on particular inputs. The baseline–trace–diagnose–compare loop above remains independent of that deprecated platform.
+The 2026-11-16 source snapshot records the legacy Evals platform and its dataset-backed [prompt optimizer](https://developers.openai.com/api/docs/guides/prompt-optimizer) as **deprecated**, with shutdown scheduled for **2026-11-30**; this is a dated claim, not fresh service verification. Verify the material current status through the [deprecations page](https://developers.openai.com/api/docs/deprecations) only under research authority before depending on it, or report the dependency unresolved. Generated revisions still require manual review and authorized evaluation because they can regress. The baseline–trace–diagnose–compare loop above is independent of that platform.
