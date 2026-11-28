@@ -1,12 +1,11 @@
 ---
 name: webapp-testing
 description: >-
-  Toolkit for interacting with and testing local web applications. Playwright
-  MCP, Node Playwright, and browser binaries are provisioned host-wide by
-  bootstrap; verify current host state before claiming Playwright is missing.
-  Uses the Playwright MCP browser tools for interactive testing, debugging UI
-  behavior, screenshots, and browser logs; falls back to Python Playwright
-  scripts for repeatable automation.
+  Guidance for interacting with and testing local web applications: frontend
+  functionality, UI debugging, screenshots, browser logs, and repeatable checks.
+  Routes tasks to authorized browser tools or existing project test tooling;
+  standalone Python automation is conditional. Does not establish installed
+  tooling, active MCP access, or runtime qualification.
 license: Complete terms in LICENSE.txt
 metadata:
   category: development
@@ -18,51 +17,85 @@ metadata:
 
 # Web Application Testing
 
-Two toolkits are available in this environment. Pick per the decision tree.
+Prefer existing project test tooling and tracked process supervision. Reuse an
+authorized running app instead of starting another server. Standalone helpers
+are only for unavailable supervision and authorized repeatable automation;
+they are not the default for a one-off browser check.
 
-## Host Capability Baseline
+**Runtime unverified:** Skill/source presence, configuration seeding, executable
+or browser-cache presence, and test source do not prove active tool access,
+successful browser launch, helper runtime safety, or completed qualification.
+Distinguish source implementation, local testing, and live qualification; use
+actual authorized evidence and report missing receipts rather than repeating
+historical claims. Reading this skill or its references grants no execution authority.
 
-On bootstrap-provisioned hosts, assume Playwright browser tooling is available
-unless proven otherwise:
+## Authorization Boundary
 
-- The Playwright MCP is configured in `~/.config/kilo/kilo.json`.
-- Bootstrap user step `35-node` installs global `@playwright/test` and browser
-  binaries under `~/.cache/ms-playwright`.
-- Bootstrap root step `06-playwright-deps` installs the system libraries when
-  the host has the `dev` capability enabled.
+MCP transport denial/unavailability does not itself deny the underlying
+documentation or testing action. An already-available CLI/project harness
+is permissible only when that action, Bash, network, and every required side
+effect are independently authorized. Denial of the underlying action,
+Bash, or network must be reported, not circumvented.
 
-Do not repeat historical claims that "Playwright is not installed" without
-validating current host state. Check at least one current signal:
+`npx` package resolution and `uv run --with ...` environment/package/cache
+preparation are separate side effects. Do not install tools/browsers,
+prepare environments, start servers, or write artifacts without applicable
+authority. Inspect local availability and invocation effects first; report
+missing checks rather than treating a fallback as permission. Screen
+console/network evidence and screenshots for secrets before reporting.
 
-- availability of `playwright_browser_*` MCP tools in the active session;
-- `command -v playwright`;
-- browser directories under `~/.cache/ms-playwright`.
+## Capability Checks — Not Live Provisioning Claims
 
-Distinguish these failures explicitly:
+Bootstrap configuration, per-user binaries, system libraries, and active agent
+tool visibility are separate evidence questions. Do not infer current host state
+from a bootstrap step name or the presence of this skill. A disabled capability
+is not proof that previously installed tools were removed.
 
-- **Capability absent:** no MCP tools, no Playwright executable, no browser
-  cache, and bootstrap state does not provision it.
-- **Browser installed but unavailable:** MCP or launch error despite installed
-  executable/cache; report the launch error.
-- **App/server blocked:** browser is installed, but the dev server or backend
-  cannot start; do not report Playwright as missing.
-- **Python Playwright absent:** expected by design; use
-  `uv run --with playwright` for Python automation.
+Retrieve only evidence needed for the selected task, within current authority:
 
-## Toolkit 1 (preferred): Playwright MCP browser tools
+- Check whether `playwright_browser_*` tools are available **to this agent**.
+  Missing tools may reflect permissions, customized/stale configuration, or MCP
+  startup failure, not missing browsers. Configuration alone proves neither
+  discovery nor connection. Inspect live configuration only when authorized;
+  do not expose credentials or server arguments in reports.
+- If execution is authorized, `command -v playwright` and `playwright --version`
+  can check the current user's CLI. If absent from PATH, bounded inspection of
+  `~/.nvm/alias/default` and executable paths can resolve a PATH ambiguity.
+  Selecting nvm or launching a CLI requires execution authority. An editor
+  server predating provisioning may need an operator restart; do not restart it
+  without specific authority.
+- Authorized inspection of the current user's `~/.cache/ms-playwright` can
+  establish cache presence, not launch success. If launch side effects are
+  authorized and relevant, report the actual browser launch result.
+- Missing shared libraries require manual operator root-tier provisioning on
+  a supported distro. Agents must not attempt privilege escalation.
+- Python package/environment availability must be checked independently;
+  missing Python Playwright does not establish missing Node/project tooling.
+  Do not prepare a Python environment implicitly.
 
-The Playwright MCP (`@playwright/mcp`) is configured globally in
-`~/.config/kilo/kilo.json` (deployed by bootstrap step `37-kilo-settings`).
-Its tools are available in-session as `playwright_browser_*` — no installs,
-no browser lifecycle to manage, no scripts to write.
+Distinguish **not provisioned for this user** (requires provisioning evidence
+and absent executable/cache), **MCP unavailable** (permissions/config/startup),
+**system libraries missing** (actual launch error), **browser installed but
+unavailable** (other launch error), **app/server blocked**, and **Python
+Playwright absent**. Do not collapse these into “Playwright is missing.”
+Historical step references `37-kilo-settings`, `39-playwright`, and
+`06-playwright-deps` identify possible configuration/tool/library owners, not
+proof that those steps ran successfully on the current host. Inspection or
+provisioning of those owners requires its own scope and authority.
 
-Use it for: verifying frontend functionality, debugging UI behavior,
-capturing screenshots, reading console logs and network requests.
+## Toolkit 1 (preferred): Playwright MCP Browser Tools
+
+Use available, permitted MCP tools for one-off frontend checks, UI debugging,
+screenshots, console logs, and network requests. The transport manages browser
+lifecycle, but connection, launch, navigation, and artifacts remain consequential
+authorized operations. Configuration seeding is not a capability guarantee.
 
 **Workflow (reconnaissance-then-action):**
 
-1. Make sure the dev server is running (e.g. Vite's default port 5173).
-   If not, start it as a background process or ask the user to start it.
+1. Discover the actual app URL/port from project configuration or screened
+   server evidence. Prefer existing supervision/project tooling. If the server
+   is unavailable, start it through tracked supervision only when authorized,
+   or report the server blocker. Verify HTTP/app identity, not just a TCP port.
 2. `playwright_browser_navigate` to the URL.
 3. `playwright_browser_snapshot` — returns the accessibility tree with a
    `ref` for every interactive element. **Act on these refs, never on
@@ -74,95 +107,86 @@ capturing screenshots, reading console logs and network requests.
    `playwright_browser_network_requests`.
 6. `playwright_browser_close` when done.
 
-## Toolkit 2: Python Playwright scripts (repeatable automation)
+## Toolkit 2: Repeatable Automation
 
-Use only when the run must be saved and re-executed: CI-style checks,
-regression scripts, or multi-server lifecycle management.
+Use only for authorized saved/repeatable checks when existing project/Node
+tooling is unsuitable. Server lifecycle should still use tracked supervision
+if available, independently of the choice of browser transport.
 
-**The Python `playwright` package is NOT pre-installed** (the environment
-installs Node `@playwright/test` via `35-node`, and `20-python` provides
-only uv + interpreter). Run scripts through uv's ephemeral environment:
+Prefer an existing project/Node test harness or already-prepared Python
+environment. Run with its already-prepared interpreter, without dependency
+resolution. If preparation is missing, report the blocker; a separately
+approved preparation step is not part of these helpers:
 
 ```bash
-uv run --with playwright python your_automation.py
+"$PREPARED_PYTHON" "$AUTOMATION_SCRIPT"
 ```
 
-**Helper scripts available**:
-- `scripts/with_server.py` - Manages server lifecycle (supports multiple servers)
+`scripts/with_server.py` is conditional standalone Linux supervision, standard
+library only, Python 3.10+. It performs no installation or browser startup
+itself, but its supplied commands can have those and other side effects.
+Inspect relevant source/local usage when needed to establish invocation effects.
+Use `--help` only when known safe and authorized; do not treat scripts as opaque
+black boxes when their effects are uncertain.
 
-**Always run scripts with `--help` first** to see usage. DO NOT read the source until you try running the script first and find that a customized solution is absolutely necessary. These scripts can be very large and thus pollute your context window. They exist to be called directly as black-box scripts rather than ingested into your context window.
+### Standalone Platform and Safety Gate
+
+The declared supported helper platform is Python 3.10+ on 64-bit glibc Linux
+x86_64/aarch64, with Linux `waitid`/`WNOWAIT` and POSIX signal masking. Other
+platforms/ABIs, including macOS, are unsupported; do not introduce or assume a
+less-safe fallback. It is a single-thread standalone CLI with no external
+reaper, not an embedding API. Do not use Python/native SIGCHLD handlers,
+concurrent `wait*` calls, signal-action races, or threaded/native-thread hosts.
+Non-default SIGCHLD and native `SA_NOCLDWAIT` are rejected by source preflight.
+
+Commands must keep descendants in owned groups: daemonization, `setsid`, and
+escaping groups are unsupported, not sandboxed. Missing/reaped leader identity
+must fail closed, not trigger numeric-group, listener, or name-based cleanup.
+EOF is not proof that all descendants are dead. SIGKILL of the helper or host
+failure cannot run cleanup; use tracked supervision for stronger guarantees.
+These source restrictions are not evidence of successful runtime qualification.
+
+Before conditional helper/example use, read
+[standalone-helper-mechanics.md](references/standalone-helper-mechanics.md) for
+explicit command inputs, reviewed HTTP identity, port admission, cleanup
+limitations, output suppression, example invocations, and source links. This
+reference is on-demand, not mandatory context for MCP-only tasks.
 
 ## Decision Tree: Choosing Your Approach
 
-```
-User task → Must the run be saved/repeated? (CI, regression, multi-server)
-    ├─ No → Playwright MCP tools (Toolkit 1)
-    │         1. Start dev server if needed
-    │         2. Navigate → snapshot → act on refs → verify
-    │
-    └─ Yes → Python script path (Toolkit 2)
-              ├─ Server already running? → write script, run with
-              │   uv run --with playwright python your_automation.py
-              └─ Need server lifecycle? →
-                   ./scripts/with_server.py --help  (executable, stdlib-only)
-                   then wrap: ./scripts/with_server.py \
-                     --server "npm run dev" --port 5173 -- \
-                     uv run --with playwright python your_automation.py
+```text
+Underlying test action and side effects authorized?
+  No -> report blocker; do not switch transport to bypass it.
+  Yes -> reuse existing supervision and project tests first.
+      -> one-off and MCP permitted -> MCP snapshot/action/verify.
+      -> repeatable or MCP unavailable -> existing project/Node harness,
+         or already-prepared Python environment with independently allowed Bash/network.
+      -> package/environment preparation needed -> obtain specific authority
+         or report unavailable; no implicit npx/uv installation.
+      -> standalone lifecycle needed -> verify declared platform and authority,
+         read helper mechanics, or report blocker; no unsupported fallback.
 ```
 
-## Example: with_server.py (single server)
+## Common Pitfalls and Script Practices
 
-```bash
-./scripts/with_server.py --server "npm run dev" --port 5173 -- \
-  uv run --with playwright python your_automation.py
-```
+- Do not require a Python script for a one-off interactive check.
+- Do not assume Python Playwright exists or prepare it implicitly. A stdlib-only
+  supervisor can still start mutating server/test operations.
+- Do not use compulsory `networkidle`, elapsed sleeps, or TCP connection
+  success as app readiness. Dynamic apps may never become network-idle.
+- Assert app-specific locator visibility/state and expected results; take a
+  fresh MCP snapshot before acting on current refs.
+- Use bundled scripts only when invocation effects are understood and authorized.
+- Use `sync_playwright()` for synchronous scripts; always close the browser.
+- Prefer role/test-id locators and Playwright auto-waiting interactions.
+- Assert observable results with `expect(locator)`, rather than fixed sleeps.
 
-**Multiple servers (e.g., backend + frontend):**
-```bash
-./scripts/with_server.py \
-  --server "cd backend && python server.py" --port 3000 \
-  --server "cd frontend && npm run dev" --port 5173 -- \
-  uv run --with playwright python your_automation.py
-```
+## Maintenance Reference — Not a Browser-task Queue
 
-Script template — include only Playwright logic (servers are managed):
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True) # Always launch chromium in headless mode
-    page = browser.new_page()
-    page.goto('http://localhost:5173') # Server already running and ready
-    page.wait_for_load_state('networkidle') # CRITICAL: Wait for JS to execute
-    # ... your automation logic
-    browser.close()
-```
-
-## Common Pitfalls
-
-- ❌ **Don't** write a Python script for a one-off interactive check — use
-  the MCP browser tools instead.
-- ❌ **Don't** assume the Python `playwright` package exists — use
-  `uv run --with playwright python …`. This warning does not mean that the
-  bootstrap-managed Node Playwright package or browser binaries are missing.
-  (`with_server.py` itself is stdlib-only and executable: `./scripts/with_server.py`
-  works directly.)
-- ❌ **Don't** inspect the DOM before waiting for `networkidle` on dynamic
-  apps (script path) — or before taking a fresh snapshot (MCP path).
-- ✅ **Do** wait for `page.wait_for_load_state('networkidle')` before
-  inspection in scripts.
-
-## Best Practices (script path)
-
-- **Use bundled scripts as black boxes** - To accomplish a task, consider whether one of the scripts available in `scripts/` can help. These scripts handle common, complex workflows reliably without cluttering the context window. Use `--help` to see usage, then invoke directly.
-- Use `sync_playwright()` for synchronous scripts
-- Always close the browser when done
-- Use descriptive selectors: `text=`, `role=`, CSS selectors, or IDs
-- Add appropriate waits: `page.wait_for_selector()` or `page.wait_for_timeout()`
-
-## Reference Files
-
-- **examples/** - Examples showing common patterns (script path):
-  - `element_discovery.py` - Discovering buttons, links, and inputs on a page
-  - `static_html_automation.py` - Using file:// URLs for local HTML
-  - `console_logging.py` - Capturing console logs during automation
+[maintenance-qualification.md](references/maintenance-qualification.md) owns the
+retained patch record, upstream-refresh cautions, and required qualification
+coverage. Preserve local helper/example repairs, test source, upstream metadata,
+and both licenses on refresh. Load maintenance detail only for an explicitly
+assigned maintenance/qualification task. **Its coverage is non-executable during
+ordinary browser tasks unless explicitly assigned and separately authorized.**
+No source/static record establishes local runtime acceptance or live qualification.

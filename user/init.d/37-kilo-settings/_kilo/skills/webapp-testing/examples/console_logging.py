@@ -1,35 +1,33 @@
-from playwright.sync_api import sync_playwright
+"""Console metadata only; bootstrap local repair, 2026-11-23.
 
-# Example: Capturing console logs during browser automation
+Adapted from ComposioHQ/awesome-claude-skills; original licenses retained.
+Raw console text/arguments are never read, printed, or retained.
+"""
 
-url = 'http://localhost:5173'  # Replace with your URL
+from _support import arguments, exercise, run, save_counts
 
-console_logs = []
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
-    page = browser.new_page(viewport={'width': 1920, 'height': 1080})
+def main() -> None:
+    args = arguments(__doc__)
+    from playwright.sync_api import sync_playwright
 
-    # Set up console log capture
-    def handle_console_message(msg):
-        console_logs.append(f"[{msg.type}] {msg.text}")
-        print(f"Console: [{msg.type}] {msg.text}")
+    counts = {"console_messages_suppressed": 0}
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
 
-    page.on("console", handle_console_message)
+            def handle_console_message(_message: object) -> None:
+                counts["console_messages_suppressed"] = min(
+                    1_000_000, counts["console_messages_suppressed"] + 1
+                )
 
-    # Navigate to page
-    page.goto(url)
-    page.wait_for_load_state('networkidle')
+            page.on("console", handle_console_message)
+            exercise(page, args)
+        finally:
+            browser.close()
+    save_counts(args.output, counts)
 
-    # Interact with the page (triggers console logs)
-    page.click('text=Dashboard')
-    page.wait_for_timeout(1000)
 
-    browser.close()
-
-# Save console logs to file
-with open('/mnt/user-data/outputs/console.log', 'w') as f:
-    f.write('\n'.join(console_logs))
-
-print(f"\nCaptured {len(console_logs)} console messages")
-print(f"Logs saved to: /mnt/user-data/outputs/console.log")
+if __name__ == "__main__":
+    run(main)
