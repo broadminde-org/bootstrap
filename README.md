@@ -388,7 +388,7 @@ bootstrap/
 │   │   ├── 30-scripts/               # scripts/→$HOME/scripts/, runners→$HOME/.local/bin/, air skill + .air.toml template
 │   │   ├── 35-node/                  # installs Node.js via nvm + global npm packages
 │   │   ├── 36-kilo/                  # installs Kilo CLI via npm (after Node)
-│   │   ├── 37-kilo-settings/         # deploys Kilo global context from skeleton dirs
+│   │   ├── 37-kilo-settings/         # deploys Kilo context, permissions, and global LLM safety rules
 │   │   ├── 38-woodpecker-cli/        # installs pinned Woodpecker CLI into ~/.local/bin/
 │   │   ├── 40-npx-skills/            # installs agent skills via npx skills CLI
 │   │   ├── 60-caddy/                 # central Caddy reverse proxy (one per host)
@@ -421,6 +421,15 @@ bootstrap/
   root. All steps operate on `$HOME` and need no privilege
   escalation.
 
+The provisioning privilege model does not grant privilege escalation to chat
+LLM sessions. Chat LLM sessions never execute privilege escalation, even for
+an approved change. Root-tier commands are run manually by the operator; an
+agent must instead provide the exact commands, execution context, expected
+result, and non-privileged verification steps where possible. Step
+`37-kilo-settings` manages bash command denials as the privilege policy for
+chat LLM sessions; they block common direct invocations but are not a
+complete security sandbox.
+
 ### Idempotency
 
 Every step in both tiers is designed to be safe to re-run:
@@ -438,6 +447,94 @@ Every step in both tiers is designed to be safe to re-run:
 - `10-llmdocs` / `30-scripts` — rewrites wrappers each run; no state to track.
 - `20-python` — `uv --version`, `uv python list --only-installed` are each checked; sub-tools that match are skipped.
 - `36-kilo` — resolves `@kilocode/cli@latest` through npm, removes legacy native and nvm-local Kilo installs, and verifies the installed package version.
+- `37-kilo-settings` — deploys canonical agents, commands, rules, default skills and explicitly selected optional skills, preserving destination-only extras. Managed destination edits are overwritten on an approved deployment. Deselected installed optionals are reported and retained without refresh, not uninstalled. Per-file deployment receipts live outside loaded context at `~/.local/state/bootstrap/kilo-context/` (directory `0700`, files `0600`), advancing after each successful write/comparison. Roots, paths, manifests, selections and receipts are preflighted before deployment. Explicit retired files are deleted only when authentic deployment receipts identify unchanged content; modified files, unknown legacy ownership and nested extras are preserved. The step does not provision scratch directories or timers. Existing `kilo.json` and bootstrap `.kilocodeignore` remain user-maintained, with filename-only manual-merge notices, never raw diffs. Recognized JSONC receives managed instructions and ordered Bash/named seeded-MCP denials, with validation and exact JSONC-only rollback. Tool permissions, visibility and server connections are distinct; no startup or sandbox guarantee follows. Rollout is nontransactional: earlier file writes/receipts/retirement survive a later JSONC failure. Source edits are not live until separately approved rollout and operator-chosen reload; review the complete destination/receipt recovery set and verify fresh-session discovery.
+
+### Official-client role permissions (step 37)
+
+Step 37 uses the official Kilo client already supplied by step 36. It has no
+private capability prerequisite and does not install or modify a client. Existing
+file/JSONC preflight, deployment ordering, receipt-owned retirement and JSONC
+validation/rollback remain in place.
+
+Architect, Code Reviewer and Mapper use the documented YAML `permission` key,
+not a private strict-mode extension. See [Agent Permissions](https://kilo.ai/docs/customize/agent-permissions)
+and [Skills](https://kilo.ai/docs/customize/skills). Rules are ordered overrides:
+the last matching rule wins, including top-level permission keys. File-tool
+patterns are worktree-relative. Scoped edit rules put `"*": deny` first and
+exceptions afterward; they must not be reversed.
+
+| Agent | Matching edit requests | Role instructions |
+|---|---|---|
+| Architect | Plan Markdown under `.kilo/plans/`, `plans/`, or `.plans/` | Plan only; no implementation or execution. An exact reminder-selected path outside the permitted scope is a blocker, not authority to redirect or broaden access. |
+| Code Reviewer | `edit: deny` | Review only; no writes or execution. Unavailable checks are reported, not bypassed. |
+| Mapper | Markdown under `docs/`, including nested/module documentation paths | Only the assigned documentation; no source edits or execution. Review-only findings do not authorize writes. |
+
+All three deny matching Bash, task, Agent Manager, goal, LSP and skill requests;
+allow web fetch/search and questions; and use `external_directory: ask`.
+Architect also allows `open_plan` when available in the active client. External
+approval is not permission to write outside the role's edit scope. Read/search
+policy is left inherited rather than replaced with broad allowances, preserving
+configured sensitive-path asks/denials. Kilo documents additional protection for
+`.env`/`.env.*` reads; agents must not bypass protections through another tool or
+attached context. These overrides are **not inherited policy ceilings**.
+
+Plan-only, documentation-only, review-only and non-execution requirements are
+prompt-level instructions alongside tool permissions. Bash/LSP denials do not
+prove that internal formatters, configuration validators, language-server warm-up,
+plugins, automatic context or other execution mechanisms are suppressed. Skills
+are denied because trusted skills can execute embedded shell commands; allowing
+skills is not execution-free. Permissions do not establish an OS sandbox,
+complete path confinement across every patch/move endpoint, or closure of
+arbitrary MCP/custom tools. The prompts prohibit using inherited or newly exposed
+tools to exceed scope; this is not a runtime guarantee.
+
+If complete confinement or zero internal execution is required as enforced
+behavior, the operator must explicitly accept the documented limitation or revise
+the requirement before equivalent enforcement can be declared. Current official
+new-platform documentation is the configuration reference, not proof of support
+in every release. Tool availability, effective permission composition and runtime
+behavior require a separately authorized check against an identified official
+release with authentic receipts. The existing `kilo config check` invocation is
+retained; its availability and acceptance on that release remain unverified here.
+No source or stubbed-test result is live qualification or deployment authority.
+
+Local checks (non-root, existing dependencies only):
+
+```bash
+bash user/init.d/37-kilo-settings/tests/test-policy.sh
+bash user/init.d/37-kilo-settings/tests/test-deployment.sh
+```
+
+The policy test checks exact declarations/order and isolated JSONC migration. The
+deployment test operates on a copied repository and disposable HOME, with stubbed
+nvm and a client accepting only the existing JSONC validation command. It checks
+normal deployment without a capability API, preflight rejection before writes,
+agent copying, optional-skill retention/refresh, receipt-owned retirement,
+selected reverse import, JSONC-only rollback and screened validator diagnostics
+(including tracing). Neither invokes an installed Kilo client or proves matcher,
+permission enforcement, tool visibility or server connection behavior. The
+scripts use portable Python file-mode checks and SHA-256 fallbacks rather than
+GNU-only `stat -c`, `chmod --reference` or mandatory `sha256sum`; actual macOS
+execution still requires validation on macOS. Do not install tools merely to run
+these bounded local checks.
+
+`./user/sync-kilo-context.sh` defaults to a value-free preview. To apply, select
+reviewed known non-sensitive canonical paths, for example
+`./user/sync-kilo-context.sh --apply config/rules/execution-focus.md` from the
+repository root (the absolute wrapper path also works from another CWD).
+No JSON/JSONC, unknown skills, feature-owned resources, retired names, deletions,
+binary inputs or changed agent frontmatter are imported. Each changed import
+requires a current source deployment baseline; secret screening is conservative,
+not proof of absence. Every selected file is validated before writes. Import
+does not advance deployment receipts; an identical repeated import is a no-op,
+but another change requires deployment of the new canonical baseline. Failed
+imports attempt exact source/mode rollback with receipts unchanged. Recovery
+continues across independent files when a conflict or restore failure occurs,
+preserves external changes, and reports incomplete recovery without live values.
+Back up both source and receipts before authorized operations; filesystem races and
+rollback I/O failure cannot be made transactional by these checks. Unknown
+ownership on older installations must be reviewed, never inferred from names
+or current live bytes. Both wrappers require existing Python 3.10+ and non-root use.
 
 ---
 

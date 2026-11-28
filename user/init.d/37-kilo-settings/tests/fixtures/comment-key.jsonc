@@ -1,0 +1,9 @@
+{
+  "permission": {
+    "bash": {
+      "*": "allow"
+      // "sudo": "deny",
+      // "sudo *": "deny"
+    }
+  }
+}

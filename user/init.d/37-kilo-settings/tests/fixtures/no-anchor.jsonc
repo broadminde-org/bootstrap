@@ -1,0 +1,11 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "permission": {
+    "bash": {
+      "docker exec *": "allow",
+      "curl *": "allow",
+      "git status *": "allow",
+      "systemctl status *": "deny"
+    }
+  }
+}

@@ -20,11 +20,18 @@
       "blkdiscard *": "deny",
 
       // Privilege escalation and account changes.
+      "sudo": "deny",
       "sudo *": "deny",
+      "sudoedit": "deny",
       "sudoedit *": "deny",
+      "su": "deny",
       "su *": "deny",
+      "runuser": "deny",
       "runuser *": "deny",
+      "doas": "deny",
       "doas *": "deny",
+      "pkexec": "deny",
+      "pkexec *": "deny",
       "useradd *": "deny",
       "userdel *": "deny",
       "usermod *": "deny",
@@ -34,14 +41,20 @@
       "groupdel *": "deny",
       "groupmod *": "deny",
 
-      // Host shutdown and service changes.
+      // Host shutdown and service changes (bare forms denied explicitly —
+      // destructive without arguments).
+      "shutdown": "deny",
       "shutdown *": "deny",
+      "reboot": "deny",
       "reboot *": "deny",
+      "poweroff": "deny",
       "poweroff *": "deny",
+      "halt": "deny",
       "halt *": "deny",
 
       // Destructive or remote-mutating Git operations.
       "git clean *": "deny",
+      "git reset --hard": "deny",
       "git reset --hard *": "deny",
       "git push --force *": "deny",
       "git push --force-with-lease *": "deny",
@@ -56,7 +69,15 @@
       "docker network prune *": "deny",
       "docker builder prune *": "deny",
       "docker volume rm *": "deny"
-    }
+    },
+    // v7.8.17 session/tools.ts asks named tool keys and read mcp:<server>:<uri>.
+    // These defaults do not disable servers or promise lazy connection/visibility.
+    "read": {
+      "mcp:playwright:*": "deny",
+      "mcp:svelte:*": "deny"
+    },
+    "playwright_*": "deny",
+    "svelte_*": "deny"
   },
   "indexing": {
     "enabled": true,

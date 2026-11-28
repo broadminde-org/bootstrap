@@ -1,0 +1,17 @@
+{
+  // Keep this local comment.
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "sudo *": "deny",
+      "sudoedit *": "deny",
+      "su *": "deny",
+      "runuser *": "deny",
+      "doas *": "deny",
+      "pkexec *": "deny",
+      "git status": "allow"
+    },
+    "edit": "ask"
+  },
+  "indexing": { "enabled": false, "provider": "local-custom" }
+}

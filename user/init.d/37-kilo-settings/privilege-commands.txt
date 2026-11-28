@@ -1,0 +1,6 @@
+sudo
+sudoedit
+su
+runuser
+doas
+pkexec

@@ -12,6 +12,11 @@ Privilege separation is strict and enforced: the root runner refuses non-root,
 the user runner refuses root. A step that needs root belongs in `init.d/`;
 a step that touches `$HOME` belongs in `user/init.d/`. Never mix.
 
+Chat LLM sessions must never execute privilege escalation, even for an approved
+change. Root-tier commands are manual operator actions; agents provide exact
+commands, execution context, expected results, and non-privileged verification
+where possible. Step 37's managed command denials are not a complete sandbox.
+
 ## Step format (`init.d/`)
 
 ```

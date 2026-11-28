@@ -1,0 +1,13 @@
+{
+  "instructions": ["~/.config/kilo/rules/*.md"],
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "sudo": "deny", "sudo *": "deny",
+      "sudoedit": "deny", "sudoedit *": "deny",
+      "su": "deny", "su *": "deny",
+      "runuser": "deny", "runuser *": "deny",
+      "doas": "deny", "doas *": "deny"
+    }
+  }
+}
